@@ -1,16 +1,22 @@
 <!--
 Sync Impact Report (temporary; remove before committing)
-Version change: unversioned scaffold -> 1.0.0 (initial project-specific constitution)
-Modified principles (template slots replaced):
-- PRINCIPLE_1_NAME -> I. SDK Compatibility and Existing Architecture
-- PRINCIPLE_2_NAME -> II. Minimal, Maintainable Changes
-- PRINCIPLE_3_NAME -> III. Reliable Errors and Logging
-- PRINCIPLE_4_NAME -> IV. Essential Tests and Quality Gates
-- PRINCIPLE_5_NAME -> V. Human Review and Focused Contributions
-Added sections: Compatibility and Documentation; Development Workflow and Review
-Removed sections: none; placeholder guidance replaced with repository requirements.
-Deferred: TODO(RATIFICATION_DATE): maintainer must confirm the original adoption date.
-Templates and commands: unchanged; they read this constitution at runtime.
+Version change: 1.0.0 -> 2.0.0
+Rationale: User chose Python 3.12; raising the minimum runtime removes older-runtime support.
+Modified principles: Core Principles I-V unchanged.
+Modified sections:
+- Compatibility and Documentation: minimum Python 3.10+ -> minimum Python 3.12;
+  require matching metadata, dependency resolution, installation guidance, and validation.
+- Governance: record the explicitly approved runtime amendment and required source alignment.
+Added sections: none.
+Removed sections: none.
+Deferred follow-ups:
+- TODO(RATIFICATION_DATE): preserve the existing unknown date pending maintainer confirmation.
+- Align older Python statements in AGENTS.md and other repository guidance with Python 3.12.
+- Align pyproject.toml, uv.lock, and root README installation guidance during authorized work.
+- Refresh specs/001-gemini-backend/plan.md, research.md, quickstart.md, and tasks.md;
+  they still describe superseded runtime and recovery decisions.
+Templates and command files: unchanged; runtime constitution loading requires no edits.
+Only .specify/memory/constitution.md is changed by this workflow.
 -->
 # Reachy Mini Conversation App Constitution
 
@@ -62,9 +68,10 @@ and direct that developer to read the contribution guidance first.
 
 ## Compatibility and Documentation
 
-- Code MUST support Python 3.10+ and Linux, macOS, and Windows. Hardcoded paths,
-  shell-specific commands, and OS-only APIs MUST NOT be introduced without the documented
-  fallbacks required by the repository rules.
+- Python 3.12 MUST be the minimum supported runtime on Linux, macOS, and Windows.
+  Package metadata, dependency resolution, installation guidance, and minimum-runtime
+  validation MUST align with this baseline. Hardcoded paths, shell-specific commands, and
+  OS-only APIs MUST NOT be introduced without documented cross-platform fallbacks.
 - PEP 8 and the Google Python Style Guide MUST be followed, including Ruff's 119-character
   line limit, double quotes, and length-sorted imports. New typing MUST use built-in
   generics and `X | None`. PEP 695 syntax, `from __future__ import annotations`, and new
@@ -109,7 +116,10 @@ committing it, and pushing a `v*` tag; existing automation handles releases and 
 ## Governance
 
 This constitution derives from [AGENTS.md](../../AGENTS.md) and
-[CONTRIBUTING.md](../../CONTRIBUTING.md); it MUST NOT replace or weaken their requirements.
+[CONTRIBUTING.md](../../CONTRIBUTING.md). The Python 3.12 minimum is the explicit
+user-approved runtime amendment and supersedes older Python minimums in repository guidance.
+Those statements MUST be synchronized before implementation review. All other contribution
+requirements remain in force and MUST NOT be weakened by this constitution.
 Their detailed rules remain applicable during specification, planning, implementation,
 and review. Amendments MUST identify their rationale, source-rule alignment, and impact
 for human review through the existing contribution process. Specifications, plans, tasks,
@@ -121,4 +131,4 @@ removals or redefinitions, MINOR for new principles or materially expanded guida
 PATCH for non-semantic clarifications. Amendments MUST update the version and amendment
 date while preserving the original ratification date once confirmed.
 
-**Version**: 1.0.0 | **Ratified**: TODO(RATIFICATION_DATE): confirm original adoption date | **Last Amended**: 2026-10-28
+**Version**: 2.0.0 | **Ratified**: TODO(RATIFICATION_DATE): confirm original adoption date | **Last Amended**: 2026-10-28
