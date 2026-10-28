@@ -83,8 +83,9 @@ specs/001-gemini-backend/
     realtime-session.md
 ```
 
-Existing tasks.md is now stale: regenerate it with speckit-tasks after this plan refresh.
-This command does not edit tasks or mark their previous assumptions ready for implementation.
+tasks.md has been regenerated against this plan and the clarified requirements. All
+implementation tasks remain unchecked; generation does not establish implementation or
+validation completion.
 
 ### Source Code (repository root)
 
