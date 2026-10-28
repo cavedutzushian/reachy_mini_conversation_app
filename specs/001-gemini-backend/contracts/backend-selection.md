@@ -23,7 +23,8 @@ Save success is not a claim that connection succeeded.
 
 ## backend.retry (new)
 
-No arguments. Schedule retry of the current provider/configuration and return
+No arguments. Cancel a pending backoff and schedule one immediate attempt for the current
+provider/configuration, coalescing repeated requests, and return
 {ok:true,message,...status}. Serialize with switching; repeated clicks cannot create
 concurrent sockets. Retry may restore only a valid same-config Gemini logical session.
 Never silently select another provider. Response is scheduling acknowledgement, not connection success.
@@ -40,19 +41,25 @@ Never silently select another provider. Response is scheduling acknowledgement, 
 | backend_context_state | new/resumed/unavailable |
 | gemini_model / gemini_voice | Effective non-secret Gemini choices |
 | gemini_key_configured | Boolean, never key value |
+| backend_retry_attempt | Consecutive recoverable failure count; zero after a completed exchange |
+| backend_retry_delay_seconds | Scheduled delay, 0 through 30, or null when not scheduled |
 
 Preserve existing HF status fields. Never expose credentials, raw service payloads,
 key-bearing URLs, handles, or base64 images. Error reasons include invalid_backend,
 invalid_params, missing_gemini_key, invalid_gemini_model, invalid_gemini_voice,
 authentication_failed, access_unavailable, quota_exceeded, connection_lost,
-resume_unavailable, tool_schema_unsupported. Use existing JsonRpcError conventions
+resume_unavailable, tool_schema_unsupported, setup_timeout, send_timeout, close_timeout. Use existing JsonRpcError conventions
 (-32602 for invalid parameters); asynchronous connection errors appear in status.
 
 ## Existing voices, personalities, and memory actions
 
-voices.list/current/apply use the selected provider's catalog and override. Gemini voice
+voices.list/current/apply use the selected provider's catalog. Gemini precedence is saved
+Gemini override, compatible personality voice, GEMINI_VOICE, Kore. With no saved override,
+an incompatible personality voice requires correction instead of silently using a lower
+priority value. Saved override wins even with an incompatible profile voice. HF voice
+resolution/storage remain unchanged. Gemini voice
 changes may reconnect with visibly fresh context; HF retains existing live-update behavior.
-Provider-specific saved voice overrides never rewrite another catalog choice or profile.md.
+Gemini saved voice overrides never rewrite HF startup voice or profile.md.
 Personality/toolset changes use existing restart. Instruction refresh invalidates Gemini
 handles and explains fresh context. Global camera and --no-camera remain authoritative.
 
@@ -61,5 +68,9 @@ handles and explains fresh context. Global camera and --no-camera remain authori
 Provider selector defaults to HF on an untouched installation and displays only the selected
 provider's controls. Gemini setup explains the private key, eligible service access, potential
 charges, and that audio, requested snapshots, and enabled shared saved memories reach the
-selected service. Errors leave Retry and manual selection usable. Context continuity
+selected service. Recoverable errors display automatic same-provider recovery with indefinite backoff
+1/2/4/8/16/30... seconds. Authentication, invalid configuration, denied access and hard billing/
+quota errors await correction. Manual Retry expedites a wait without a second scheduler;
+switching/shutdown cancels obsolete attempts. Setup/send/close are bounded at 15/5/5 seconds.
+Errors leave Retry and manual selection usable. Context continuity
 (resumed/fresh) is visible. No automatic fallback or implementation terminology in user flows.

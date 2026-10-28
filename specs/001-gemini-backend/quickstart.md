@@ -6,12 +6,30 @@ RPC methods, or environment options. Follow the root README for environment/robo
 ## Prerequisites
 
 - Agreed issue and maintainer approach review; accepted usage/data budget.
-- Supported environment and Reachy with working microphone, speaker, and camera.
+- Python 3.12 minimum and Reachy with working microphone, speaker, and camera.
+- Implementation aligns requires-python >=3.12, uv.lock, root README, and older Python
+  minimum statements in repository guidance with constitution 2.0.0. Do not claim the
+  current >=3.11 metadata already satisfies the new baseline.
 - Eligible personal Gemini Developer API account, Live model access, and quota.
 - Private credentials in the existing process/instance environment configuration.
 - Implementation dependencies installed and lock synchronized. Verify soxr wheels on actual
   Reachy hardware and supported desktops; availability is not proven by this plan.
 - Disposable memory facts; no secrets or sensitive facts in validation material.
+
+## Minimum-runtime environment after implementation
+
+Once implementation has updated metadata and lock, validate a clean environment on the
+minimum runtime, from the repository root:
+
+```text
+uv python install 3.12
+uv sync --python 3.12 --locked
+uv run python --version
+```
+
+Expected runtime is Python 3.12.x, with dependencies resolved from the committed lock.
+Repeat installation/full checks on supported OS targets, recording unavailable environments
+without claiming they passed. No environment or dependency changes occur during planning.
 
 ## Configuration after implementation
 
@@ -65,8 +83,8 @@ reachy-mini-conversation-app --ui
 1. Untouched instance defaults to HF with no Gemini key. Verify local/deployed modes and
    legacy startup personality/voice remain intact (SC-001).
 2. Select Gemini, complete 15 minutes and at least ten exchanges with a chosen personality,
-   and check greeting/transcripts. Explicit Retry may be needed at service connection limits;
-   record resumed/fresh indicators, not a single-socket guarantee (SC-002, SC-007, SC-008).
+   and check greeting/transcripts. Automatic reconnect should handle service connection limits;
+   record resumed/fresh indicators and backoff, not a single-socket guarantee (SC-002, SC-007, SC-008).
 3. Interrupt ten responses. Measure recognition-to-stop time: at least nine within one
    second, no abandoned speech played later in any trial (SC-003).
 4. Request each essential action. Validate sleep separately because it ends the app;
@@ -81,12 +99,22 @@ reachy-mini-conversation-app --ui
    conversations on both providers. Verify fact deletion. Global memory off prevents
    injection/mutation but preserves stored facts. Disabling remember/forget alone does not
    disable saved-memory recall (SC-010, SC-011).
-8. Force network loss and session closure. Confirm explicit Gemini Retry, correct resumed
-   versus fresh status, and no replay of uncertain actions. Profile/voice/memory refresh
+8. Force network loss and session closure for both providers. Confirm automatic same-provider
+   recovery, correct resumed versus fresh status, and no replay of uncertain actions. Profile/voice/memory refresh
    must announce fresh context and prevent stale-handle resume (SC-007).
 9. Cover missing/rejected key, unsupported model/voice, unavailable access, and quota errors.
    Use fake failures where real ones cannot be safely induced; do not manufacture quota
    exhaustion. Settings/Retry/manual HF remain usable and credentials stay private (SC-006).
+10. Simulate prolonged recoverable outage for each provider with a fake clock and observe at
+    least ten attempts capped at 30 seconds. Missing/invalid credentials, invalid configuration,
+    denied access and hard billing/quota failures must wait for correction. Manual Retry
+    expedites one attempt; provider change/shutdown cancels old attempts (SC-007).
+11. Use fake transports to withhold setup acknowledgement, block a send, and ignore close.
+    Verify 15/5/5-second deadlines, stale-ownership rejection and responsive configuration,
+    provider selection and shutdown. Do not wait indefinitely or require real network faults.
+12. Change Gemini voice sources in priority order: saved override, compatible personality,
+    environment, Kore. An incompatible profile voice with no override requests correction;
+    a saved valid override resolves it without rewriting the profile. HF resolution is unchanged.
 
 ## Evidence and limitations
 

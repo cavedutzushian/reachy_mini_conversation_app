@@ -22,13 +22,15 @@ Availability must be rechecked during implementation; examples are not service g
   Repository: pyproject.toml, uv.lock, streaming.py, console.py playback loop, installed
   SDK public get_output_audio_samplerate()/push_audio_sample() signatures.
 
-## Shared loop and immutable configuration
+## Shared loop and configuration changes
 
 - **Decision**: Shared orchestration remains in huggingface_realtime.py behind the existing
-  ConversationHandler boundary. Reconnect Gemini for profile/voice/tool/instruction changes;
-  invalidate its handle and announce fresh context.
+  ConversationHandler boundary. Deliberately start fresh Gemini sessions for profile/voice/
+  tool/instruction changes; invalidate handles and announce fresh context.
 - **Rationale**: Reuse interruption, memory, permissions, and tool failure behavior. Gemini
-  connection setup is not HF's mutable session.update mechanism.
+  initial socket setup is not HF's mutable session.update mechanism. Fresh sessions on
+  memory/setup changes are our consistency policy; provider pause/resume can support some
+  non-model changes, so immutability is not used as the sole technical justification.
 - **Alternatives considered**: Endpoint substitution does not translate protocol semantics;
   copying the HF loop or building a plugin registry adds unnecessary maintenance.
 - **Evidence**: [Configuration reference](https://ai.google.dev/api/live). Repository:
@@ -43,12 +45,19 @@ Availability must be rechecked during implementation; examples are not service g
 - **Rationale**: Google documents native 16 kHz input, ordinarily 24 kHz output, and input
   resampling. Devices cannot be assumed to play at 24 kHz. One message can contain multiple parts.
 - **Decision**: Retain local VAD ducking/movement and Gemini automatic activity detection.
-  Server interruption flushes playback. App interrupt sends terminating clientContent with
-  turnComplete and an output-epoch barrier; do not send manual activity markers under auto VAD.
-- **Alternatives considered**: Assuming HF's 16 kHz output corrupts playback; local-only VAD
-  makes conversational turn detection depend on a downloaded local model being available.
-- **Evidence**: [Capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities),
-  [wire reference](https://ai.google.dev/api/live). No measured quality claim is made.
+  Use an ordered interrupted -> turnComplete barrier, processing control flags before bundled
+  media, and tag queued output at receipt. generationComplete alone never reopens output.
+- **Rationale**: The wire reference distinguishes generation completion from interruption
+  and turn completion. Input transcription is independently ordered; it is not an output barrier.
+- **Decision**: Explicit app interrupt without a correlated remote boundary invalidates the
+  connection/handle and visibly starts fresh. Missing interrupted-turn completion for five
+  seconds uses the same safe reset. Normal server barge-in preserves context.
+- **Alternatives considered**: Empty terminating clientContent also requests generation,
+  so it is not a stop acknowledgement. Waiting indefinitely freezes recovery. Reopening
+  output after a local epoch change alone can reclassify abandoned chunks as new output.
+- **Evidence**: [Live wire reference](https://ai.google.dev/api/live),
+  [capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities).
+  These are design inferences with specified sequence tests, not validated robot behavior.
 
 ## Tools, images, and memories
 
@@ -74,27 +83,50 @@ Availability must be rechecked during implementation; examples are not service g
 
 ## Session lifetime, recovery, and replay
 
-- **Decision**: Enable sliding-window compression and resumption. Keep valid handles and
-  call ledger only in memory across retries of the same logical Gemini session. Warn on
-  GoAway; after closure await explicit Retry. Invalidate handles on provider/setup/prompt changes.
-- **Rationale**: Google documents approximately ten-minute connections and shorter visual
-  sessions absent compression. The 15-minute trial must cover continuity across connections,
-  not assume one socket. Invalid resume visibly starts fresh without replaying robot actions.
-- **Alternatives considered**: Transparent maintenance reconnect contradicts the manual-retry
-  assumption; durable opaque tokens add retention/stale-context risk. Never retry uncertain work.
-- **Decision**: Preserve existing HF automatic retries and apply manual retry to Gemini.
-- **Rationale**: FR-002 and SC-001 preserve the current HF experience. The current LocalStream
-  startup loop and HF handler both retry. Changing HF to manual-only would need a spec change.
+- **Decision**: LocalStream owns an in-memory RealtimeSessionState defined in the shared
+  realtime module, passing the same object to replacement handlers during same-config retry.
+  It retains logical identity, latest eligible handle and invocation ledger. Socket shutdown
+  does not destroy it; fresh-session selection disposes it. Generation counters are owned
+  by LocalStream across fresh states, so stale callbacks cannot collide with new ownership.
+- **Rationale**: The current handler factory constructs replacement handlers; storing the
+  sole ledger/handle inside those instances would lose it on retry. Invocation IDs must
+  remain deduplicated when a provider resumes the same logical conversation.
+- **Alternatives considered**: Persisted handles add retention risk; a second global registry
+  duplicates lifecycle management. Retaining only a socket-local ledger cannot prevent replay
+  across handler replacement.
+- **Decision**: Both providers automatically retry recoverable failures indefinitely using
+  1/2/4/8/16/30... second waits. One scheduler in LocalStream owns attempts, cancellation and
+  deadlines; remove nested HF retries. Manual Retry expedites but never forks the scheduler.
+  Reset backoff after a completed exchange, not merely a flapping setup acknowledgement.
+- **Rationale**: This supersedes the earlier manual-Gemini policy through explicit user
+  clarification. HF retry timing now deliberately follows the agreed common policy; its
+  default provider/settings/voice behavior is retained.
+- **Decision**: Temporary network/service failures and transient rate limits retry. Invalid
+  credentials/configuration, denied access and hard billing/quota depletion await correction.
+  Connect/setup share 15 seconds; sends and graceful close each have five seconds. GoAway
+  warns and serially reconnects without overlapping ownership. Invalid resume visibly starts
+  fresh, sharing the same attempt deadline. Configuration/prompt changes clear eligibility.
+- **Rationale**: Compression/resumption span service lifetime limits; a 15-minute trial cannot
+  assume one socket. A false resumability update cannot safely be replaced with an older
+  checkpoint. Unknown action effects are uncertain, never automatically repeated.
+- **Alternatives considered**: Finite retries conflict with the user's chosen indefinite
+  policy. Blind retry of permanent client/billing errors repeats unfixable requests. Treating
+  fresh-session fallback as automatic provider switching confuses continuity with provider choice.
 - **Evidence**: [Session management](https://ai.google.dev/gemini-api/docs/live-api/session-management),
-  console.py _run_handler_startup_loop, huggingface_realtime.py start_up.
+  [Google troubleshooting](https://ai.google.dev/gemini-api/docs/troubleshooting), and current
+  console.py handler construction/startup loop. Google generally recommends bounded retries;
+  the indefinite policy here is the user's explicit requirement, not a provider recommendation.
 
 ## Settings, credentials, and compatibility
 
 - **Decision**: Add optional fields to AppSettings version 1, retain old HF startup voice,
-  and introduce per-provider overrides without rewriting profiles. Use existing atomic merge.
+  and introduce Gemini overrides without rewriting profiles or changing HF voice resolution.
+  Use existing atomic merge.
   GEMINI_API_KEY stays in private environment configuration, never RPC/settings.json.
 - **Rationale**: Old installations must default to HF; saved Gemini voices cannot overwrite
-  HF catalog choices. Provider-specific model/voice access is checked at connection setup.
+  HF catalog choices. Gemini precedence is saved override, compatible personality voice,
+  environment, Kore; an incompatible personality requires a saved override instead of silent
+  fallthrough. Provider-specific model/voice access is checked at connection setup.
 - **Alternatives considered**: Another settings file duplicates persistence. UI writes to
   .env revive quoting problems documented in settings_store.py. Reviving obsolete env names
   would unexpectedly activate stale robot configuration.
@@ -104,8 +136,10 @@ Availability must be rechecked during implementation; examples are not service g
 ## Design resolution and validation prerequisites
 
 Protocol, lifecycle, sample rates, dependency choice, memory refresh, tool mapping, and
-settings migration are resolved above. Preserve the pre-existing metadata >=3.11 versus
-governance 3.10 compatibility discrepancy without changing either in this feature.
+settings migration are resolved above. Constitution 2.0.0 and the user's explicit choice
+set Python 3.12 as minimum. Implementation must align requires-python, dependency lock,
+installation guidance and older repository statements, then validate the actual minimum.
+Leaving >=3.11 metadata or merely restricting syntax is no longer an accepted resolution.
 Issue agreement, service/account eligibility, usage/data budget, hardware wheel availability,
 measured robot acceptance, and full repository gate health remain implementation/review
 prerequisites, not unresolved architecture choices or claimed results.

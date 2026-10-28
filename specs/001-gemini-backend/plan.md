@@ -13,9 +13,12 @@ in `gemini_realtime.py`. Extend existing settings, handler factory, RPC, and res
 
 ## Technical Context
 
-**Language/Version**: Existing metadata requires Python >=3.11; new syntax remains compatible
-with the contribution rules' Python 3.10 constraint. Strict mypy targets 3.12. Preserve runtime
-metadata; the existing metadata/governance mismatch is not changed in this feature.
+**Language/Version**: Python 3.12 minimum, per the user's clarification and constitution
+2.0.0. Implementation must set requires-python to >=3.12, regenerate uv.lock, align older
+Python minimums in repository guidance and root README, and validate installation/tests
+on Python 3.12 across supported platforms. Strict mypy already targets 3.12. Keep remaining
+style rules, including no PEP 695 or future-annotations additions, unless separately amended.
+Planning does not change application metadata or guidance files.
 
 **Primary Dependencies**: Existing SDK, NumPy, Pydantic, FastAPI, HF OpenAI client, and locked
 websockets 15.0.1. Plan to declare websockets directly and add `soxr>=1.1,<2` for stateful
@@ -36,7 +39,9 @@ streaming audio tests, and robot acceptance. Ordinary automated tests require no
 **Performance Goals**: Spec SC-002 through SC-011: 15 minutes/10 exchanges, interruption within
 one second in 9/10 trials, ten clean switches, and no replayed actions. These are unmeasured targets.
 
-**Constraints**: One active provider, manual Gemini recovery, immutable Gemini setup,
+**Constraints**: One active provider, automatic recovery for both providers with 30-second
+maximum backoff, 15-second setup / 5-second send / 5-second close deadlines, fresh Gemini
+sessions for app-chosen configuration changes,
 provider-specific voices, 24 kHz Gemini output, no continuous video, shared memory under
 existing controls, and no live-history transfer between providers or credential exposure.
 
@@ -48,6 +53,7 @@ existing controls, and no live-history transfer between providers or credential 
 
 | Gate | Before research | After design |
 | --- | --- | --- |
+| Python 3.12 minimum | Pass: constitution 2.0.0 selects the baseline | Pass by design: metadata/guidance/lock alignment and 3.12 validation required |
 | SDK public API only | Pass: existing media/tool APIs | Pass: public audio/sample-rate APIs |
 | Shared behavior in realtime module | Pass: no second app loop | Pass: shared handler in huggingface_realtime.py |
 | Focused minimal change | Pass: one optional backend | Pass: two transports, no registry/new database |
@@ -77,7 +83,8 @@ specs/001-gemini-backend/
     realtime-session.md
 ```
 
-tasks.md belongs to the subsequent speckit-tasks phase and is not created here.
+Existing tasks.md is now stale: regenerate it with speckit-tasks after this plan refresh.
+This command does not edit tasks or mark their previous assumptions ready for implementation.
 
 ### Source Code (repository root)
 
@@ -90,7 +97,7 @@ src/reachy_mini_conversation_app/
   settings_store.py            saved provider/model/voice overrides
   startup_settings.py          preserve legacy HF startup voice
   main.py                      existing handler factory selects provider
-  console.py                   readiness/status/retry/switch lifecycle
+  console.py                   owns logical-session state, recovery scheduler, switches
   prompts.py                   existing instructions and memory injection
   audio/resampling.py          new stateful device-rate conversion
   static/js/views/settings.js  provider controls and memory disclosure
@@ -130,11 +137,16 @@ working. Use a narrow typed event/transport contract, not a provider plugin fram
 
 ### Selection, credentials, and voices
 
-Provider IDs are huggingface and gemini. Add optional provider, Gemini model/voice, and HF
-voice override fields to AppSettings. Missing selection defaults to HF; saved settings win
-over environment defaults. Preserve old HF startup voice and profile files, never interpreting
+Provider IDs are huggingface and gemini. Add optional provider and Gemini model/voice
+fields to AppSettings; preserve HF voice storage and resolution. Missing selection defaults
+to HF; saved settings win over environment defaults. Preserve old HF startup voice and profile files, never interpreting
 a saved HF voice as a Gemini voice. Configurable Gemini defaults: gemini-3.8-live and Kore;
 verify account access at setup. The standard Live model is the initial supported path.
+Gemini voice order is saved Gemini override, compatible personality voice, GEMINI_VOICE,
+then Kore. Without an override, an incompatible personality voice blocks startup with a
+valid-override prompt rather than falling through. A saved Gemini override wins even when
+the profile voice is incompatible. Preserve existing HF voice resolution and legacy HF
+startup voice; do not add an HF override that changes that behavior.
 
 New environment names: REACHY_MINI_CONVERSATION_BACKEND, GEMINI_API_KEY, GEMINI_MODEL,
 GEMINI_VOICE. Do not revive obsolete BACKEND_PROVIDER/MODEL_NAME. Use existing private
@@ -143,20 +155,51 @@ backend.config/status.get and add backend.retry. See [selection contract](contra
 
 ### Switching and continuity
 
-Serialize transitions through LocalStream's existing restart mechanism. Invalidate the old
-generation before flushing playback and shutting down; then construct the selected handler.
-Reject late callbacks and old tool requests. Already executing motions follow existing
-cancellation behavior: cancelling a task does not undo physical effects.
+LocalStream owns a typed RealtimeSessionState defined in huggingface_realtime.py and passes
+that same object through the existing handler factory into every replacement handler for
+one logical conversation. It contains provider/configuration identity, monotonically
+increasing connection generation, resumption eligibility/handle, tool invocation ledger,
+and safe context status. Handlers own sockets/tasks/queues, never the lifetime of this object.
+Handler shutdown closes transport without erasing retained logical state. LocalStream alone
+invalidates/disposes state for provider/setup changes, shutdown, or an explicitly fresh session.
 
-Gemini failures await explicit Retry/selection. Preserve HF automatic retries under
-FR-002/SC-001; the new manual-recovery assumption applies to Gemini, not a redesign of HF.
-If manual-only HF behavior is intended, clarify the spec before changing that path.
+Serialize all starts, reconnects, Retry clicks, and provider selections through one LocalStream
+scheduler. Allocate a new generation before closing the old connection; validate ownership
+before every event/action. Stop old input/output before new setup. Pass retained state to
+the new handler only for same-provider, same-configuration recovery. A valid handle attempts
+resume; invalid/rejected/nonresumable state is discarded and a fresh session is visibly started.
+Never resume stale memory instructions. Known pending actions are reconciled through the
+retained ledger without repeating their effects; uncertain outcomes are reported once.
 
-Enable compression/resumption. GoAway warns of closure; closure waits for manual Retry.
-Retry can use a valid same-config in-memory handle and retained call ledger. Invalid/rejected
-resume visibly starts fresh as part of that retry. Provider/model/voice/profile/toolset or
-injected-memory changes invalidate the handle and visibly start fresh. No automatic fallback
-or hidden background Gemini reconnect. The 15-minute trial may span explicit resumed connections.
+Both providers automatically retry recoverable failures indefinitely, with delays
+1, 2, 4, 8, 16, 30, 30... seconds. Reset backoff after a completed exchange; do not reset it
+merely because a flapping socket briefly acknowledged setup. Manual Retry interrupts the
+wait and schedules one immediate same-provider attempt without spawning another worker.
+Provider changes and shutdown cancel waits and invalidate obsolete attempts atomically.
+No provider fallback. Move retry ownership out of nested HF startup/LocalStream retry loops
+so exactly one scheduler applies the new policy; HF conversation defaults remain unchanged,
+but its retry timing deliberately follows the user's newly agreed policy.
+
+Network/connection loss, setup/send timeouts and transient service failures retry; missing or
+invalid keys, invalid configuration/model/voice, denied access, and hard billing/quota
+exhaustion wait for correction. Distinguish transient rate limiting from depleted quota;
+retain safe actionable reasons. Unknown provider close codes wait for explicit correction/
+Retry rather than guessing a permanent error is transient. GoAway warns of imminent closure
+and schedules a serialized same-provider reconnect once the old generation is invalidated.
+
+The connection plus setup acknowledgement share one monotonic 15-second deadline, including
+any resumption rejection/fresh fallback within that attempt. Every audio/message send has
+a 5-second deadline. Graceful close has a 5-second deadline, after which cancel its tasks
+and abandon socket ownership using public transport APIs; it cannot block shutdown or a
+provider switch. Configuration/status RPC remains available throughout. A new connection
+starts only when the old generation cannot own input/output, even if resource cleanup is late.
+
+Enable context compression/resumption. Changing provider/model/voice/profile/toolset or
+injected-memory revision deliberately starts a fresh session and clears the old handle.
+This is the app's conservative consistency policy, not a claim that Google cannot update
+non-model setup during pause/resume. The 15-minute trial covers automatic resumed reconnects,
+not a single-socket guarantee. Detailed contracts and failure/ownership test cases are in
+[realtime-session.md](contracts/realtime-session.md).
 
 ### Audio, tools, snapshots, and memory
 
@@ -166,11 +209,24 @@ to convert to get_output_audio_samplerate() before SDK playback. Equal-rate HF o
 unchanged. Reset/discard buffered converter output on interrupt/switch; flush only at normal
 audio-turn completion. LocalStream schedules using the real emitted playback rate.
 
-Keep Gemini automatic activity detection and existing local VAD ducking/movement behavior.
-Server interruption confirms flush. Explicit app interrupt sends a documented terminating
-client turn and advances the response epoch; late old-turn output stays suppressed. Do not
-mix manual activityStart/activityEnd with automatic VAD. Verify this boundary in fake-wire
-and hardware tests; local queue clearing alone does not establish remote cancellation.
+Keep Gemini automatic activity detection and local VAD ducking/movement behavior. A single
+ordered socket reader handles server interrupted before any media in the same message,
+advances response epoch, clears playback/resampler output and enters DRAINING_INTERRUPTED_TURN.
+Reject assistant audio/transcript and old-turn tool work through the following turnComplete;
+only subsequent messages can start accepted output. generationComplete alone never reopens
+output. Input transcription has independent ordering and is not used as an assistant boundary.
+
+Explicit app interrupt immediately suppresses/flushes output. Since clientContent with
+turnComplete=true requests generation rather than acknowledging a stop, do not use an empty
+synthetic turn as a cancellation acknowledgement. Use a fresh connection with visibly fresh
+context for explicit app interrupt when no correlated server interruption boundary exists;
+clear resumption, invalidate the old generation, and do not replay abandoned input/actions.
+Normal server-VAD barge-in retains its connection/context. Repeated interrupts coalesce into
+one reset. A missing turnComplete while draining for five seconds similarly forces an
+announced fresh connection; this bounds a protocol fault without permitting stale output.
+Do not mix manual activity markers with automatic VAD. Test control flags bundled with
+media, delayed queued audio, repeated interruption, missing boundaries, and app interrupt
+after remote generation already ended. See the state-transition contract for exact ordering.
 
 Register only effective enabled tools; map names deterministically and validate declarations
 before setup. Track call IDs before execution and retain deduplication across resume. Route
@@ -181,8 +237,8 @@ produce a corrective setup error, not silently missing tools.
 One permitted camera request sends one JPEG through realtime image input plus sanitized
 result metadata. Do not put base64 images in logs/transcripts. No capture on failure/disabled
 access, no periodic video source. Reuse existing prompt/memory assembly and remember/forget.
-Gemini instruction refresh starts a visibly fresh session and invalidates handles because
-setup is immutable. Global memory controls injection; disabling remember/forget tools alone
+Gemini instruction refresh deliberately starts a visibly fresh session and invalidates
+handles to avoid restoring stale instructions. Global memory controls injection; disabling remember/forget tools alone
 does not disable recall. Turning global memory off preserves stored facts.
 
 ### Validation and documentation
@@ -190,7 +246,8 @@ does not disable recall. Turning global memory off preserves stored facts.
 Preserve HF behavior with fake-session regressions before extracting shared code. Add Gemini
 tests for setup, multipart messages, transcripts, PCM conversion, interruption, tool permissions,
 silent responses, replay/cancellation, snapshots, and memory/configuration refresh. Cover
-RPC compatibility, switch races, per-provider voices, setup failures and manual retry.
+RPC compatibility, switch races, Gemini voice precedence with HF behavior unchanged,
+15/5/5-second deadlines, at least ten automatic attempts, and cancellation during backoff.
 Hardware validation follows [quickstart.md](quickstart.md); no mocked result proves robot quality.
 
 Implementation updates root README and applicable root/packaged .env.example configuration
@@ -204,13 +261,14 @@ never hand-edit generated SVG or add another README. This plan changes no source
 | FR-001, FR-002, FR-007, FR-013, FR-016, FR-017 | Selection contract; settings/RPC regressions and setup-failure trials |
 | FR-003, FR-004 | Shared events/audio/VAD; transcript, multipart, interrupt and robot trials |
 | FR-005, FR-006, FR-011 | Tool contract/ledger; permissions, silent completion, cancellation and replay tests |
-| FR-008, FR-009, FR-010 | Session ownership/manual Gemini recovery; switch races and resume/fresh tests |
+| FR-008, FR-009, FR-010 | LocalStream-owned resumable state and automatic recovery; switch races and resume/fresh tests |
 | FR-012 | Environment-only credentials, redaction, no new retention; log/status/history isolation tests |
 | FR-014 | Single-request image path; camera permission/failure and hardware observation trials |
 | FR-015 | Existing shared memory and fresh instruction refresh; cross-provider save/recall/delete tests |
 
 ## Complexity Tracking
 
-No constitutional exceptions requested. Two actual transports justify the shared boundary;
+No constitutional exceptions requested. Constitution 2.0.0 resolves the runtime policy;
+implementation must synchronize older metadata/guidance before review. Two actual transports justify the shared boundary;
 device-rate playback justifies a stateful resampler. No speculative providers, new memory
 storage, generic capability registry, or SDK modifications.
