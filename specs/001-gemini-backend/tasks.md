@@ -80,7 +80,7 @@ manual provider selection remain usable.
 - [X] T017 [US1] Select HF or Gemini in the existing factory in `src/reachy_mini_conversation_app/main.py`, passing the LocalStream-owned state from T009 rather than allocating replacement-handler-local state; keep imports at module scope and robot/tool dependencies shared; extend `tests/test_main.py` for HF default, Gemini selection and state-reference preservation without paid calls.
 - [X] T018 [US1] Extend backend.config/status.get/backend.retry in `src/reachy_mini_conversation_app/console.py` per `specs/001-gemini-backend/contracts/backend-selection.md` and implement one LocalStream recovery scheduler for both providers: indefinite 1/2/4/8/16/30... second waits, reset after a completed exchange, one immediate manual-Retry attempt, coalesced clicks, 15/5/5-second setup/send/close deadlines, and cancellation on switch/shutdown; await correction for invalid credentials/configuration, denied access and hard billing/quota errors, distinguish transient rate limits, eliminate nested retries, preserve HF request/status compatibility, reject key parameters and expose only safe readiness/context/retry metadata.
 - [X] T019 [US1] Add provider/voice controls, setup errors, automatic-recovery status, manual Retry/selection and shared-memory disclosure in `src/reachy_mini_conversation_app/static/js/views/settings.js` and RPC calls/reason messages in `src/reachy_mini_conversation_app/static/js/api.js`; display only relevant controls, preserve HF voice behavior, and show neither secret fields nor implementation details.
-- [ ] T020 [US1] Verify T010-T019 with fake-session/RPC suites and the available-account three-exchange trial from `specs/001-gemini-backend/quickstart.md`; record persisted selection, correct personality/greeting/transcripts, Gemini voice precedence, unchanged HF defaults without a key, bounded setup failures and automatic recovery for both providers, keeping unavailable live evidence incomplete.
+- [X] T020 [US1] Verify T010-T019 with fake-session/RPC suites and the available-account three-exchange trial from `specs/001-gemini-backend/quickstart.md`; record persisted selection, correct personality/greeting/transcripts, Gemini voice precedence, unchanged HF defaults without a key, bounded setup failures and automatic recovery for both providers, keeping unavailable live evidence incomplete.
 
 **Checkpoint**: US1 is a voice/configuration demo increment, not release readiness. The full
 feature still requires US2 tools/interruption/camera/memory and US3 continuity guarantees.
@@ -282,3 +282,14 @@ callback errors on Selector. A 30-second real-robot repeat shuts down with exit 
 callback error. The full gate passes 673 tests, strict mypy, Ruff/format and lock validation.
 The user chose to finish only this correction this round; the extended trial and camera/memory
 acceptance remain deferred, with T020/T031/T046 unchecked and the total still 44/47.
+
+The subsequent user-authorized T020 trial recorded a greeting and four transcript pairs.
+The user confirmed three audible exchanges and correct session-only phrase recall. An
+unchanged-settings restart confirmed saved Gemini/Kore selection and reconnection, but the
+user reported no reply in that short window. A requested repeat produced a greeting and
+Chinese input/output transcripts, with 16000 Hz microphone input and nonzero speech peaks;
+the user confirmed hearing its reply. All processes exited cleanly with camera/memory off.
+T020 is checked using this live evidence plus the unchanged 673-test gate's simulated voice,
+HF-default, setup-failure and recovery coverage. The earlier silent attempt's cause remains
+unresolved; see quickstart.md. Progress is 45/47, with only T031/T046 unchecked and no
+extended/camera/memory acceptance claimed.

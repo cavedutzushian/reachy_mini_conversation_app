@@ -1,6 +1,6 @@
 # Validation Guide: Optional Gemini Conversation Backend
 
-Follow the root README for environment/robot setup. The latest local result is **44/47
+Follow the root README for environment/robot setup. The latest local result is **45/47
 tasks complete, with the full local gate green**; earlier sections retain historical results.
 Basic Gemini/robot voice acceptance passed; extended live-service and robot acceptance remains
 deferred. The latest Windows shutdown fix and validation are recorded at the end of this file.
@@ -392,3 +392,52 @@ The user explicitly limited this run to the shutdown correction and kept camera/
 T020, T031 and T046 therefore remain unchecked (44/47 complete). The fifteen-minute trial,
 measured ten-interruption target, full selection/reconnect matrix, camera/memory acceptance,
 and unavailable platform evidence remain outstanding. No PR was opened.
+
+## T020 spoken trial and persistence check (2026-10-29)
+
+The user authorized a roughly five-minute three-exchange trial and restart, with camera and
+long-term memory still disabled and zero paid usage. Both processes read the existing
+disposable instance settings; neither rewrote provider/voice settings before loading them.
+
+- First process: the saved selection was Gemini with Kore. Logs recorded one spoken
+  greeting and four user/assistant transcript pairs. One short input was recognized as
+  English instead of the expected test question, so the user was invited to repeat it.
+  The user confirmed all three requested exchanges had audible replies and the disposable
+  session-only phrase was recalled correctly. No long-term memory was enabled or written.
+- Restart: the same saved Gemini/Kore selection loaded and the Gemini tool manager started.
+  A welcome-emotion call was recorded, but no spoken greeting or user/assistant transcript
+  pair was captured during the bounded 75-second restart window. Persisted configuration
+  and reconnection were confirmed, but the user reported no reply to their question.
+  This unsuccessful window is retained as evidence, not counted as a spoken success.
+- Both processes logged `Shutdown complete`, returned exit code 0 and retained runtime
+  Gemini/Kore with camera/memory false. Neither log contained a backend-attempt failure
+  or `WinError 10022` callback error. The previously documented SDK-version/audio-parameter
+  warnings remain unresolved.
+
+Only ignored local harness/log files were created under `cache/`. The first PowerShell
+redirect rendered Chinese text incorrectly; the restart harness writes console records
+directly with a UTF-8 FileHandler for subsequent inspections. This is a diagnostic capture
+limitation, not evidence that the application corrupted provider transcripts. No personal
+transcripts or credentials are copied into tracked evidence.
+
+The user requested a repeat of the post-restart check. A new process loaded the same saved
+Gemini/Kore settings and allowed up to five minutes. An ignored diagnostic subclass called
+the unchanged Gemini receive method and recorded only frame counts, amplitude peaks and
+sample rate; it neither patched SDK internals nor saved raw audio. The input was 16000 Hz.
+Initially quiet input rose to peaks around 0.64 and 0.74 while the user spoke. The provider
+produced a matching Chinese input transcript and assistant reply, and the user confirmed
+hearing the reply. An opening spoken greeting was also recorded. This repeat confirms a
+successful post-restart exchange, but does not establish why the earlier attempt was silent.
+
+The repeat was explicitly stopped after confirmation, logged `Shutdown complete` and exited
+with code 0, without a backend failure or callback error. Camera/memory remained false and
+Gemini/Kore remained selected. Existing SDK-version and audio-parameter warnings persist.
+
+T020 is now checked: live three-exchange/personality/greeting/transcript evidence, saved
+selection and restart evidence are combined with the existing passing offline coverage for
+voice precedence/isolation, HF defaults without Gemini credentials, bounded setup failure,
+permanent-error waiting and automatic recovery for both providers. These error/quota cases
+were simulated, not deliberately triggered on the account. The unchanged application's
+673-test full gate remains the latest automated result; no dependency changes were made.
+T031/T046 remain pending their separate tool/camera/memory/extended trials. Progress is
+45/47; camera/memory were not enabled, and no PR was opened.
