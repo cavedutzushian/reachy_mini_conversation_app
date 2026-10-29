@@ -19,6 +19,33 @@ def test_absent_file_reads_as_unset(tmp_path: Path) -> None:
     assert read_settings(tmp_path) == AppSettings()
 
 
+def test_provider_selection_preserves_other_provider_settings(tmp_path: Path) -> None:
+    """Selecting Gemini preserves HF connection settings and never stores a key."""
+    update_settings(tmp_path, AppSettings(hf_connection_mode="local", hf_ws_url="ws://robot:8765"))
+    update_settings(tmp_path, AppSettings(conversation_backend="gemini", gemini_voice="Kore"))
+    saved = read_settings(tmp_path)
+    assert saved.conversation_backend == "gemini"
+    assert saved.hf_ws_url == "ws://robot:8765"
+    assert saved.gemini_voice == "Kore"
+    assert "key" not in (tmp_path / "settings.json").read_text()
+
+
+def test_provider_defaults_and_saved_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Saved choices override environment defaults without adding secret storage."""
+    monkeypatch.delenv("REACHY_MINI_CONVERSATION_BACKEND", raising=False)
+    refresh_runtime_config_from_env()
+    assert config.CONVERSATION_BACKEND == "huggingface"
+    monkeypatch.setenv("REACHY_MINI_CONVERSATION_BACKEND", "gemini")
+    refresh_runtime_config_from_env()
+    assert config.CONVERSATION_BACKEND == "gemini"
+    update_settings(tmp_path, AppSettings(conversation_backend="huggingface", gemini_model="gemini-3.8-live"))
+    load_settings_into_runtime(tmp_path)
+    assert config.CONVERSATION_BACKEND == "huggingface"
+    (tmp_path / "settings.json").write_text('{"conversation_backend":"unknown","gemini_model":"  "}', encoding="utf-8")
+    assert read_settings(tmp_path).conversation_backend == "huggingface"
+    assert read_settings(tmp_path).gemini_model is None
+
+
 def test_update_merges_and_round_trips(tmp_path: Path) -> None:
     """Each write changes one field and leaves the others alone."""
     update_settings(tmp_path, AppSettings(language="fr"))

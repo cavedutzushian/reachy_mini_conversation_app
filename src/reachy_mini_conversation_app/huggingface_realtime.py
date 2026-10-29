@@ -3,11 +3,13 @@ import math
 import time
 import uuid
 import base64
-import random
 import asyncio
 import logging
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Final, Tuple, Optional
 from collections import deque
+from dataclasses import field, dataclass
+from collections.abc import Awaitable
 
 import httpx
 import numpy as np
@@ -70,6 +72,8 @@ _RESPONSE_DONE_TIMEOUT: Final[float] = 30.0
 _RESPONSE_REJECTION_RETRY_DELAY: Final[float] = 0.5
 # A microphone frame that cannot be sent for this long means a dead link.
 AUDIO_SEND_TIMEOUT_S: Final[float] = 5.0
+SETUP_TIMEOUT_S: Final[float] = 15.0
+CLOSE_TIMEOUT_S: Final[float] = 5.0
 # Server-measured stage timings the speech-to-speech backend attaches to response.done.
 _TURN_LATENCY_METADATA_KEY: Final[str] = "speech_to_speech.turn_latency"
 
@@ -140,9 +144,9 @@ def _parse_turn_latency(metadata: dict[str, str] | None) -> dict[str, int | str 
             latency[f"{stage}_ms"] = round(seconds * 1000)
         else:
             latency[f"{stage}_ms"] = None
-    for field in ("smart_status", "status"):
-        value = turn_latency.get(field)
-        latency[field] = value if isinstance(value, str) else None
+    for status_field in ("smart_status", "status"):
+        value = turn_latency.get(status_field)
+        latency[status_field] = value if isinstance(value, str) else None
     return latency
 
 
@@ -160,55 +164,64 @@ def _build_openai_compatible_client_from_realtime_url(
     return client, parsed.connect_query
 
 
-class HuggingFaceRealtimeHandler(ConversationHandler):
-    """Realtime stream handler for the Hugging Face OpenAI-compatible endpoint."""
+@dataclass
+class ToolInvocation:
+    """Track one tool action across reconnects without repeating its effects."""
 
-    SAMPLE_RATE = 16000
+    tool_name: str
+    status: Literal["received", "running", "completed", "cancelled", "uncertain"] = "received"
+    result: dict[str, object] | None = None
+    generation: int = 0
+    response_epoch: int = 0
 
-    def __init__(
-        self,
-        deps: ToolDependencies,
-        instance_path: Optional[str] = None,
-        startup_voice: Optional[str] = None,
-    ):
-        """Initialize the handler."""
+
+@dataclass
+class RealtimeSessionState:
+    """Keep logical conversation state independently of replaceable sockets."""
+
+    provider: str = "huggingface"
+    revision: str = ""
+    logical_session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    generation: int = 0
+    response_epoch: int = 0
+    resumption_handle: str | None = field(default=None, repr=False)
+    resumable: bool = False
+    context_state: Literal["new", "resumed", "unavailable"] = "new"
+    invocations: dict[str, ToolInvocation] = field(default_factory=dict)
+
+    def begin_connection(self) -> int:
+        """Invalidate previous connection ownership while retaining logical context."""
+        self.generation += 1
+        return self.generation
+
+    def fresh(self, provider: str, revision: str) -> None:
+        """Retire context and tool IDs without reusing connection generations."""
+        self.generation += 1
+        self.provider = provider
+        self.response_epoch += 1
+        self.revision = revision
+        self.logical_session_id = uuid.uuid4().hex
+        self.resumption_handle = None
+        self.resumable = False
+        self.context_state = "new"
+        self.invocations.clear()
+
+
+class RealtimeConversationHandler(ConversationHandler):
+    """Share app playback, VAD and tool lifecycle across realtime providers."""
+
+    session_state: RealtimeSessionState
+
+    def __init__(self, deps: ToolDependencies, session_state: RealtimeSessionState | None = None) -> None:
+        """Initialize shared state without connecting to a provider."""
         super().__init__()
-
         self.deps = deps
-
-        self.client: AsyncOpenAI
-        self.connection: "AsyncRealtimeConnection | None" = None
-        self.output_queue: "asyncio.Queue[Tuple[int, NDArray[np.int16]] | AdditionalOutputs]" = asyncio.Queue()
-
-        self.instance_path = instance_path
-        self._voice_override: str | None = self._normalize_startup_voice(startup_voice)
-        self._realtime_connect_query: dict[str, str] = {}
-
-        # Debouncing for partial transcripts
-        self.partial_transcript_task: asyncio.Task[None] | None = None
-        self.partial_debounce_delay = 0.5  # seconds
-        self.input_transcript_chunks_by_item = InputTranscriptChunksByItem()
-
-        # Internal lifecycle flags
-        self._connected_event: asyncio.Event = asyncio.Event()
-
-        # Background tool manager
+        self.session_state = session_state or RealtimeSessionState()
+        self.playback_epoch = self.session_state.response_epoch
+        self._generation = self.session_state.generation
+        self._closed = False
+        self.output_queue: asyncio.Queue[Tuple[int, NDArray[np.int16]] | AdditionalOutputs] = asyncio.Queue()
         self.tool_manager = BackgroundToolManager()
-
-        # Response-in-progress guard: the Realtime API only allows one active
-        # response per conversation at a time.  A dedicated worker task
-        # (_response_sender_loop) dequeues and sends one request at a time
-        self._pending_responses: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self._response_done_event: asyncio.Event = asyncio.Event()
-        self._response_done_event.set()
-        self._response_started_or_rejected_event: asyncio.Event = asyncio.Event()
-        self._last_response_rejected: bool = False
-        self._turn_user_done_at: float | None = None
-        self._turn_response_created_at: float | None = None
-        self._turn_first_audio_at: float | None = None
-        self._startup_greeting_sent = False
-        self._in_flight_tool_calls: set[str] = set()
-        self._tool_batch_needs_response = False
         self._local_vad: SileroVAD | None = None
         self._local_speech = False
         self._server_speech = False
@@ -217,11 +230,54 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         self._last_vad_report_at = 0.0
         self._last_vad_flags: tuple[bool | float, ...] | None = None
         self._local_speech_timeout: asyncio.TimerHandle | None = None
-        self.paced_playback = config.LOCAL_VAD_ENABLED and config.LOCAL_BARGE_IN_ENABLED
-        self._active_response_id: str | None = None
         self._audio_response_id: str | None = None
-        self._discarded_response_ids: deque[str] = deque(maxlen=32)
         self._playback_interrupted = False
+        self.paced_playback = config.LOCAL_VAD_ENABLED and config.LOCAL_BARGE_IN_ENABLED
+
+    def _owns_connection(self) -> bool:
+        return not self._closed and self._generation == self.session_state.generation
+
+    @abstractmethod
+    def _abort_connection(self) -> None:
+        """Drop the failed provider transport after relinquishing media ownership."""
+        ...
+
+    async def _bounded_send(self, operation: Awaitable[None]) -> None:
+        pending_send = asyncio.ensure_future(operation)
+        try:
+            if not self._owns_connection():
+                raise ConnectionError("Retired conversation")
+            completed, _pending = await asyncio.wait({pending_send}, timeout=AUDIO_SEND_TIMEOUT_S)
+            if not completed:
+                self.connection_error_reason = "send_timeout"
+                if self._owns_connection():
+                    self.session_state.begin_connection()
+                self._closed = True
+                self._abort_connection()
+                raise TimeoutError("send_timeout")
+            await pending_send
+        finally:
+            if not pending_send.done():
+                pending_send.cancel()
+                pending_send.add_done_callback(self._consume_send)
+
+    @staticmethod
+    def _consume_send(pending_send: asyncio.Future[None]) -> None:
+        if not pending_send.cancelled() and pending_send.exception() is not None:
+            logger.warning("Retired realtime send ended with an error")
+
+    async def _flush_playback(self) -> None:
+        if not self._owns_connection():
+            return
+        self.deps.movement_manager.set_speaking(False)
+        if self._clear_queue is not None:
+            await self._clear_queue()
+        else:
+            self.playback_epoch += 1
+            self.session_state.response_epoch = self.playback_epoch
+            while not self.output_queue.empty():
+                self.output_queue.get_nowait()
+        self.playback_gain = 1.0
 
     def _set_listening(self, *, local: bool | None = None, server: bool | None = None) -> None:
         if local is not None:
@@ -280,6 +336,90 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         self._local_audio_at = None
         self._set_listening(local=False, server=False)
 
+    def _process_local_audio(self, sample_rate: int, audio_frame: NDArray[np.int16]) -> None:
+        if self._local_vad is not None:
+            if self._local_speech_timeout is not None:
+                self._local_speech_timeout.cancel()
+                self._local_speech_timeout = None
+            received_at = time.monotonic()
+            if self._local_audio_at is not None and received_at - self._local_audio_at > 0.5:
+                self._local_vad.reset()
+            self._local_audio_at = received_at
+            detect_barge_in = (
+                self.paced_playback
+                and not self._playback_interrupted
+                and self._audio_response_id is not None
+                and (self.playback_until > received_at or self.playback_pending_frames > 0)
+            )
+            try:
+                # Inline: ~2 ms per 32 ms chunk, cheaper than a thread hop on every frame.
+                local_speech = self._local_vad.process(audio_frame, sample_rate, detect_barge_in=detect_barge_in)
+            except Exception as exc:
+                logger.warning("Local VAD failed; using server VAD for movement: %s", exc)
+                self._local_vad = None
+                self.paced_playback = False
+                local_speech = False
+            self._set_listening(local=local_speech)
+            if self.paced_playback and self._local_vad is not None and not self._playback_interrupted:
+                # Only duck: stopping waits for server VAD, so loud background speech cannot drop the turn.
+                self.playback_gain = 0.25 if detect_barge_in and self._local_vad.barge_in_candidate else 1.0
+            self._report_vad()
+            if local_speech:
+                # Muting or losing the microphone must not leave a stale local vote.
+                self._local_speech_timeout = asyncio.get_running_loop().call_later(
+                    0.5, lambda: self._set_listening(local=False)
+                )
+
+
+class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
+    """Realtime stream handler for the Hugging Face OpenAI-compatible endpoint."""
+
+    SAMPLE_RATE = 16000
+
+    def __init__(
+        self,
+        deps: ToolDependencies,
+        instance_path: Optional[str] = None,
+        startup_voice: Optional[str] = None,
+        session_state: RealtimeSessionState | None = None,
+    ) -> None:
+        """Initialize the handler."""
+        super().__init__(deps, session_state)
+
+        self.client: AsyncOpenAI
+        self.connection: "AsyncRealtimeConnection | None" = None
+
+        self.instance_path = instance_path
+        self._voice_override: str | None = self._normalize_startup_voice(startup_voice)
+        self._realtime_connect_query: dict[str, str] = {}
+
+        # Debouncing for partial transcripts
+        self.partial_transcript_task: asyncio.Task[None] | None = None
+        self.partial_debounce_delay = 0.5  # seconds
+        self.input_transcript_chunks_by_item = InputTranscriptChunksByItem()
+
+        # Internal lifecycle flags
+        self._connected_event: asyncio.Event = asyncio.Event()
+
+        # Response-in-progress guard: the Realtime API only allows one active
+        # response per conversation at a time.  A dedicated worker task
+        # (_response_sender_loop) dequeues and sends one request at a time
+        self._pending_responses: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._response_done_event: asyncio.Event = asyncio.Event()
+        self._response_done_event.set()
+        self._response_started_or_rejected_event: asyncio.Event = asyncio.Event()
+        self._last_response_rejected: bool = False
+        self._turn_user_done_at: float | None = None
+        self._turn_response_created_at: float | None = None
+        self._turn_first_audio_at: float | None = None
+        self._startup_greeting_sent = False
+        self._in_flight_tool_calls: set[str] = set()
+        self._tool_batch_needs_response = False
+        self._active_response_id: str | None = None
+        self._audio_response_id: str | None = None
+        self._discarded_response_ids: deque[str] = deque(maxlen=32)
+        self._playback_interrupted = False
+
     async def _interrupt_playback(
         self, *, audio_response_id: str | None = None, cancel_response_id: str | None = None
     ) -> None:
@@ -305,13 +445,11 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                 and cancel_response_id == self._active_response_id
                 and self.connection is not None
             ):
-                await self.connection.response.cancel(response_id=cancel_response_id)
+                await self._bounded_send(self.connection.response.cancel(response_id=cancel_response_id))
         except (ConnectionClosed, httpx.HTTPError, OSError) as exc:
             logger.warning("Failed to cancel locally interrupted response: %s", exc)
         finally:
-            if self._clear_queue is not None:
-                await self._clear_queue()
-            self.playback_gain = 1.0
+            await self._flush_playback()
 
     @staticmethod
     def _sanitize_tool_result_for_model(tool_name: str, tool_result: dict[str, Any]) -> dict[str, Any]:
@@ -395,7 +533,11 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
 
     def _is_connected(self) -> bool:
         """Return whether the realtime connection is open."""
-        return self.connection is not None
+        return self.connection is not None and self._owns_connection()
+
+    def _abort_connection(self) -> None:
+        if self.connection is not None:
+            _abort_realtime_connection(self.connection)
 
     def _idle_behavior_ready(self) -> bool:
         """Hold idle behavior while a model response is still active."""
@@ -418,15 +560,17 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         self._voice_override = resolved_voice
         if self.connection is not None:
             try:
-                await self.connection.session.update(
-                    session=RealtimeSessionCreateRequestParam(
-                        type="realtime",
-                        audio=RealtimeAudioConfigParam(
-                            output=RealtimeAudioConfigOutputParam(
-                                voice=resolved_voice,
+                await self._bounded_send(
+                    self.connection.session.update(
+                        session=RealtimeSessionCreateRequestParam(
+                            type="realtime",
+                            audio=RealtimeAudioConfigParam(
+                                output=RealtimeAudioConfigOutputParam(
+                                    voice=resolved_voice,
+                                ),
                             ),
                         ),
-                    ),
+                    )
                 )
                 return f"Voice changed to {resolved_voice}."
             except Exception as e:
@@ -444,11 +588,13 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         """Push freshly built instructions to the live session, if there is one."""
         if self.connection is None:
             return False
-        await self.connection.session.update(
-            session=RealtimeSessionCreateRequestParam(
-                type="realtime",
-                instructions=get_session_instructions(self.instance_path),
-            ),
+        await self._bounded_send(
+            self.connection.session.update(
+                session=RealtimeSessionCreateRequestParam(
+                    type="realtime",
+                    instructions=get_session_instructions(self.instance_path),
+                ),
+            )
         )
         logger.info("Refreshed session instructions")
         return True
@@ -468,16 +614,18 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
 
         if self.connection is not None:
             try:
-                await self.connection.session.update(
-                    session=RealtimeSessionCreateRequestParam(
-                        type="realtime",
-                        instructions=instructions,
-                        audio=RealtimeAudioConfigParam(
-                            output=RealtimeAudioConfigOutputParam(
-                                voice=voice,
+                await self._bounded_send(
+                    self.connection.session.update(
+                        session=RealtimeSessionCreateRequestParam(
+                            type="realtime",
+                            instructions=instructions,
+                            audio=RealtimeAudioConfigParam(
+                                output=RealtimeAudioConfigOutputParam(
+                                    voice=voice,
+                                ),
                             ),
                         ),
-                    ),
+                    )
                 )
                 logger.info("Applied personality via live update: %s", profile or "default")
             except Exception as exc:
@@ -524,7 +672,7 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         input_transcript.deltas.append(delta)
 
     async def start_up(self) -> None:
-        """Start the handler with minimal retries on unexpected websocket closure."""
+        """Run one connection attempt; LocalStream owns recovery."""
         if config.LOCAL_VAD_ENABLED:
             try:
                 self._local_vad = await asyncio.to_thread(SileroVAD)
@@ -533,32 +681,12 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                 self.paced_playback = False
         self.client = await self._build_realtime_client()
 
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
-            try:
-                await self._run_realtime_session()
-                # Normal exit from the session, stop retrying
-                return
-            except ConnectionClosedError as e:
-                # Abrupt close (e.g., "no close frame received or sent") → retry
-                logger.warning("Realtime websocket closed unexpectedly (attempt %d/%d): %s", attempt, max_attempts, e)
-                if attempt < max_attempts:
-                    self.client = await self._build_realtime_client()
-                    # exponential backoff with jitter
-                    base_delay = 2 ** (attempt - 1)  # 1s, 2s, 4s, 8s, etc.
-                    jitter = random.uniform(0, 0.5)
-                    delay = base_delay + jitter
-                    logger.info("Retrying in %.1f seconds...", delay)
-                    await asyncio.sleep(delay)
-                    continue
-                raise
-            finally:
-                # never keep a stale reference
-                self.connection = None
-                try:
-                    self._connected_event.clear()
-                except Exception:
-                    pass
+        self._closed = False
+        try:
+            await self._run_realtime_session()
+        finally:
+            self.connection = None
+            self._connected_event.clear()
 
     async def _restart_session(self) -> None:
         """Force-close the current session and start a fresh one in background.
@@ -603,6 +731,8 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
 
     async def interrupt(self) -> None:
         """Stop playback and cancel the response still being generated."""
+        if not self._owns_connection():
+            return
         await self._interrupt_playback(cancel_response_id=self._active_response_id)
 
     async def say(self, text: str) -> None:
@@ -617,12 +747,14 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
             raise ValueError("say: empty text")
         if not self.connection:
             raise RuntimeError("say: no active session")
-        await self.connection.conversation.item.create(
-            item={
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": text}],
-            },
+        await self._bounded_send(
+            self.connection.conversation.item.create(
+                item={
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            )
         )
         self._mark_activity("say")
         await self._safe_response_create()
@@ -638,17 +770,19 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
             return
 
         try:
-            await self.connection.conversation.item.create(
-                item={
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": greeting_prompt,
-                        },
-                    ],
-                },
+            await self._bounded_send(
+                self.connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": greeting_prompt,
+                            },
+                        ],
+                    },
+                )
             )
             self._startup_greeting_sent = True
             self._mark_activity("startup_greeting_prompt")
@@ -702,7 +836,7 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                 self._last_response_rejected = False
                 self._response_started_or_rejected_event.clear()
                 try:
-                    await self.connection.response.create(**kwargs)
+                    await self._bounded_send(self.connection.response.create(**kwargs))
                 except Exception as e:
                     logger.debug("_response_sender_loop: send failed: %s", e)
                     self._response_done_event.set()
@@ -740,6 +874,8 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
 
     async def _handle_tool_result(self, completed_tool: ToolNotification) -> None:
         """Process the result of a tool call."""
+        if not self._owns_connection():
+            return
         if completed_tool.error is not None:
             logger.error(
                 "Tool '%s' (id=%s) failed with error: %s",
@@ -800,12 +936,14 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                     )
                     return
                 else:
-                    await self.connection.conversation.item.create(
-                        item={
-                            "type": "function_call_output",
-                            "call_id": completed_tool.id,
-                            "output": json.dumps(tool_result_for_model),
-                        },
+                    await self._bounded_send(
+                        self.connection.conversation.item.create(
+                            item={
+                                "type": "function_call_output",
+                                "call_id": completed_tool.id,
+                                "output": json.dumps(tool_result_for_model),
+                            },
+                        )
                     )
                     model_result_submitted = True
 
@@ -828,17 +966,19 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                 image_height = tool_result.get("image_height")
                 jpeg_bytes_value = tool_result.get("jpeg_bytes")
                 jpeg_bytes = jpeg_bytes_value if isinstance(jpeg_bytes_value, int) else (len(b64_im) * 3) // 4
-                await self.connection.conversation.item.create(
-                    item={
-                        "type": "message",
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_image",
-                                "image_url": f"data:image/jpeg;base64,{b64_im}",
-                            },
-                        ],
-                    },
+                await self._bounded_send(
+                    self.connection.conversation.item.create(
+                        item={
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_image",
+                                    "image_url": f"data:image/jpeg;base64,{b64_im}",
+                                },
+                            ],
+                        },
+                    )
                 )
                 if isinstance(image_width, int) and isinstance(image_height, int):
                     logger.info(
@@ -884,7 +1024,7 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         async with self.client.realtime.connect(**connect_kwargs) as conn:
             try:
                 session_config = self._get_session_config(tool_specs)
-                await conn.session.update(session=session_config)
+                await self._bounded_send(conn.session.update(session=session_config))
                 logger.info(
                     "Realtime session initialized with profile=%r voice=%r",
                     getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
@@ -920,6 +1060,8 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                 await self._send_startup_greeting_prompt()
 
                 async for event in self.connection:
+                    if not self._owns_connection():
+                        break
                     logger.debug("Realtime event: %s", event.type)
                     if event.type == "input_audio_buffer.speech_started":
                         self._mark_activity("user_speech_started")
@@ -963,6 +1105,8 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
                     if event.type == "response.done":
                         if self._active_response_id is not None and event.response.id != self._active_response_id:
                             continue
+                        if event.response.status == "completed" and self._turn_first_audio_at is not None:
+                            self.notify_exchange_completed()
                         if event.response.id == self._active_response_id:
                             self._active_response_id = None
                         # Doesn't mean the audio is done playing
@@ -1173,55 +1317,24 @@ class HuggingFaceRealtimeHandler(ConversationHandler):
         audio_frame = audio_to_int16(audio_frame)
 
         connection = self.connection
-        if connection:
+        if connection and self._owns_connection():
             # Send to the realtime input buffer (guard against races during reconnect).
             try:
                 audio_message = base64.b64encode(audio_frame.tobytes()).decode("utf-8")
-                await asyncio.wait_for(connection.input_audio_buffer.append(audio=audio_message), AUDIO_SEND_TIMEOUT_S)
+                await self._bounded_send(connection.input_audio_buffer.append(audio=audio_message))
             except TimeoutError:
                 # On a dead link the socket buffer fills, and every send, the websocket
                 # keepalive ping included, then waits for it to drain: without this the
                 # drop only surfaces once TCP gives up.
                 logger.warning("Realtime audio send stuck for %.0f s; dropping the connection", AUDIO_SEND_TIMEOUT_S)
-                _abort_realtime_connection(connection)
             except Exception as e:
                 logger.debug("Dropping audio frame: connection not ready (%s)", e)
 
-        if self._local_vad is not None:
-            if self._local_speech_timeout is not None:
-                self._local_speech_timeout.cancel()
-                self._local_speech_timeout = None
-            received_at = time.monotonic()
-            if self._local_audio_at is not None and received_at - self._local_audio_at > 0.5:
-                self._local_vad.reset()
-            self._local_audio_at = received_at
-            detect_barge_in = (
-                self.paced_playback
-                and not self._playback_interrupted
-                and self._audio_response_id is not None
-                and (self.playback_until > received_at or self.playback_pending_frames > 0)
-            )
-            try:
-                # Inline: ~2 ms per 32 ms chunk, cheaper than a thread hop on every frame.
-                local_speech = self._local_vad.process(audio_frame, sample_rate, detect_barge_in=detect_barge_in)
-            except Exception as exc:
-                logger.warning("Local VAD failed; using server VAD for movement: %s", exc)
-                self._local_vad = None
-                self.paced_playback = False
-                local_speech = False
-            self._set_listening(local=local_speech)
-            if self.paced_playback and self._local_vad is not None and not self._playback_interrupted:
-                # Only duck: stopping waits for server VAD, so loud background speech cannot drop the turn.
-                self.playback_gain = 0.25 if detect_barge_in and self._local_vad.barge_in_candidate else 1.0
-            self._report_vad()
-            if local_speech:
-                # Muting or losing the microphone must not leave a stale local vote.
-                self._local_speech_timeout = asyncio.get_running_loop().call_later(
-                    0.5, lambda: self._set_listening(local=False)
-                )
+        self._process_local_audio(sample_rate, audio_frame)
 
     async def shutdown(self) -> None:
         """Shutdown the handler."""
+        self._closed = True
         self._reset_listening()
         self._local_vad = None
         # Unblock the response sender worker so it can exit

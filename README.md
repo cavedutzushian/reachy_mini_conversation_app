@@ -48,6 +48,8 @@ The app connects the user, AI services, and robot hardware:
 
 ## Installation
 
+Python 3.12 or newer is required.
+
 > [!IMPORTANT]
 > Install [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/) before using this app.<br>
 > Windows support is currently experimental and has not been extensively tested. Use with caution.
@@ -65,7 +67,7 @@ uv venv --python /opt/homebrew/bin/python3.12 .venv
 uv venv --python python3.12 .venv
 
 source .venv/bin/activate
-uv sync
+uv sync --python 3.12
 ```
 
 Include dev dependencies:
@@ -97,6 +99,36 @@ pip install -e .[dev]                   # Development tools
 ## Configuration
 
 The default setup uses the Hugging Face backend and does not require an API key.
+
+### Optional Gemini conversation
+
+Select Gemini in Settings, or set `REACHY_MINI_CONVERSATION_BACKEND=gemini` in the
+private app `.env`. Set `GEMINI_API_KEY` there using a Gemini Developer API account
+with access to the chosen Live model. The default `GEMINI_MODEL` is `gemini-3.8-live`.
+API usage may incur charges. Vertex AI and additional providers are outside this feature.
+Saved settings override environment selection. Hugging Face remains the default and its
+connection and voice settings are retained when switching.
+
+Gemini voice precedence is saved Gemini voice, compatible personality voice,
+`GEMINI_VOICE`, then `Kore`. A personality with an incompatible voice requires a saved
+Gemini voice selection. Changing the Gemini voice never rewrites the HF startup voice.
+
+The selected service receives microphone audio, requested camera snapshots, and enabled
+shared saved memories. Camera use is on demand; no continuous video is sent. Global camera
+controls and `--no-camera` apply. Existing memory storage, retention and deletion are shared.
+Disabling remember/forget tools blocks those actions but does not disable saved-memory recall;
+use the global memory switch to disable memory injection and mutation.
+
+Both providers automatically reconnect after transient failures, waiting 1, 2, 4, 8, 16,
+then 30 seconds indefinitely. Retry expedites one attempt. Invalid configuration, credentials,
+access and hard quota/billing failures wait for correction. There is no automatic provider
+switch. Connection setup has a 15-second deadline, sends 5 seconds and graceful close 5 seconds.
+
+Gemini can resume an eligible unchanged conversation using an in-memory checkpoint. A rejected
+checkpoint, explicit app interruption, or model/voice/personality/tool/memory change starts
+fresh context, shown in the conversation and settings. Switching providers transfers no live
+history. An uncertain robot action is reported and never automatically repeated. Normal
+spoken barge-in retains context while discarding interrupted output.
 
 Copy `.env.example` to `.env` when you want to point Hugging Face at your own local endpoint.
 

@@ -337,8 +337,25 @@ else:
 _warn_on_obsolete_backend_env()
 
 
+GEMINI_BACKEND = "gemini"
+GEMINI_AVAILABLE_VOICES = ["Aoede", "Charon", "Fenrir", "Kore", "Puck"]
+
+
+def normalize_conversation_backend(value: object) -> str | None:
+    """Return a supported explicit provider selection."""
+    if isinstance(value, str) and value.strip().lower() in (HF_BACKEND, GEMINI_BACKEND):
+        return value.strip().lower()
+    return None
+
+
 class Config:
     """Configuration class for the conversation app."""
+
+    CONVERSATION_BACKEND = normalize_conversation_backend(os.getenv("REACHY_MINI_CONVERSATION_BACKEND")) or HF_BACKEND
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live").strip()
+    GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Kore").strip()
+    GEMINI_VOICE_OVERRIDE: str | None = None
 
     HF_REALTIME_CONNECTION_MODE = (
         normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
@@ -456,6 +473,13 @@ config = Config()
 def refresh_runtime_config_from_env() -> None:
     """Refresh mutable runtime config fields from the current environment."""
     _warn_on_obsolete_backend_env()
+    config.CONVERSATION_BACKEND = (
+        normalize_conversation_backend(os.getenv("REACHY_MINI_CONVERSATION_BACKEND")) or HF_BACKEND
+    )
+    config.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+    config.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live").strip()
+    config.GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Kore").strip()
+    config.GEMINI_VOICE_OVERRIDE = None
     config.HF_REALTIME_CONNECTION_MODE = (
         normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
     )

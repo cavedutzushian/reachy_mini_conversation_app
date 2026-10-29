@@ -4,8 +4,11 @@ If the selected backend is missing its required API key, a settings page is
 served via the Reachy Mini Apps settings server so users can configure it.
 """
 
+import re
+import json
 import time
 import asyncio
+import hashlib
 import logging
 import itertools
 import threading
@@ -14,7 +17,10 @@ from pathlib import Path
 from collections import deque
 from collections.abc import Mapping, Callable
 
+import httpx
 import numpy as np
+from openai import APIStatusError
+from websockets.exceptions import InvalidStatus
 
 from reachy_mini import ReachyMini
 from reachy_mini.io.jsonrpc import JsonRpcError
@@ -22,8 +28,10 @@ from reachy_mini.apps.jsonrpc_server import JsonRpcServer
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import (
     HF_BACKEND,
+    GEMINI_BACKEND,
     LOCKED_PROFILE,
     HF_REALTIME_WS_URL_ENV,
+    GEMINI_AVAILABLE_VOICES,
     HF_LOCAL_CONNECTION_MODE,
     HF_DEPLOYED_CONNECTION_MODE,
     config,
@@ -36,6 +44,7 @@ from reachy_mini_conversation_app.config import (
     has_hf_realtime_target,
     parse_hf_direct_target,
     get_hf_connection_selection,
+    normalize_conversation_backend,
     refresh_runtime_config_from_env,
 )
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_language, get_session_instructions
@@ -49,9 +58,11 @@ from reachy_mini_conversation_app.settings_store import (
     apply_settings_to_runtime,
     load_settings_into_runtime,
 )
+from reachy_mini_conversation_app.gemini_realtime import GeminiConnectionError
 from reachy_mini_conversation_app.language_routes import LanguageScope, register_language_methods
+from reachy_mini_conversation_app.audio.resampling import AudioResampler
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
-from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, initialize_tools
+from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, get_tool_specs, initialize_tools
 from reachy_mini_conversation_app.tool_space_routes import register_tool_space_methods
 from reachy_mini_conversation_app.personality_routes import (
     build_personality_ops,
@@ -60,6 +71,12 @@ from reachy_mini_conversation_app.personality_routes import (
 from reachy_mini_conversation_app.profile_tool_routes import register_profile_tool_methods
 from reachy_mini_conversation_app.audio.startup_config import apply_audio_startup_config
 from reachy_mini_conversation_app.conversation_handler import VADStatus, AudioFrame, ConversationHandler
+from reachy_mini_conversation_app.huggingface_realtime import (
+    CLOSE_TIMEOUT_S,
+    SETUP_TIMEOUT_S,
+    RealtimeSessionState,
+    RealtimeConversationHandler,
+)
 
 
 try:
@@ -151,7 +168,20 @@ class LocalStream:
         self._audio_warming_up = False
         self._backend_connection_state = "not_started"
         self._backend_error: str | None = None
+        self._backend_error_reason: str | None = None
         self._backend_retry_delay = BACKEND_RETRY_DELAY_SECONDS
+        self._retry_attempt = 0
+        self._retry_delay_seconds: float | None = None
+        self._retry_requested = asyncio.Event()
+        self._session_task: asyncio.Task[None] | None = None
+        self._retired_handler: ConversationHandler | None = None
+        self._transition_lock = asyncio.Lock()
+        self._pending_say: str | None = None
+        self._playback_resampler: AudioResampler | None = None
+        self._playback_rates: tuple[int, int, int] | None = None
+        self.session_state = (
+            handler.session_state if isinstance(handler, RealtimeConversationHandler) else RealtimeSessionState()
+        )
         # JSON-RPC control surface (mounted at /rpc in _init_settings_ui_if_needed).
         # Notifications (conversation.turn/phase/transcript/latency/activity) are pushed
         # here from activity, transcripts and latencies. Survives handler rebuilds (mounted once).
@@ -169,17 +199,36 @@ class LocalStream:
     def _install_handler(self, handler: ConversationHandler) -> None:
         """Set the active handler and wire LocalStream-owned helpers into it."""
         self.handler = handler
-        self.handler._clear_queue = self.clear_audio_queue
+        handler.session_state = self.session_state
+        handler.exchange_completed = self._exchange_completed
+        handler.transcript_interrupted = self._dispatch_interrupted
+        self.handler._clear_queue = lambda: self.clear_audio_queue(handler)
         self._attach_observers_to_handler()
+
+    def _exchange_completed(self) -> None:
+        self._retry_attempt = 0
+
+    def _dispatch_interrupted(self) -> None:
+        self._publish_conversation_event("conversation.interrupted", {"role": "assistant", "state": "interrupted"})
 
     def _attach_observers_to_handler(self) -> None:
         """Wire the handler's activity, transcript and latency observers to JSON-RPC pushes."""
+        owner = self.handler
+
+        def activity(reason: str) -> None:
+            if self.handler is owner:
+                self._dispatch_activity(reason)
+
+        def transcript(role: str, text: str, final: bool) -> None:
+            if self.handler is owner:
+                self._dispatch_transcript(role, text, final)
+
         setter = getattr(self.handler, "set_activity_observer", None)
         if callable(setter):
-            setter(self._dispatch_activity)
+            setter(activity)
         transcript_setter = getattr(self.handler, "set_transcript_observer", None)
         if callable(transcript_setter):
-            transcript_setter(self._dispatch_transcript)
+            transcript_setter(transcript)
         latency_setter = getattr(self.handler, "set_latency_observer", None)
         if callable(latency_setter):
             latency_setter(self._dispatch_latency)
@@ -248,6 +297,13 @@ class LocalStream:
 
     def _dispatch_activity(self, reason: str) -> None:
         """Fan one activity reason out to JSON-RPC clients."""
+        if reason in ("fresh_context", "uncertain_action", "reconnecting"):
+            message = {
+                "fresh_context": "Starting a fresh conversation.",
+                "uncertain_action": "A previous robot action may have started. Its outcome is unknown; it will not be repeated.",
+                "reconnecting": "Reconnecting to the selected service.",
+            }[reason]
+            self._publish_conversation_event("conversation.context", {"message": message})
         if self._rpc is not None:
             # Raw reason (the browser orb maps it exactly like the old SSE feed)...
             self._rpc.broadcast_threadsafe("conversation.activity", {"reason": reason})
@@ -268,6 +324,8 @@ class LocalStream:
 
     def _backend_connected(self) -> bool:
         """Return whether the active handler currently has a realtime connection."""
+        if isinstance(self.handler, RealtimeConversationHandler):
+            return self.handler._is_connected()
         try:
             handler_state = vars(self.handler)
         except TypeError:
@@ -288,12 +346,38 @@ class LocalStream:
 
     async def _shutdown_active_handler(self) -> None:
         """Best-effort shutdown for the currently active handler."""
+        if self._retired_handler is self.handler:
+            return
+        self._retired_handler = self.handler
+        self.session_state.begin_connection()
+        if any(
+            invocation.status in ("running", "uncertain") for invocation in self.session_state.invocations.values()
+        ):
+            self._dispatch_activity("uncertain_action")
+        cleanup = asyncio.create_task(self.handler.shutdown())
+        operations = {cleanup}
+        if isinstance(self.handler, ConversationHandler):
+            operations.add(asyncio.create_task(self.clear_audio_queue(self.handler)))
         try:
-            await self.handler.shutdown()
+            finished, pending = await asyncio.wait(operations, timeout=CLOSE_TIMEOUT_S)
+            for operation in pending:
+                operation.cancel()
+                operation.add_done_callback(self._consume_retired_task)
+            if pending:
+                logger.warning("Backend close exceeded five seconds")
+            for operation in finished:
+                await operation
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            logger.debug("Active handler shutdown ignored during restart: %s", e)
+        except TimeoutError:
+            logger.warning("Backend close exceeded five seconds")
+        except Exception:
+            logger.warning("Backend cleanup failed")
+
+    @staticmethod
+    def _consume_retired_task(task: asyncio.Task[None]) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning("Retired backend task ended with an error")
 
     def _mark_restart_requested(self, reason: str) -> None:
         """Request a backend restart from a synchronous route handler."""
@@ -309,34 +393,63 @@ class LocalStream:
         """Ask the startup loop to rebuild the backend and stop the current handler."""
         self._set_backend_connection_state("connecting")
         self._restart_requested.set()
-        await self._shutdown_active_handler()
+        async with self._transition_lock:
+            if reason != "injected_speech":
+                self._pending_say = None
+            if self._session_task is not None:
+                self._session_task.cancel()
+            if any(
+                invocation.status in ("received", "running", "uncertain")
+                for invocation in self.session_state.invocations.values()
+            ):
+                self._dispatch_activity("uncertain_action")
+            self.session_state.fresh(config.CONVERSATION_BACKEND, "")
+            self._dispatch_activity("fresh_context")
+            await self._shutdown_active_handler()
 
-    async def _sleep_or_restart_requested(self, delay: float) -> None:
+    async def _sleep_or_restart_requested(self, delay: float | None) -> None:
         """Sleep for a retry interval, waking early if a restart is requested."""
         if self._restart_requested.is_set():
             return
+        waits = [
+            asyncio.create_task(self._restart_requested.wait()),
+            asyncio.create_task(self._retry_requested.wait()),
+            asyncio.create_task(self._stop_event.wait()),
+        ]
         try:
-            await asyncio.wait_for(self._restart_requested.wait(), timeout=delay)
-        except asyncio.TimeoutError:
-            pass
+            await asyncio.wait(waits, timeout=delay, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for waiter in waits:
+                waiter.cancel()
+            await asyncio.gather(*waits, return_exceptions=True)
+            self._retry_requested.clear()
 
     @staticmethod
     def _format_backend_error(error: BaseException | str) -> str:
         """Return a compact user-facing backend error string."""
         if isinstance(error, str):
             return error
-        message = str(error).strip()
-        if message:
-            return f"{type(error).__name__}: {message}"
-        return type(error).__name__
+        if isinstance(error, GeminiConnectionError):
+            return error.reason
+        if isinstance(error, ValueError):
+            if "voice" in str(error):
+                return "invalid_gemini_voice"
+            return "invalid_params"
+        return "Backend connection failed. Check configuration and retry."
 
     def _set_backend_connection_state(self, state: str, error: BaseException | str | None = None) -> None:
         """Update backend connection status exposed through the settings UI."""
         self._backend_connection_state = state
         if error is not None:
             self._backend_error = self._format_backend_error(error)
+            self._backend_error_reason = (
+                self._backend_error
+                if isinstance(error, (GeminiConnectionError, ValueError, str))
+                else "connection_lost"
+            )
         elif state != "disconnected":
             self._backend_error = None
+            self._backend_error_reason = None
 
     def _backend_connection_status(self) -> dict[str, object]:
         """Return the backend connection state exposed in the settings API."""
@@ -346,6 +459,10 @@ class LocalStream:
             "backend_connected": connected,
             "backend_connection_state": state,
             "backend_error": None if connected else self._backend_error,
+            "backend_error_reason": None if connected else self._backend_error_reason,
+            "backend_context_state": self.session_state.context_state,
+            "backend_retry_attempt": self._retry_attempt,
+            "backend_retry_delay_seconds": self._retry_delay_seconds,
         }
 
     def _remove_persisted_env_values(self, env_names: tuple[str, ...]) -> None:
@@ -407,6 +524,9 @@ class LocalStream:
 
     async def _refresh_instructions(self) -> bool:
         """Push rebuilt instructions to the live session (see memory.clear)."""
+        if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            await self.request_backend_restart("instructions_changed")
+            return False
         return await self.handler.refresh_instructions()
 
     def _set_memory_enabled(self, enabled: bool) -> None:
@@ -471,11 +591,15 @@ class LocalStream:
         return "Applied personality and restarting backend."
 
     async def get_available_voices(self) -> list[str]:
-        """Return the voices available for the Hugging Face backend."""
+        """Return voices for the selected provider."""
+        if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            return list(GEMINI_AVAILABLE_VOICES)
         return get_available_voices()
 
     def get_current_voice(self) -> str:
         """Return the currently selected voice override or profile voice."""
+        if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            return config.GEMINI_VOICE_OVERRIDE or get_session_voice(default=config.GEMINI_VOICE or "Kore")
         if self._voice_override:
             return self._voice_override
         try:
@@ -486,6 +610,12 @@ class LocalStream:
 
     async def change_voice(self, voice: str) -> str:
         """Change the voice through the active handler without rebuilding the backend."""
+        if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            if voice not in GEMINI_AVAILABLE_VOICES:
+                raise ValueError("invalid_gemini_voice")
+            self._save_settings(AppSettings(gemini_voice=voice))
+            await self.request_backend_restart("voice_changed")
+            return "Voice saved. Starting a fresh conversation."
         try:
             status = await self.handler.change_voice(voice)
         except asyncio.CancelledError:
@@ -548,7 +678,10 @@ class LocalStream:
             has_hf_connection = hf_connection_selection.has_target
             backend_connection = self._backend_connection_status()
             return {
-                "backend": HF_BACKEND,
+                "backend": config.CONVERSATION_BACKEND,
+                "gemini_model": config.GEMINI_MODEL,
+                "gemini_voice": config.GEMINI_VOICE_OVERRIDE or get_session_voice(default=config.GEMINI_VOICE),
+                "gemini_key_configured": bool(config.GEMINI_API_KEY),
                 "has_key": has_hf_connection,
                 "has_hf_session_url": bool(hf_session_url),
                 "has_hf_ws_url": bool(hf_ws_url),
@@ -556,7 +689,9 @@ class LocalStream:
                 "hf_connection_mode": hf_connection_selection.mode,
                 "hf_direct_host": hf_direct_host,
                 "hf_direct_port": hf_direct_port,
-                "can_proceed": has_hf_connection,
+                "can_proceed": bool(config.GEMINI_API_KEY)
+                if config.CONVERSATION_BACKEND == GEMINI_BACKEND
+                else has_hf_connection,
                 "can_proceed_with_hf": has_hf_connection,
                 "requires_restart": not self._can_rebuild_handler(),
                 # What the mobile client would otherwise need four more calls for.
@@ -591,6 +726,8 @@ class LocalStream:
         def _rpc_status(_params: dict[str, object]) -> dict[str, object]:
             return _status_payload()
 
+        rpc.register("status.get", _rpc_status)
+
         @rpc.method("conversation.say")  # type: ignore[untyped-decorator]
         async def _rpc_say(params: dict[str, object]) -> dict[str, object]:
             text = str(params.get("text", "")).strip()
@@ -598,8 +735,12 @@ class LocalStream:
                 raise JsonRpcError("say requires 'text'", reason="invalid_params", code=-32602)
             if not self.handler._is_connected():
                 raise JsonRpcError("no active session", reason="not_running")
-            await self.handler.interrupt()
-            await self.handler.say(text)
+            if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+                self._pending_say = text
+                await self.request_backend_restart("injected_speech")
+            else:
+                await self.handler.interrupt()
+                await self.handler.say(text)
             return {"ok": True}
 
         @rpc.method("conversation.interrupt")  # type: ignore[untyped-decorator]
@@ -624,6 +765,32 @@ class LocalStream:
 
         @rpc.method("backend.config")  # type: ignore[untyped-decorator]
         def _rpc_backend_config(params: dict[str, object]) -> dict[str, object]:
+            allowed = {"backend", "hf_mode", "hf_host", "hf_port", "gemini_model", "gemini_voice"}
+            if set(params) - allowed:
+                raise JsonRpcError("unknown connection parameter", reason="invalid_params", code=-32602)
+            legacy_hf = bool(set(params) & {"hf_mode", "hf_host", "hf_port"})
+            backend = normalize_conversation_backend(
+                params.get("backend", HF_BACKEND if legacy_hf else config.CONVERSATION_BACKEND)
+            )
+            if backend is None:
+                raise JsonRpcError("invalid provider", reason="invalid_backend", code=-32602)
+            model, voice = params.get("gemini_model"), params.get("gemini_voice")
+            if model is not None and (
+                not isinstance(model, str) or not re.fullmatch(r"(?:models/)?[a-zA-Z0-9._-]+", model)
+            ):
+                raise JsonRpcError("invalid Gemini model", reason="invalid_gemini_model", code=-32602)
+            if voice is not None and (not isinstance(voice, str) or voice not in GEMINI_AVAILABLE_VOICES):
+                raise JsonRpcError("select a Gemini voice", reason="invalid_gemini_voice", code=-32602)
+            if backend == GEMINI_BACKEND or not legacy_hf:
+                self._save_settings(
+                    AppSettings(
+                        conversation_backend=backend,
+                        gemini_model=model if isinstance(model, str) else None,
+                        gemini_voice=voice if isinstance(voice, str) else None,
+                    )
+                )
+                self._mark_restart_requested("backend_config_changed")
+                return {"ok": True, "message": "Selection saved. Starting a fresh conversation.", **_status_payload()}
             hf_selection = get_hf_connection_selection()
             hf_mode = str(params.get("hf_mode") or hf_selection.mode).strip().lower()
             if hf_mode == HF_LOCAL_CONNECTION_MODE:
@@ -634,7 +801,10 @@ class LocalStream:
                 if "://" in host or "/" in host or "?" in host or "#" in host:
                     raise JsonRpcError("invalid Hugging Face host", reason="invalid_hf_host", code=-32602)
                 raw_port = params.get("hf_port")
-                port = int(raw_port) if isinstance(raw_port, (int, float, str)) else (existing_port or 8765)
+                try:
+                    port = int(raw_port) if isinstance(raw_port, (int, float, str)) else (existing_port or 8765)
+                except (ValueError, OverflowError):
+                    raise JsonRpcError("invalid Hugging Face port", reason="invalid_hf_port", code=-32602) from None
                 if port < 1 or port > 65535:
                     raise JsonRpcError("invalid Hugging Face port", reason="invalid_hf_port", code=-32602)
                 self._persist_hf_direct_connection(host, port)
@@ -647,12 +817,33 @@ class LocalStream:
             else:
                 raise JsonRpcError("invalid Hugging Face mode", reason="invalid_hf_mode", code=-32602)
 
+            self._save_settings(
+                AppSettings(
+                    conversation_backend=backend,
+                    gemini_model=model if isinstance(model, str) else None,
+                    gemini_voice=voice if isinstance(voice, str) else None,
+                )
+            )
             if self._can_rebuild_handler():
                 self._mark_restart_requested("backend_config_changed")
                 message = "Connection saved. Reconnecting backend."
             else:
                 message = "Connection saved. Restart Reachy Mini Conversation from the desktop app to apply it."
             return {"ok": True, "message": message, **_status_payload()}
+
+        def _rpc_backend_retry(params: dict[str, object]) -> dict[str, object]:
+            if params:
+                raise JsonRpcError("Retry takes no parameters", reason="invalid_params", code=-32602)
+            if self._backend_connected() or self._backend_connection_state == "connecting":
+                return {"ok": True, "message": "Connection is already active or connecting.", **_status_payload()}
+            loop = self._asyncio_loop
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._retry_requested.set)
+            else:
+                self._retry_requested.set()
+            return {"ok": True, "message": "Retry scheduled.", **_status_payload()}
+
+        rpc.register("backend.retry", _rpc_backend_retry)
 
         def _rpc_speech_config(params: dict[str, object]) -> dict[str, object]:
             names = ("local_vad_enabled", "local_barge_in_enabled")
@@ -750,63 +941,158 @@ class LocalStream:
 
         self._settings_initialized = True
 
+    def _configuration_ready(self) -> bool:
+        if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            return bool(config.GEMINI_API_KEY)
+        return has_hf_realtime_target()
+
     async def _run_handler_startup_loop(self) -> None:
-        """Start the realtime handler and keep settings UI alive after backend failures."""
+        """Own the sole recovery schedule for the explicitly selected provider."""
+        replace = False
         while not self._stop_event.is_set():
-            if self._restart_requested.is_set():
+            if self._restart_requested.is_set() or replace:
                 await self._shutdown_active_handler()
-                if not self._can_rebuild_handler():
+                if self.session_state.provider != config.CONVERSATION_BACKEND:
+                    if any(
+                        invocation.status in ("running", "uncertain")
+                        for invocation in self.session_state.invocations.values()
+                    ):
+                        self._dispatch_activity("uncertain_action")
+                    self.session_state.fresh(config.CONVERSATION_BACKEND, "")
+                    self._dispatch_activity("fresh_context")
+                if self._restart_requested.is_set() and not self._can_rebuild_handler():
                     self._restart_requested.clear()
                     self._set_backend_connection_state("restart_required")
                     await self._sleep_or_restart_requested(0.5)
                     continue
                 self._restart_requested.clear()
-                try:
+                if self._can_rebuild_handler():
                     self._build_handler_for_current_backend()
-                except Exception as e:
-                    self._set_backend_connection_state("disconnected", e)
-                    logger.warning(
-                        "Backend handler failed to initialize: %s. Retrying in %.1f seconds.",
-                        e,
-                        self._backend_retry_delay,
-                        exc_info=logger.isEnabledFor(logging.DEBUG),
-                    )
-                    await self._sleep_or_restart_requested(self._backend_retry_delay)
-                    continue
-
-            if not has_hf_realtime_target():
-                self._set_backend_connection_state(
-                    "waiting_for_config", f"{HF_REALTIME_WS_URL_ENV} is not configured."
+                replace = False
+            if not self._configuration_ready():
+                reason = (
+                    "missing_gemini_key"
+                    if config.CONVERSATION_BACKEND == GEMINI_BACKEND
+                    else "Hugging Face target is not configured."
                 )
+                self._set_backend_connection_state("waiting_for_config", reason)
                 await self._sleep_or_restart_requested(0.5)
                 continue
-
+            self.session_state.begin_connection()
+            revision = hashlib.sha256(
+                json.dumps(
+                    {
+                        "provider": config.CONVERSATION_BACKEND,
+                        "model": config.GEMINI_MODEL,
+                        "voice": self.get_current_voice(),
+                        "instructions": get_session_instructions(self._instance_path),
+                        "tools": get_tool_specs(),
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            if self.session_state.revision and self.session_state.revision != revision:
+                if any(
+                    invocation.status in ("running", "uncertain")
+                    for invocation in self.session_state.invocations.values()
+                ):
+                    self._dispatch_activity("uncertain_action")
+                self.session_state.fresh(config.CONVERSATION_BACKEND, revision)
+                self._dispatch_activity("fresh_context")
+            self.session_state.revision = revision
+            if isinstance(self.handler, RealtimeConversationHandler):
+                self.handler._generation = self.session_state.generation
+                self.handler._closed = False
+            self._retry_delay_seconds = None
             self._set_backend_connection_state("connecting")
+            recoverable = True
             try:
-                await self.handler.start_up()
+                self._session_task = asyncio.create_task(self.handler.start_up())
+                deadline = time.monotonic() + SETUP_TIMEOUT_S
+                acknowledged = False
+                while not self._session_task.done():
+                    if self._restart_requested.is_set() or self._stop_event.is_set():
+                        self.session_state.begin_connection()
+                        self._session_task.cancel()
+                        break
+                    if not acknowledged and self._backend_connected():
+                        acknowledged = True
+                        if config.CONVERSATION_BACKEND == HF_BACKEND:
+                            self.session_state.context_state = "new"
+                            self._dispatch_activity("fresh_context")
+                    if (
+                        acknowledged
+                        and isinstance(self.handler, RealtimeConversationHandler)
+                        and not self.handler._owns_connection()
+                    ):
+                        self._session_task.cancel()
+                        raise GeminiConnectionError(self.handler.connection_error_reason or "connection_lost")
+                    if acknowledged and self._pending_say is not None:
+                        text, self._pending_say = self._pending_say, None
+                        await self.handler.say(text)
+                    if not acknowledged and time.monotonic() >= deadline:
+                        self.session_state.begin_connection()
+                        self._session_task.cancel()
+                        raise GeminiConnectionError("setup_timeout")
+                    await asyncio.wait({self._session_task}, timeout=0.05)
+                if self._session_task.done():
+                    await self._session_task
+                else:
+                    self._session_task.add_done_callback(self._consume_retired_task)
+                self._set_backend_connection_state("disconnected", "connection_lost")
             except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                self._set_backend_connection_state("disconnected", e)
-                logger.warning(
-                    "Backend failed to start: %s. Settings UI remains available; retrying in %.1f seconds.",
-                    e,
-                    self._backend_retry_delay,
-                    exc_info=logger.isEnabledFor(logging.DEBUG),
-                )
+                if not self._restart_requested.is_set():
+                    raise
+            except Exception as error:
+                if isinstance(error, GeminiConnectionError):
+                    recoverable = error.recoverable
+                elif isinstance(error, (httpx.HTTPStatusError, APIStatusError, InvalidStatus)):
+                    code = error.response.status_code
+                    remote_body = error.response.body if isinstance(error, InvalidStatus) else error.response.content
+                    remote_message = (
+                        bytes(remote_body).decode("utf-8", errors="replace").lower() if remote_body else ""
+                    )
+                    if code in (400, 401, 403, 404):
+                        recoverable = False
+                        error = GeminiConnectionError(
+                            {
+                                400: "invalid_params",
+                                401: "authentication_failed",
+                                403: "access_unavailable",
+                                404: "access_unavailable",
+                            }[code],
+                            recoverable=False,
+                        )
+                    elif code == 429 and any(
+                        word in remote_message
+                        for word in ("insufficient_quota", "billing", "daily", "quota exhausted")
+                    ):
+                        recoverable = False
+                        error = GeminiConnectionError("quota_exceeded", recoverable=False)
+                elif isinstance(error, ValueError):
+                    recoverable = False
+                self._set_backend_connection_state("disconnected" if recoverable else "waiting_for_config", error)
+                logger.warning("Backend attempt ended: %s", self._backend_error)
+            finally:
+                if self._session_task is not None and not self._session_task.done():
+                    self.session_state.begin_connection()
+                    self._session_task.cancel()
+                    self._session_task.add_done_callback(self._consume_retired_task)
+                self._session_task = None
+            if self._stop_event.is_set():
+                return
+            await self._shutdown_active_handler()
+            self.session_state.context_state = "unavailable"
+            replace = True
+            if self._restart_requested.is_set():
+                continue
+            if recoverable:
+                self._retry_attempt += 1
+                self._retry_delay_seconds = min(30.0, 2.0 ** min(self._retry_attempt - 1, 5))
+                await self._sleep_or_restart_requested(self._retry_delay_seconds)
             else:
-                if self._stop_event.is_set():
-                    return
-                self._set_backend_connection_state("disconnected")
-                if self._restart_requested.is_set():
-                    logger.info("Backend stopped for requested restart.")
-                    continue
-                logger.info(
-                    "Backend session ended. Settings UI remains available; retrying in %.1f seconds.",
-                    self._backend_retry_delay,
-                )
-
-            await self._sleep_or_restart_requested(self._backend_retry_delay)
+                self._retry_delay_seconds = None
+                await self._sleep_or_restart_requested(None)
 
     def launch(self) -> None:
         """Start the recorder/player and run the async processing loops.
@@ -835,7 +1121,7 @@ class LocalStream:
         self._init_settings_ui_if_needed()
 
         # If the Hugging Face target is still missing -> wait until provided via the settings UI
-        if not has_hf_realtime_target():
+        if not self._configuration_ready():
             self._set_backend_connection_state("waiting_for_config", f"{HF_REALTIME_WS_URL_ENV} is not configured.")
             if self._settings_app is None:
                 logger.error(
@@ -846,7 +1132,7 @@ class LocalStream:
             logger.warning("%s not found. Open the app settings page to configure it.", HF_REALTIME_WS_URL_ENV)
             # Poll until a target becomes available (set via the settings UI)
             try:
-                while not self._stop_event.is_set() and not has_hf_realtime_target():
+                while not self._stop_event.is_set() and not self._configuration_ready():
                     time.sleep(0.2)
             except KeyboardInterrupt:
                 logger.info("Interrupted while waiting for Hugging Face configuration.")
@@ -884,7 +1170,7 @@ class LocalStream:
                 logger.info("Tasks cancelled during shutdown")
             finally:
                 # Ensure handler connection is closed
-                await self.handler.shutdown()
+                await self._shutdown_active_handler()
 
         asyncio.run(runner())
 
@@ -920,15 +1206,21 @@ class LocalStream:
             if not task.done():
                 loop.call_soon_threadsafe(task.cancel)
 
-    async def clear_audio_queue(self) -> None:
+    async def clear_audio_queue(self, expected_handler: ConversationHandler | None = None) -> None:
         """Invalidate pending chunks and flush SDK playback without blocking microphone capture."""
         async with self._playback_flush_lock:
+            if expected_handler is not None and self.handler is not expected_handler:
+                return
             logger.info("User intervention: flushing player queue")
             handler = self.handler
             handler.playback_epoch += 1
+            if isinstance(handler.playback_epoch, int):
+                self.session_state.response_epoch = handler.playback_epoch
             handler.playback_until = 0.0
             self._playback_clock = 0.0
             handler.playback_pending_frames = 0
+            if self._playback_resampler is not None:
+                self._playback_resampler.reset()
             handler.playback_ready.clear()
             self._drain_output_queue()
             audio = self._robot.media.audio
@@ -936,10 +1228,15 @@ class LocalStream:
                 if audio is not None:
                     flush_task = asyncio.create_task(asyncio.to_thread(audio.clear_player))
                     try:
-                        await asyncio.shield(flush_task)
-                    except asyncio.CancelledError:
-                        await flush_task
-                        raise
+                        finished, _pending = await asyncio.wait({flush_task}, timeout=CLOSE_TIMEOUT_S)
+                        if finished:
+                            await flush_task
+                        else:
+                            logger.warning("Player flush exceeded five seconds")
+                    finally:
+                        if not flush_task.done():
+                            flush_task.cancel()
+                            flush_task.add_done_callback(self._consume_retired_task)
             except (OSError, RuntimeError) as exc:
                 logger.warning("Failed to clear player queue: %s", exc)
             finally:
@@ -969,26 +1266,38 @@ class LocalStream:
         logger.debug(f"Audio recording started at {input_sample_rate} Hz")
 
         loop = asyncio.get_running_loop()
-        frames: asyncio.Queue[AudioFrame] = asyncio.Queue()
+        frames: asyncio.Queue[tuple[int, AudioFrame]] = asyncio.Queue(maxsize=1)
         stop_reading = threading.Event()
+
+        def deliver(generation: int, frame: AudioFrame) -> None:
+            if frames.full():
+                frames.get_nowait()
+            frames.put_nowait((generation, frame))
 
         def read_microphone() -> None:
             # The SDK read blocks up to 20 ms: one reader thread costs less than a thread hop per frame.
             while not stop_reading.is_set() and not self._stop_event.is_set():
                 warming_up = self._audio_warming_up  # a read spanning the end of warmup still holds warmup audio
+                generation = self.session_state.generation
+                connected = self._backend_connected()
                 audio_frame = self._robot.media.get_audio_sample()
-                if audio_frame is not None and not warming_up:
-                    loop.call_soon_threadsafe(frames.put_nowait, (input_sample_rate, audio_frame))
+                if (
+                    audio_frame is not None
+                    and not warming_up
+                    and connected
+                    and generation == self.session_state.generation
+                ):
+                    loop.call_soon_threadsafe(deliver, generation, (input_sample_rate, audio_frame))
 
         reader = threading.Thread(target=read_microphone, name="microphone-reader", daemon=True)
         reader.start()
         try:
             while not self._stop_event.is_set():
                 try:
-                    frame = await asyncio.wait_for(frames.get(), timeout=0.5)
+                    generation, frame = await asyncio.wait_for(frames.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                if not self._mic_muted:
+                if not self._mic_muted and generation == self.session_state.generation:
                     await self.handler.receive(frame)
                     self._emit_level("user", frame[1])
         finally:
@@ -999,10 +1308,16 @@ class LocalStream:
         """Fetch outputs from the handler: log text and play audio frames."""
         while not self._stop_event.is_set():
             handler = self.handler
+            generation = self.session_state.generation
             playback_epoch = handler.playback_epoch
             try:
                 handler_output = await asyncio.wait_for(handler.emit(), timeout=0.5)
             except asyncio.TimeoutError:
+                continue
+
+            if handler is not self.handler or generation != self.session_state.generation:
+                continue
+            if isinstance(handler, RealtimeConversationHandler) and not handler._owns_connection():
                 continue
 
             if isinstance(handler_output, AdditionalOutputs):
@@ -1026,6 +1341,16 @@ class LocalStream:
                 # Skip empty audio frames
                 if audio_data.size == 0:
                     continue
+
+                output_rate = self._robot.media.get_output_audio_samplerate()
+                if isinstance(output_rate, int) and output_rate > 0 and sample_rate != output_rate:
+                    rates = (sample_rate, output_rate, playback_epoch)
+                    if self._playback_rates != rates:
+                        self._playback_rates = rates
+                        self._playback_resampler = AudioResampler(sample_rate, output_rate)
+                    if self._playback_resampler is not None:
+                        audio_data = self._playback_resampler.process(audio_data.reshape(-1))
+                        sample_rate = output_rate
 
                 # Reshape if needed
                 if audio_data.ndim == 2:

@@ -2,9 +2,38 @@
 
 import threading
 from types import SimpleNamespace
+from argparse import Namespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import reachy_mini_conversation_app.main as main_mod
+import reachy_mini_conversation_app.moves as moves_mod
+import reachy_mini_conversation_app.console as console_mod
+from reachy_mini_conversation_app.config import config
+
+
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+def test_factory_keeps_owner_state_across_handler_replacement(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The existing factory selects only the configured provider and retains owner state."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+    monkeypatch.setattr(main_mod, "start_import_warmup", MagicMock())
+    monkeypatch.setattr(main_mod.app_lifecycle, "wake_up_if_sleeping", MagicMock())
+    monkeypatch.setattr(main_mod.app_lifecycle, "initialize_tools_with_default_fallback", MagicMock())
+    monkeypatch.setattr(moves_mod, "MovementManager", MagicMock())
+    monkeypatch.setattr("reachy_mini_conversation_app.config.resolve_app_timeout_minutes", lambda: None)
+    monkeypatch.setattr("reachy_mini_conversation_app.settings_store.load_settings_into_runtime", MagicMock())
+    monkeypatch.setattr(main_mod.time, "sleep", MagicMock())
+    stream_factory = MagicMock()
+    monkeypatch.setattr(console_mod, "LocalStream", stream_factory)
+    main_mod.run(Namespace(debug=False, ui=False, no_camera=True, robot_name=None), robot=MagicMock())
+    initial = stream_factory.call_args.args[0]
+    factory = stream_factory.call_args.kwargs["handler_factory"]
+    replacement = factory(None)
+    assert isinstance(
+        initial, main_mod.GeminiRealtimeHandler if provider == "gemini" else main_mod.HuggingFaceRealtimeHandler
+    )
+    assert replacement.session_state is initial.session_state
 
 
 def test_inactivity_timeout_thread_goes_to_sleep() -> None:

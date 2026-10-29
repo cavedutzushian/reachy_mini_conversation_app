@@ -3,7 +3,7 @@ import time
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import ClassVar, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, ClassVar, TypeAlias, TypedDict
 from collections.abc import Callable
 
 import numpy as np
@@ -13,6 +13,10 @@ from reachy_mini_conversation_app.streaming import AdditionalOutputs, AsyncStrea
 from reachy_mini_conversation_app.idle_policy import start_idle_tool_call
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, get_tool_specs
 from reachy_mini_conversation_app.tools.background_tool_manager import BackgroundToolManager
+
+
+if TYPE_CHECKING:
+    from reachy_mini_conversation_app.huggingface_realtime import RealtimeSessionState
 
 
 logger = logging.getLogger(__name__)
@@ -46,6 +50,13 @@ class ConversationHandler(AsyncStreamHandler, ABC):
     output_queue: asyncio.Queue[QueueItem]
     last_activity_time: float
     last_idle_behavior_time: float
+    session_state: RealtimeSessionState | None = None
+    exchange_completed: Callable[[], None] | None = None
+    transcript_interrupted: Callable[[], None] | None = None
+    _generation: int = 0
+    _closed: bool = False
+    connection_error_reason: str | None = None
+
     _activity_observer: Callable[[str], None] | None = None
     _transcript_observer: Callable[[str, str, bool], None] | None = None
     _latency_observer: Callable[[dict[str, int | str | None]], None] | None = None
@@ -65,6 +76,13 @@ class ConversationHandler(AsyncStreamHandler, ABC):
         self.last_activity_time = time.monotonic()
         self.last_idle_behavior_time = self.last_activity_time
 
+    def notify_exchange_completed(self) -> None:
+        """Notify the connection owner after a completed exchange."""
+        if self.session_state is not None and (self._closed or self._generation != self.session_state.generation):
+            return
+        if self.exchange_completed is not None:
+            self.exchange_completed()
+
     def set_activity_observer(self, observer: Callable[[str], None] | None) -> None:
         """Attach or detach an activity observer. Pass None to clear."""
         self._activity_observer = observer
@@ -83,6 +101,8 @@ class ConversationHandler(AsyncStreamHandler, ABC):
 
     def _emit_transcript(self, role: str, text: str, final: bool = True) -> None:
         """Forward one transcript chunk to the observer, if attached."""
+        if self.session_state is not None and (self._closed or self._generation != self.session_state.generation):
+            return
         observer = self._transcript_observer
         if observer is not None and text:
             try:
@@ -92,6 +112,8 @@ class ConversationHandler(AsyncStreamHandler, ABC):
 
     def _emit_latency(self, latency: dict[str, int | str | None]) -> None:
         """Forward one response's latency breakdown to the observer, if attached."""
+        if self.session_state is not None and (self._closed or self._generation != self.session_state.generation):
+            return
         if self._latency_observer is not None:
             try:
                 self._latency_observer(latency)
@@ -100,6 +122,8 @@ class ConversationHandler(AsyncStreamHandler, ABC):
 
     def _mark_activity(self, reason: str) -> None:
         """Record non-idle conversation activity for the idle timer."""
+        if self.session_state is not None and (self._closed or self._generation != self.session_state.generation):
+            return
         self.last_activity_time = time.monotonic()
         logger.debug("last activity time updated to %s (%s)", self.last_activity_time, reason)
         if self._activity_observer is not None:

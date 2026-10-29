@@ -62,10 +62,12 @@ existing controls, and no live-history transfer between providers or credential 
 | Dependency changes flagged | Pass: none added | Pass: websockets ownership and soxr flagged |
 | Documentation and diagram | Pass: protected files unchanged | Pass: root README/env updates and diagram flag planned |
 
-No unjustified constitutional exception is proposed. Implementation remains gated on an
-agreed issue and approach, eligible account access, usage/data budget, and green repository
-checks. No issue number is known: do not invent one or interpret planning as bypassing this
-requirement. The constitution ratification-date TODO is a separate governance follow-up.
+The user explicitly authorized personal-only customization: local implementation and
+simulated tests may proceed without an upstream Issue or maintainer agreement. This scoped
+instruction supersedes the contribution gate for this local work only. No PR or publication
+is authorized. Paid API calls, service/account eligibility, usage/data budget, physical robot
+trials, and platform checks unavailable here remain deferred and must not be reported passed.
+A green local gate is still required; the ratification-date TODO remains separate governance.
 
 ## Project Structure
 

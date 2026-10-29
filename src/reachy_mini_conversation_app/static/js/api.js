@@ -20,6 +20,8 @@ let rpcCounter = 0;
 const pending = new Map(); // id -> { resolve, reject, timer }
 const subscribers = new Map(); // method -> Set<cb>
 
+export const retryBackend = () => rpcCall("backend.retry");
+
 /** Open (or reuse) the shared /rpc socket. Resolves once OPEN, rejects on fail. */
 function connect() {
   if (socket && socket.readyState === WebSocket.OPEN) return Promise.resolve();

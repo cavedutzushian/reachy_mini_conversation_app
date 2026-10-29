@@ -19,6 +19,7 @@ from dataclasses import asdict, replace, dataclass
 from reachy_mini_conversation_app.config import (
     config,
     normalize_hf_connection_mode,
+    normalize_conversation_backend,
     normalize_transcription_language,
 )
 
@@ -35,6 +36,9 @@ _STORE_LOCK = threading.Lock()
 class AppSettings:
     """Settings chosen through the UI. ``None`` means "not set here"."""
 
+    conversation_backend: str | None = None
+    gemini_model: str | None = None
+    gemini_voice: str | None = None
     hf_connection_mode: str | None = None
     hf_ws_url: str | None = None
     language: str | None = None
@@ -94,7 +98,15 @@ def _read_unlocked(path: Path | None) -> AppSettings:
         logger.warning("Ignoring malformed settings file %s", path)
         return AppSettings()
 
+    provider = _text(payload, "conversation_backend")
+    normalized_provider = normalize_conversation_backend(provider)
+    if provider is not None and normalized_provider is None:
+        logger.warning("Ignoring invalid saved conversation provider")
+        normalized_provider = "huggingface"
     return AppSettings(
+        conversation_backend=normalized_provider,
+        gemini_model=_text(payload, "gemini_model"),
+        gemini_voice=_text(payload, "gemini_voice"),
         hf_connection_mode=_text(payload, "hf_connection_mode"),
         hf_ws_url=_text(payload, "hf_ws_url"),
         language=_text(payload, "language"),
@@ -133,6 +145,12 @@ def update_settings(instance_path: str | Path | None, changes: AppSettings) -> A
 
 def apply_settings_to_runtime(settings: AppSettings) -> None:
     """Apply stored settings over the environment-derived runtime config."""
+    if settings.conversation_backend is not None:
+        config.CONVERSATION_BACKEND = normalize_conversation_backend(settings.conversation_backend) or "huggingface"
+    if settings.gemini_model is not None:
+        config.GEMINI_MODEL = settings.gemini_model
+    if settings.gemini_voice is not None:
+        config.GEMINI_VOICE_OVERRIDE = settings.gemini_voice
     if settings.hf_connection_mode is not None:
         mode = normalize_hf_connection_mode(settings.hf_connection_mode)
         if mode is not None:

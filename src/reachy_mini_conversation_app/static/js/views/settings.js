@@ -7,6 +7,7 @@ import {
   getStatus,
   listVoices,
   saveBackendConfig,
+  retryBackend,
   saveSpeechConfig,
   untilReady,
 } from "../api.js";
@@ -20,6 +21,19 @@ const HF_CONNECTION_MODES = Object.freeze({
 
 const DEFAULT_HF_HOST = "localhost";
 const DEFAULT_HF_PORT = 8765;
+const BACKEND_ERRORS = Object.freeze({
+  missing_gemini_key: "Set GEMINI_API_KEY in the private app .env, then restart the app.",
+  invalid_gemini_voice: "Choose a supported Gemini voice in Connection settings.",
+  invalid_gemini_model: "Choose a Live model available to your Gemini Developer API account.",
+  authentication_failed: "Correct the selected service credentials, restart the app, then Retry.",
+  access_unavailable: "Check model access and service eligibility for the selected account.",
+  quota_exceeded: "Check billing and available quota before retrying.",
+  tool_schema_unsupported: "An enabled tool has an unsupported definition. Update its schema or disable it.",
+  connection_lost: "Connection lost. Retrying the selected service automatically.",
+  setup_timeout: "Connection setup timed out. Retrying automatically.",
+  send_timeout: "Audio or message delivery timed out. Reconnecting automatically.",
+  resume_unavailable: "The previous conversation cannot resume. Starting fresh.",
+});
 
 const HF_MODE_HINTS = Object.freeze({
   [HF_CONNECTION_MODES.DEPLOYED]: "Uses the hosted Hugging Face backend. No API key required.",
@@ -60,9 +74,25 @@ export async function mountSettingsView({ outlet, signal }) {
     refreshStatus({ statusSection, connectionSection, speechSection, signal }),
     refreshVoices({ voiceSection, signal }),
   ]);
+  const statusTimer = setInterval(async () => {
+    if (signal.aborted) return;
+    try { statusSection.render(await getStatus()); }
+    catch (error) { statusSection.renderUnavailable(error); }
+  }, 2000);
+  signal.addEventListener("abort", () => clearInterval(statusTimer), { once: true });
 }
 
 function buildConnectionSection({ onSaved } = {}) {
+  const providerSelect = h("select", { class: "settings-select", name: "backend" },
+    h("option", { value: "huggingface" }, "Hugging Face"),
+    h("option", { value: "gemini" }, "Gemini"));
+  const modelInput = h("input", { class: "settings-input", name: "gemini_model", value: "gemini-3.8-live" });
+  const geminiVoice = h("select", { class: "settings-select", name: "gemini_voice" },
+    ...["Aoede", "Charon", "Fenrir", "Kore", "Puck"].map(voice => h("option", { value: voice }, voice)));
+  const geminiFields = h("div", { class: "settings-form" },
+    h("label", { class: "settings-field" }, "Model", modelInput),
+    h("label", { class: "settings-field" }, "Gemini voice", geminiVoice),
+    h("p", { class: "settings-hint" }, "Set GEMINI_API_KEY in the private app .env and enable Gemini Developer API access. Charges may apply. Audio, requested camera snapshots, and enabled shared saved memories are sent to the selected service. Switching starts a fresh conversation; saved memories remain shared."));
   const hfModeSelect = h(
     "select",
     { class: "settings-select", name: "hf_mode" },
@@ -110,6 +140,8 @@ function buildConnectionSection({ onSaved } = {}) {
   const form = h(
     "form",
     { class: "settings-form" },
+    h("label", { class: "settings-field" }, "Conversation provider", providerSelect),
+    geminiFields,
     h(
       "label",
       { class: "settings-field" },
@@ -130,15 +162,19 @@ function buildConnectionSection({ onSaved } = {}) {
   );
 
   function syncLocalFields() {
-    const isLocal = hfModeSelect.value === HF_CONNECTION_MODES.LOCAL;
+    const isGemini = providerSelect.value === "gemini";
+    geminiFields.hidden = !isGemini;
+    hfModeSelect.parentElement.hidden = isGemini;
+    const isLocal = !isGemini && hfModeSelect.value === HF_CONNECTION_MODES.LOCAL;
     hfLocalFields.style.display = isLocal ? "" : "none";
     hfHostInput.disabled = !isLocal;
     hfPortInput.disabled = !isLocal;
     hfHostInput.required = isLocal;
     hfPortInput.required = isLocal;
-    hint.textContent = HF_MODE_HINTS[hfModeSelect.value] || "";
+    hint.textContent = isGemini ? "Use Retry after correcting private environment configuration and restarting the app." : HF_MODE_HINTS[hfModeSelect.value] || "";
   }
 
+  providerSelect.addEventListener("change", syncLocalFields);
   hfModeSelect.addEventListener("change", syncLocalFields);
 
   form.addEventListener("submit", async (event) => {
@@ -152,8 +188,11 @@ function buildConnectionSection({ onSaved } = {}) {
     status.classList.remove("is-error");
     status.textContent = "Saving…";
     try {
-      const payload = { hf_mode: hfModeSelect.value };
-      if (hfModeSelect.value === HF_CONNECTION_MODES.LOCAL) {
+      const isGemini = providerSelect.value === "gemini";
+      const payload = isGemini
+        ? { backend: "gemini", gemini_model: modelInput.value.trim(), gemini_voice: geminiVoice.value }
+        : { backend: "huggingface", hf_mode: hfModeSelect.value };
+      if (!isGemini && hfModeSelect.value === HF_CONNECTION_MODES.LOCAL) {
         payload.hf_host = hfHostInput.value.trim();
         if (hfPortInput.value) {
           payload.hf_port = Number.parseInt(hfPortInput.value, 10);
@@ -179,6 +218,9 @@ function buildConnectionSection({ onSaved } = {}) {
   return {
     element,
     syncFromStatus(payload) {
+      providerSelect.value = payload?.backend || "huggingface";
+      modelInput.value = payload?.gemini_model || "gemini-3.8-live";
+      geminiVoice.value = payload?.gemini_voice || "Kore";
       if (Object.values(HF_CONNECTION_MODES).includes(payload?.hf_connection_mode)) {
         hfModeSelect.value = payload.hf_connection_mode;
       }
@@ -349,6 +391,12 @@ function buildDeveloperSection() {
 }
 
 function buildStatusSection() {
+  const retry = h("button", { type: "button", class: "btn" }, "Retry connection");
+  retry.addEventListener("click", async () => {
+    retry.disabled = true;
+    try { await retryBackend(); }
+    finally { retry.disabled = false; }
+  });
   const list = h(
     "dl",
     { class: "settings-status-grid" },
@@ -358,22 +406,30 @@ function buildStatusSection() {
     "section",
     { class: "settings-section" },
     h("h2", { class: "settings-section-title" }, "Current state"),
-    list
+    list,
+    retry
   );
 
   return {
     element,
     render(payload) {
       list.replaceChildren();
+      list.appendChild(statusRow("Provider", payload.backend === "gemini" ? "Gemini" : "Hugging Face"));
+      list.appendChild(statusRow("Conversation context", payload.backend_context_state === "resumed" ? "Resumed" : "Fresh conversation"));
+      if (payload.backend_retry_delay_seconds != null) {
+        list.appendChild(statusRow("Recovery", `Automatic retry ${payload.backend_retry_attempt} in ${payload.backend_retry_delay_seconds}s`));
+      }
+      if (payload.backend === "huggingface") {
       list.appendChild(statusRow("HF connection", formatHfMode(payload.hf_connection_mode)));
       if (payload.hf_connection_mode === HF_CONNECTION_MODES.LOCAL) {
         list.appendChild(statusRow("HF target", formatHfTarget(payload)));
       }
+      }
       list.appendChild(
         statusRow(
           "Configuration",
-          payload.has_hf_connection ? "Ready" : "Missing",
-          payload.has_hf_connection ? "ok" : "warn"
+          payload.can_proceed ? "Ready" : "Missing",
+          payload.can_proceed ? "ok" : "warn"
         )
       );
       const backendState = payload.backend_connected
@@ -395,7 +451,7 @@ function buildStatusSection() {
         )
       );
       if (payload.backend_error) {
-        list.appendChild(statusRow("Backend error", payload.backend_error, "warn"));
+        list.appendChild(statusRow("Backend error", BACKEND_ERRORS[payload.backend_error_reason] || payload.backend_error, "warn"));
       }
       if (payload.requires_restart) {
         list.appendChild(statusRow("Restart", "Required to apply changes", "warn"));

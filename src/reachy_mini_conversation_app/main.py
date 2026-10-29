@@ -21,6 +21,8 @@ from reachy_mini_conversation_app.utils import (
     log_connection_troubleshooting,
 )
 from reachy_mini_conversation_app.config import resolve_instance_path
+from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
+from reachy_mini_conversation_app.huggingface_realtime import RealtimeSessionState, HuggingFaceRealtimeHandler
 
 
 if TYPE_CHECKING:
@@ -205,9 +207,12 @@ def run(
         camera_enabled=not args.no_camera and config.CAMERA_ENABLED,
     )
 
+    session_state = RealtimeSessionState(provider=config.CONVERSATION_BACKEND)
+
     def build_handler(startup_voice: Optional[str] = None) -> ConversationHandler:
-        """Build a Hugging Face realtime handler for the current runtime config."""
-        from reachy_mini_conversation_app.huggingface_realtime import HuggingFaceRealtimeHandler
+        """Build the explicitly selected realtime transport using the stream's state."""
+        if config.CONVERSATION_BACKEND == "gemini":
+            return GeminiRealtimeHandler(deps, instance_path=instance_path, session_state=session_state)
 
         hf_connection_selection = get_hf_connection_selection()
         transport_label = (
@@ -220,6 +225,7 @@ def run(
             deps,
             instance_path=instance_path,
             startup_voice=startup_voice,
+            session_state=session_state,
         )
 
     handler = build_handler(startup_settings.voice)

@@ -28,7 +28,7 @@ from reachy_mini_conversation_app.personality_routes import (
     RouteError,
     build_personality_ops,
 )
-from reachy_mini_conversation_app.huggingface_realtime import HuggingFaceRealtimeHandler
+from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, HuggingFaceRealtimeHandler
 
 
 def _rpc_call(app: FastAPI, method: str, params: Any = None) -> dict[str, Any]:
@@ -46,6 +46,115 @@ async def _wait_until(predicate: Any, timeout: float = 1.0) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("Timed out waiting for condition")
+
+
+def test_gemini_selection_preserves_hf_and_rejects_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Persist explicit provider selection without accepting credentials."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "private-token")
+    app = FastAPI()
+    stream = LocalStream(
+        MagicMock(),
+        MagicMock(),
+        settings_app=app,
+        instance_path=str(tmp_path),
+        handler_factory=lambda _voice: MagicMock(),
+    )
+    stream._init_settings_ui_if_needed()
+    result = _rpc_call(app, "backend.config", {"backend": "gemini", "gemini_voice": "Kore"})
+    assert result["result"]["backend"] == "gemini"
+    assert result["result"]["gemini_key_configured"] is True
+    assert "private-token" not in str(result)
+    assert read_settings(str(tmp_path)).conversation_backend == "gemini"
+    error = _rpc_call(app, "backend.config", {"backend": "gemini", "api_key": "forbidden"})
+    assert error["error"]["code"] == -32602
+
+
+def test_retry_requests_coalesce_without_new_handlers() -> None:
+    """Repeated Retry requests use the existing scheduler."""
+    app = FastAPI()
+    factory = MagicMock()
+    stream = LocalStream(MagicMock(), MagicMock(), settings_app=app, handler_factory=factory)
+    stream._init_settings_ui_if_needed()
+    assert _rpc_call(app, "backend.retry")["result"]["ok"]
+    assert _rpc_call(app, "backend.retry")["result"]["ok"]
+    assert stream._retry_requested.is_set()
+    factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+async def test_ten_recoverable_attempts_share_capped_schedule(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both providers retry indefinitely with the same capped backoff."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    monkeypatch.setattr(console_mod, "get_tool_specs", lambda: [])
+    monkeypatch.setattr(console_mod, "get_session_instructions", lambda _path: "personality")
+    handler = MagicMock(
+        connection=None, start_up=AsyncMock(side_effect=ConnectionError("raw-secret")), shutdown=AsyncMock()
+    )
+    stream = LocalStream(handler, MagicMock())
+    delays: list[float | None] = []
+
+    async def wait(delay: float | None) -> None:
+        delays.append(delay)
+        if len(delays) == 10:
+            stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    assert delays == [1, 2, 4, 8, 16, 30, 30, 30, 30, 30]
+    assert "raw-secret" not in str(stream._backend_connection_status())
+
+
+@pytest.mark.asyncio
+async def test_permanent_failure_waits_for_manual_correction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Authentication failures do not create an automatic retry schedule."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    handler = MagicMock(
+        connection=None,
+        shutdown=AsyncMock(),
+        start_up=AsyncMock(side_effect=console_mod.GeminiConnectionError("authentication_failed", recoverable=False)),
+    )
+    stream = LocalStream(handler, MagicMock())
+    waits: list[float | None] = []
+
+    async def wait(delay: float | None) -> None:
+        waits.append(delay)
+        stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    assert waits == [None]
+    assert stream._backend_connection_state == "waiting_for_config"
+    assert stream._retry_attempt == 0
+
+
+@pytest.mark.asyncio
+async def test_slow_cleanup_cannot_keep_ownership_or_freeze_switching(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner retires a socket before abandoning cleanup at its deadline."""
+    released = asyncio.Event()
+
+    async def slow_shutdown() -> None:
+        try:
+            await released.wait()
+        except asyncio.CancelledError:
+            await released.wait()
+
+    handler = MagicMock(shutdown=slow_shutdown)
+    stream = LocalStream(handler, MagicMock())
+    previous_generation = stream.session_state.generation
+    stream.session_state.invocations["running"] = ToolInvocation("move_head", "running")
+    monkeypatch.setattr(console_mod, "CLOSE_TIMEOUT_S", 0.01)
+    try:
+        await asyncio.wait_for(stream._shutdown_active_handler(), timeout=0.2)
+        assert stream.session_state.generation > previous_generation
+        assert any("unknown" in str(event) for event in stream._conversation_history)
+    finally:
+        released.set()
+        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -148,6 +257,7 @@ async def test_activity_from_rebuilt_handler_reaches_rpc_clients() -> None:
         set_vad_observer = MagicMock()
 
         def __init__(self) -> None:
+            """Initialize the connection state."""
             self.observer: Any = None
 
         def set_activity_observer(self, observer: Any) -> None:
@@ -398,7 +508,7 @@ def test_status_reports_backend_connection_failure(
     assert data["backend"] == "huggingface"
     assert data["backend_connected"] is False
     assert data["backend_connection_state"] == "disconnected"
-    assert data["backend_error"] == "RuntimeError: connect failed"
+    assert data["backend_error"] == "Backend connection failed. Check configuration and retry."
     assert data["can_proceed"] is True
     assert data["can_proceed_with_hf"] is True
 
@@ -444,7 +554,7 @@ def test_backend_startup_failure_is_recorded_without_raising(
     data = _rpc_call(app, "conversation.status")["result"]
     assert data["backend_connected"] is False
     assert data["backend_connection_state"] == "disconnected"
-    assert data["backend_error"] == "RuntimeError: local server unavailable"
+    assert data["backend_error"] == "Backend connection failed. Check configuration and retry."
 
 
 def test_media_warmup_overlaps_audio_startup_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -537,6 +647,7 @@ async def test_record_loop_discards_warmup_audio() -> None:
         return warmup_frame if stream._audio_warming_up else live_frame
 
     robot.media.get_audio_sample.side_effect = read_microphone
+    handler.connection = object()
     handler.receive = AsyncMock(side_effect=lambda _frame: stream._stop_event.set())
     recording = asyncio.create_task(stream.record_loop())
     while len(reads) < 2 and not recording.done():
@@ -559,6 +670,7 @@ async def test_startup_loop_rebuilds_handler_on_restart_request(monkeypatch: pyt
         set_vad_observer = MagicMock()
 
         def __init__(self) -> None:
+            """Initialize the connection state."""
             self.connection = None
             self.output_queue = asyncio.Queue()
             self.started = asyncio.Event()
@@ -886,6 +998,7 @@ async def test_change_voice_reports_handler_failure() -> None:
 
 def _audio_robot(**media_attrs: Any) -> SimpleNamespace:
     """Return a robot whose media exposes only the attributes a test drives."""
+    media_attrs.setdefault("get_output_audio_samplerate", MagicMock())
     return SimpleNamespace(media=SimpleNamespace(audio=None, backend=None, **media_attrs))
 
 
@@ -910,6 +1023,7 @@ async def test_record_loop_forwards_unmuted_frames() -> None:
     )
     handler = MagicMock()
     stream = LocalStream(handler, robot)
+    handler.connection = object()
     handler.receive = AsyncMock(side_effect=lambda _frame: stream._stop_event.set())
 
     await asyncio.wait_for(stream.record_loop(), timeout=2)

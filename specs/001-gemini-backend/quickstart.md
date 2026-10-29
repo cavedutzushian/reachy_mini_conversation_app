@@ -123,3 +123,71 @@ action outcomes, and sanitized failure reasons against SC-001 through SC-011. Mo
 establish hardware quality or account eligibility. Do not retain keys, handles, image payloads,
 or personal transcripts in evidence. See [data model](data-model.md) and
 [session contract](contracts/realtime-session.md) for precise ownership and continuity rules.
+
+## Local implementation baseline (2026-10-28)
+
+Personal-only local implementation and simulated tests authorized by the user. No paid
+provider calls or physical robot verification are authorized in this run. Initial mypy:
+53 source files pass. Initial Ruff: 55 existing Spec Kit script findings; format check:
+seven existing Spec Kit scripts differ. Full pytest reached the local MCP integration
+server and stalled; a repeated run reusing its temporary directory produced fixture errors.
+A fresh temporary directory passes all 11 local VAD tests. Full-suite completion and
+loopback integration investigation remain required; no green full gate is claimed.
+
+Python 3.12 uv lock/sync succeeded, including soxr 1.1.0. Baseline excluding the two
+local MCP integration tests: 588 passed; wheel-build test failed in sandbox with a cp950
+subprocess decoding warning. Other operating systems and robot hardware remain unverified.
+
+## Implementation progress and validation (2026-10-29)
+
+Local personal customization now includes the optional Gemini wire adapter, persisted
+provider/model/voice selection, HF default/factory preservation, settings controls and
+Retry, shared logical state and send ownership, streaming PCM conversion, ordered
+interruption barriers, background tools and duplicate-call protection, one-shot JPEG
+submission, shared saved-memory refresh, and safe recovery/context feedback. This is
+implementation progress, not completed acceptance or permission to make paid calls.
+
+Windows environment: Python 3.12.12; reachy-mini 1.12.0; websockets 15.0.1; soxr 1.1.0;
+jsonschema 4.26.0; NumPy 2.5.0; Ruff 0.15.20; mypy 2.2.0. websockets and soxr were flagged
+during planning. jsonschema was separately flagged before declaring the already installed
+transitive dependency directly for tool argument/schema validation. uv lock/sync on Python
+3.12 and uv lock --check succeeded. A new isolated installation and non-Windows/robot
+verification remain outstanding.
+
+| Check | Observed result |
+| --- | --- |
+| Ruff check src tests | Pass |
+| Ruff format --check src tests | Pass after formatting affected files; 107 files |
+| mypy --pretty --show-error-codes | Pass, 55 source files |
+| uv lock --check | Pass |
+| Node syntax checks: settings.js, api.js, conversation-panel.js | Pass |
+| git diff --check | Pass after removing the extra example-file trailing blank line |
+| Final pytest excluding tests/test_mcp_client_integration.py | 629 passed in 21.56 seconds |
+| Console regression after final uncertain-action feedback change | 81 passed in 10.55 seconds |
+| Earlier complete pytest run in this resume | 609 passed in 27.28 seconds, before later test additions |
+| Later complete pytest / isolated MCP integration | Interrupted after a stall; isolated first test reported PASSED, then no next result; cause unconfirmed |
+| Repository-wide Ruff check . | Fail: 55 pre-existing findings under .specify scripts |
+| Repository-wide Ruff format --check . | Fail: seven pre-existing .specify scripts |
+
+Commands use .venv/Scripts/python.exe -m pytest with a fresh --basetemp under ignored
+cache/ and -o cache_dir=cache/pytest-cache. The final broad command uses
+--ignore tests/test_mcp_client_integration.py, so it is explicitly not a green full gate.
+The existing MCP integration files, installed Spec Kit scripts, CI and contribution files
+were not changed to bypass these failures. Source tests require no Gemini credentials,
+paid calls or robot hardware. Shortened deadline constants exercise setup/send/close and
+missing-interruption-barrier expiration; simulated retry waits cover ten failures on each
+provider at 1/2/4/8/16/30/30/30/30/30 seconds. This does not replace the remaining race,
+HF setup-acknowledgement, clean-install, full redaction or hardware acceptance cases in tasks.md.
+
+Protocol implementation was checked against the [Live API wire reference](https://ai.google.dev/api/live)
+and [Live tool guidance](https://ai.google.dev/gemini-api/docs/live-api/tools). These document
+checks and mocks do not demonstrate model/account eligibility or real audio quality.
+
+Architecture diagram follow-up: a future human-authored PR must flag that the provider
+branch changes the diagram. Edit docs/scheme.mmd and regenerate
+README.md's docs/assets/conversation_app_arch.svg through the normal diagram workflow;
+the generated SVG has not been hand-edited. No Markdown was added under docs/.
+
+Full review readiness remains blocked at T045. Keep paid API and physical robot checks
+deferred under the user's personal-only authorization; do not check T046 or claim the
+15-minute/ten-exchange, interruption latency, or physical action/camera acceptance passed.

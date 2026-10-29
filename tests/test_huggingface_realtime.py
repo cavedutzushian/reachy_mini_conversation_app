@@ -24,6 +24,41 @@ HF_DEFAULT_VOICE = get_default_voice()
 
 
 @pytest.mark.asyncio
+async def test_retired_handler_cannot_forward_microphone_or_transcript() -> None:
+    """A replacement generation rejects stale HF callbacks and input sends."""
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    handler.connection = MagicMock(input_audio_buffer=MagicMock(append=AsyncMock()))
+    transcripts = MagicMock()
+    handler.set_transcript_observer(transcripts)
+    handler.session_state.begin_connection()
+    await handler.receive((16000, np.zeros(512, dtype=np.int16)))
+    handler._emit_transcript("assistant", "old answer", True)
+    handler.connection.input_audio_buffer.append.assert_not_called()
+    transcripts.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stuck_control_send_invalidates_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A control-message timeout retires its handler before any later send can run."""
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+
+    async def blocked_update(**_kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    connection = MagicMock()
+    connection.session.update = blocked_update
+    handler.connection = connection
+    monkeypatch.setattr(hf_mod, "AUDIO_SEND_TIMEOUT_S", 0.01)
+    generation = handler.session_state.generation
+    with pytest.raises(TimeoutError):
+        await handler.refresh_instructions()
+    assert handler.session_state.generation > generation
+    assert not handler._is_connected()
+    assert handler.connection_error_reason == "send_timeout"
+    connection._connection.transport.abort.assert_called_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("local_stops_first", [False, True])
 @pytest.mark.parametrize(
     "stop_type",
@@ -217,7 +252,7 @@ class _FakeEvent:
         """Store the event type and any extra attributes."""
         self.type = event_type
         if event_type in ("response.created", "response.done"):
-            fields.setdefault("response", SimpleNamespace(id="response-1", metadata=None))
+            fields.setdefault("response", SimpleNamespace(id="response-1", metadata=None, status="completed"))
         if event_type.startswith("response.output_audio"):
             fields.setdefault("response_id", "response-1")
         self.__dict__.update(fields)
@@ -862,7 +897,9 @@ async def test_run_session_observes_server_turn_latency(monkeypatch: Any) -> Non
     )
 
     def response_done(metadata: dict[str, str] | None) -> _FakeEvent:
-        return _FakeEvent("response.done", response=SimpleNamespace(id="response-1", metadata=metadata))
+        return _FakeEvent(
+            "response.done", response=SimpleNamespace(id="response-1", metadata=metadata, status="completed")
+        )
 
     handler = _session_handler(
         monkeypatch,
@@ -1215,7 +1252,7 @@ async def test_run_session_response_lifecycle_toggles_done_event(monkeypatch: An
         monkeypatch,
         (
             _FakeEvent("response.created"),
-            _FakeEvent("response.done", response=SimpleNamespace(id="response-1", metadata=None)),
+            _FakeEvent("response.done", response=SimpleNamespace(id="response-1", metadata=None, status="completed")),
         ),
     )
 

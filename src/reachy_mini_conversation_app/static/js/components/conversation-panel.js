@@ -30,6 +30,7 @@ export function createConversationPanel({ toggle, signal }) {
   // Read once per Talk mount; a Settings change applies on return.
   const showLatencies = localStorage.getItem(SHOW_LATENCIES_KEY) === "1";
   let partialRow = null;
+  let assistantPartial = null;
   let lastSeq = 0;
   // Live events that arrive before the history snapshot; null once it is rendered.
   let pending = [];
@@ -53,6 +54,16 @@ export function createConversationPanel({ toggle, signal }) {
   const renderers = {
     "conversation.transcript": onTranscript,
     "conversation.latency": onLatency,
+    "conversation.interrupted": () => {
+      if (assistantPartial) {
+        assistantPartial.append(" (Interrupted)");
+        assistantPartial.classList.remove("is-partial");
+        assistantPartial = null;
+      }
+    },
+    "conversation.context": ({ message }) => {
+      if (message) keepScrolledDown(() => list.append(h("li", { class: "talk-log__row" }, message)));
+    },
   };
   const unsubscribers = Object.entries(renderers).map(([method, render]) =>
     subscribe(method, (params) => (pending ? pending.push([render, params]) : apply(render, params)))
@@ -77,7 +88,7 @@ export function createConversationPanel({ toggle, signal }) {
       if (params.seq <= lastSeq) return;
       lastSeq = params.seq;
     }
-    render(params);
+    render?.(params);
   }
 
   function setOpen(open) {
@@ -99,6 +110,12 @@ export function createConversationPanel({ toggle, signal }) {
   function onTranscript({ role, text, final }) {
     if (!text || (role !== "user" && role !== "assistant")) return;
     keepScrolledDown(() => {
+      if (role === "assistant" && assistantPartial) {
+        assistantPartial.textContent = text;
+        assistantPartial.classList.toggle("is-partial", !final);
+        if (final) assistantPartial = null;
+        return;
+      }
       if (role === "user" && partialRow) {
         partialRow.textContent = text;
         partialRow.classList.toggle("is-partial", !final);
@@ -109,6 +126,7 @@ export function createConversationPanel({ toggle, signal }) {
       if (role === "assistant") partialRow = null;
       const row = h("li", { class: ["talk-log__row", `talk-log__row--${role}`, !final && "is-partial"] }, text);
       if (role === "user" && !final) partialRow = row;
+      if (role === "assistant" && !final) assistantPartial = row;
       list.append(row);
     });
   }

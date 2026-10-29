@@ -2,6 +2,7 @@
 
 from typing import Any
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -10,7 +11,11 @@ from fastapi.testclient import TestClient
 from reachy_mini.apps.jsonrpc_server import JsonRpcServer
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.memory import add_memory_fact, list_memory_facts, format_memory_for_prompt
+from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.memory_routes import register_memory_methods
+from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
+from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_conversation_app.huggingface_realtime import RealtimeSessionState
 
 
 def _rpc_call(client: TestClient, method: str, params: dict[str, object] | None = None) -> dict[str, Any]:
@@ -62,6 +67,39 @@ def test_list_returns_facts_newest_first(tmp_path: Path) -> None:
     ]
     assert result["max_facts"] == 60
     assert result["enabled"] is True
+
+
+def test_saved_memories_are_shared_and_global_injection_control_applies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Provider selection changes neither the memory store nor global injection controls."""
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    fact = add_memory_fact(tmp_path, "Enjoys moonlit paper airplanes")
+    assert fact is not None
+    for provider in ("huggingface", "gemini"):
+        monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+        assert fact.text in get_session_instructions(tmp_path)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    assert fact.text not in get_session_instructions(tmp_path)
+    assert list_memory_facts(tmp_path)[0].id == fact.id
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    _rpc_call(_client(tmp_path), "memory.forget", {"id": fact.id})
+    for provider in ("huggingface", "gemini"):
+        monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+        assert fact.text not in get_session_instructions(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_gemini_instruction_refresh_discards_old_checkpoint() -> None:
+    """A changed injected memory requires fresh context rather than claiming a live update."""
+    state = RealtimeSessionState(provider="gemini", resumable=True, resumption_handle="old-checkpoint")
+    handler = GeminiRealtimeHandler(
+        ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()), session_state=state
+    )
+    previous = state.logical_session_id
+    assert await handler.refresh_instructions() is False
+    assert state.logical_session_id != previous and state.resumption_handle is None
 
 
 def test_forget_by_id(tmp_path: Path) -> None:

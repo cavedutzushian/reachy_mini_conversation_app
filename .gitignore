@@ -22,6 +22,7 @@ dist/
 
 # Testing
 .pytest_cache/
+.pytest-local-tmp*/
 .coverage
 .hypothesis/
 htmlcov/
@@ -50,7 +51,9 @@ coverage.xml
 # Temporary files
 tmp/
 *.log
+*.tmp
 cache/
+Thumbs.db
 
 # macOS
 .DS_Store
