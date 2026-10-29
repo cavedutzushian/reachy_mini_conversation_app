@@ -441,3 +441,66 @@ were simulated, not deliberately triggered on the account. The unchanged applica
 673-test full gate remains the latest automated result; no dependency changes were made.
 T031/T046 remain pending their separate tool/camera/memory/extended trials. Progress is
 45/47; camera/memory were not enabled, and no PR was opened.
+
+## T031 partial robot acceptance and input corrections (2026-10-29)
+
+The user authorized the basic tool trial while keeping camera and persistent memory off.
+Two reproducible defects were corrected; no SDK internals, dependencies, lockfile or protected
+contribution/CI files changed.
+
+**Daemon responses:** robot_status failed with WinError 10054 before correction. Read-only
+comparisons found intermittent resets with immediate-close requests, including an HTTPX
+request explicitly using `Connection: close`. The offline close-sensitive server regression
+failed before the correction. The app now reuses its existing HTTPX dependency to read the
+response before closing, connects directly to the SDK-selected daemon without environment
+proxies, and does not retry requests. Status/detail handling, malformed/truncated bodies and
+uncertain POST/no-retry behavior remain tested. Three actual daemon reads and the subsequent
+spoken robot-name query succeeded. See Python's documented
+[urllib Connection: close behavior](https://docs.python.org/3.12/library/urllib.request.html)
+and [HTTPX client cleanup](https://www.python-httpx.org/advanced/clients/).
+
+**Microphone continuity:** the SDK supplied stereo chunks of 160 samples at 16000 Hz. A
+ten-second diagnostic with a five-millisecond receive delay exposed overwritten pending
+audio. The deterministic offline sample-order regression also failed before correction.
+
+| Diagnostic | Captured samples | Forwarded samples |
+| --- | ---: | ---: |
+| Before coalescing | 158080 | 77920 |
+| After coalescing | 157760 | 157600 |
+
+These are local diagnostic measurements, not provider latency or speech-recognition scores.
+The remaining 160 samples in the second run were at its stop boundary. Pending same-connection
+chunks are now coalesced, with a 250 ms limit and an overflow warning rather than silently
+overwriting every prior chunk. Generation checks and a microphone epoch discard pending audio
+across connection replacement or mute/unmute. Warmup discard, exact sample order and rapid
+mute/unmute privacy are covered without API calls. The user subsequently confirmed that the
+spoken stop instruction correctly stopped the dance; earlier attempts had been misrecognized.
+
+| Live observation | Result |
+| --- | --- |
+| Robot name, left/front head movement | Tool success; user confirmed physical turns |
+| Volume | Calls completed; following speech degraded in the earlier trial; isolated post-correction volume-change acceptance still needed |
+| Dance/stop after continuity correction | User confirmed correct stopping; stop_dance completed |
+| Disabled camera | Tool returned failure before capture; user heard inability feedback |
+| Disabled memory | Two failed remember calls; no memory.v1.json created; user heard inability feedback |
+| Conversation after tool failures | User confirmed normal Chinese replies |
+| Sleep, then independent relaunch | User confirmed sleep/stop, wake-up and Chinese reply; both processes exited 0 |
+
+The test instance now uses the existing Chinese (`zh`) language setting. At the user's
+request, microphone volume was restored to 100; speaker volume remained 50. Increasing input
+gain alone had not resolved stop recognition. Some earlier and later inputs were still
+misrecognized, so perfect ASR or a sole cause for every recognition failure is not claimed.
+SDK 1.12.0/daemon 1.13.0 and seven denied audio DSP parameter writes remain limitations.
+
+Latest gate: **680 tests passed in 22.30 seconds**, strict mypy passed for 55 source files,
+repository-wide Ruff/format passed (119 files), uv lock --check and git diff --check passed.
+Full test command: `cache/verify-python312/Scripts/python.exe -m pytest tests/ -q
+--basetemp cache/pytest-t031-audio-gate -o cache_dir=cache/pytest-cache`. Only Windows/Python
+3.12.12 was exercised. All robot test processes have stopped; camera/memory remain off.
+Temporary T031 transcript logs are removed after recording this sanitized summary; no raw
+audio was saved. Product transcript retention is unchanged.
+
+Progress remains **45/47**. T031 stays unchecked for enabled-camera observation/failure,
+cross-provider memory and remaining independent acceptance; T046 stays unchecked for the
+fifteen-minute, measured-interruption, switch/reconnect and full acceptance matrix. Repeated
+short sessions do not substitute for that endurance trial. No PR was opened.

@@ -4,8 +4,11 @@ import os
 import sys
 import asyncio
 from pathlib import Path
+from functools import partial
+from unittest.mock import MagicMock
 from collections.abc import Callable
 
+import httpx
 import pytest
 
 
@@ -22,6 +25,14 @@ os.environ["REACHY_MINI_SKIP_DOTENV"] = "1"
 os.environ.pop("REACHY_MINI_CUSTOM_PROFILE", None)
 os.environ.pop("REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY", None)
 os.environ.pop("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY", None)
+
+
+@pytest.fixture
+def daemon_http_handler(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Keep daemon HTTP tests offline while exercising request and response handling."""
+    handler = MagicMock(return_value=httpx.Response(200, json={}))
+    monkeypatch.setattr(httpx, "Client", partial(httpx.Client, transport=httpx.MockTransport(handler)))
+    return handler
 
 
 def pytest_asyncio_loop_factories(

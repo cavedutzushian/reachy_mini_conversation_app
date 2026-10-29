@@ -127,6 +127,7 @@ LEGACY_STARTUP_ENV_NAMES = (
 BACKEND_RETRY_DELAY_SECONDS = 5.0
 CONVERSATION_HISTORY_LIMIT = 200  # events, about 100 exchanges
 PLAYBACK_LEAD_SECONDS = 0.1  # paced chunks reach the SDK this far ahead of their slot
+MICROPHONE_BUFFER_SECONDS = 0.25
 
 
 class LocalStream:
@@ -166,6 +167,7 @@ class LocalStream:
         self._settings_initialized = False
         self._asyncio_loop = None
         self._mic_muted = False  # mic starts live; the UI toggles it via the settings API
+        self._microphone_epoch = 0
         self._audio_warming_up = False
         self._backend_connection_state = "not_started"
         self._backend_error: str | None = None
@@ -773,7 +775,10 @@ class LocalStream:
         @rpc.method("conversation.mic")  # type: ignore[untyped-decorator]
         def _rpc_mic(params: dict[str, object]) -> dict[str, object]:
             if "muted" in params:
-                self._mic_muted = bool(params["muted"])
+                muted = bool(params["muted"])
+                if muted != self._mic_muted:
+                    self._microphone_epoch += 1
+                    self._mic_muted = muted
                 logger.info("Microphone %s via /rpc", "muted" if self._mic_muted else "unmuted")
             return {"muted": self._mic_muted}
 
@@ -1278,19 +1283,43 @@ class LocalStream:
         logger.debug(f"Audio recording started at {input_sample_rate} Hz")
 
         loop = asyncio.get_running_loop()
-        frames: asyncio.Queue[tuple[int, AudioFrame]] = asyncio.Queue(maxsize=1)
+        frames: asyncio.Queue[tuple[int, int, AudioFrame]] = asyncio.Queue(maxsize=1)
         stop_reading = threading.Event()
+        max_pending_samples = max(1, int(input_sample_rate * MICROPHONE_BUFFER_SECONDS))
+        overflow_reported = False
 
-        def deliver(generation: int, frame: AudioFrame) -> None:
+        def deliver(generation: int, microphone_epoch: int, frame: AudioFrame) -> None:
+            nonlocal overflow_reported
+            if (
+                self._stop_event.is_set()
+                or self._mic_muted
+                or generation != self.session_state.generation
+                or microphone_epoch != self._microphone_epoch
+            ):
+                return
             if frames.full():
-                frames.get_nowait()
-            frames.put_nowait((generation, frame))
+                pending_generation, pending_epoch, pending_frame = frames.get_nowait()
+                if (
+                    pending_generation == generation
+                    and pending_epoch == microphone_epoch
+                    and pending_frame[0] == frame[0]
+                ):
+                    # Preserve contiguous speech when SDK chunks arrive faster than sends complete.
+                    samples = np.concatenate((pending_frame[1], frame[1]), axis=0)
+                    if samples.shape[0] > max_pending_samples:
+                        samples = samples[-max_pending_samples:]
+                        if not overflow_reported:
+                            logger.warning("Microphone input backlog exceeded 250 ms; dropping oldest pending samples")
+                            overflow_reported = True
+                    frame = (frame[0], samples)
+            frames.put_nowait((generation, microphone_epoch, frame))
 
         def read_microphone() -> None:
             # The SDK read blocks up to 20 ms: one reader thread costs less than a thread hop per frame.
             while not stop_reading.is_set() and not self._stop_event.is_set():
                 warming_up = self._audio_warming_up  # a read spanning the end of warmup still holds warmup audio
                 generation = self.session_state.generation
+                microphone_epoch = self._microphone_epoch
                 connected = self._backend_connected()
                 audio_frame = self._robot.media.get_audio_sample()
                 if (
@@ -1299,17 +1328,22 @@ class LocalStream:
                     and connected
                     and generation == self.session_state.generation
                 ):
-                    loop.call_soon_threadsafe(deliver, generation, (input_sample_rate, audio_frame))
+                    loop.call_soon_threadsafe(deliver, generation, microphone_epoch, (input_sample_rate, audio_frame))
 
         reader = threading.Thread(target=read_microphone, name="microphone-reader", daemon=True)
         reader.start()
         try:
             while not self._stop_event.is_set():
                 try:
-                    generation, frame = await asyncio.wait_for(frames.get(), timeout=0.5)
+                    generation, microphone_epoch, frame = await asyncio.wait_for(frames.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
-                if not self._mic_muted and generation == self.session_state.generation:
+                overflow_reported = False
+                if (
+                    not self._mic_muted
+                    and generation == self.session_state.generation
+                    and microphone_epoch == self._microphone_epoch
+                ):
                     await self.handler.receive(frame)
                     self._emit_level("user", frame[1])
         finally:

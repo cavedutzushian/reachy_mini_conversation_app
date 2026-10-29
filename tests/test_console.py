@@ -13,6 +13,7 @@ import httpx
 import numpy as np
 import pytest
 from fastapi import FastAPI, HTTPException
+from numpy.typing import NDArray
 from fastapi.testclient import TestClient
 
 import reachy_mini_conversation_app.console as console_mod
@@ -1048,6 +1049,94 @@ def test_launch_reads_microphone_while_audio_is_configured(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
+async def test_record_loop_preserves_samples_while_receive_yields() -> None:
+    """Short receive delays must not remove connected microphone samples or change their order."""
+    chunks = [np.full((160, 2), index, dtype=np.int16) for index in range(10)]
+    pending_chunks = iter(chunks)
+    received: list[NDArray[np.int16]] = []
+
+    def read_microphone() -> NDArray[np.int16] | None:
+        chunk = next(pending_chunks, None)
+        if chunk is None:
+            time.sleep(0.001)
+        return chunk
+
+    async def receive(frame: tuple[int, NDArray[np.int16]]) -> None:
+        await asyncio.sleep(0.01)
+        assert frame[0] == 16000
+        received.append(frame[1].copy())
+
+    handler = MagicMock(connection=object(), receive=AsyncMock(side_effect=receive))
+    robot = _audio_robot(get_input_audio_samplerate=MagicMock(return_value=16000), get_audio_sample=read_microphone)
+    stream = LocalStream(handler, robot)
+    recording = asyncio.create_task(stream.record_loop())
+    try:
+        await _wait_until(lambda: sum(chunk.shape[0] for chunk in received) == 1600)
+    finally:
+        stream._stop_event.set()
+        await asyncio.wait_for(recording, timeout=2)
+
+    np.testing.assert_array_equal(np.concatenate(received), np.concatenate(chunks))
+
+
+@pytest.mark.asyncio
+async def test_pending_microphone_audio_does_not_survive_a_mute_toggle() -> None:
+    """A quick mute/unmute discards audio captured before the mute boundary."""
+    first_received = threading.Event()
+    old_audio_read = threading.Event()
+    allow_current_audio = threading.Event()
+    read_count = 0
+    delivered: list[NDArray[np.int16]] = []
+    app = FastAPI()
+
+    def read_microphone() -> NDArray[np.int16]:
+        nonlocal read_count
+        read_count += 1
+        if read_count == 1:
+            return np.full(160, 1, dtype=np.int16)
+        if read_count == 2:
+            first_received.wait(1)
+            return np.full(160, 2, dtype=np.int16)
+        old_audio_read.set()
+        allow_current_audio.wait(1)
+        time.sleep(0.001)
+        return np.full(160, 3, dtype=np.int16)
+
+    async def receive(frame: tuple[int, NDArray[np.int16]]) -> None:
+        delivered.append(frame[1].copy())
+        if len(delivered) == 1:
+            first_received.set()
+            assert await asyncio.to_thread(old_audio_read.wait, 1)
+            for request_id, muted in enumerate((True, False)):
+                websocket.send_json(
+                    {"jsonrpc": "2.0", "id": request_id, "method": "conversation.mic", "params": {"muted": muted}}
+                )
+                assert websocket.receive_json()["result"]["muted"] is muted
+            allow_current_audio.set()
+        else:
+            stream._stop_event.set()
+
+    handler = MagicMock(connection=object(), receive=AsyncMock(side_effect=receive))
+    robot = _audio_robot(get_input_audio_samplerate=MagicMock(return_value=16000), get_audio_sample=read_microphone)
+    stream = LocalStream(handler, robot, settings_app=app)
+    stream._init_settings_ui_if_needed()
+    with TestClient(app) as client, client.websocket_connect("/rpc") as websocket:
+        recording = asyncio.create_task(stream.record_loop())
+        try:
+            await asyncio.wait_for(recording, timeout=3)
+        finally:
+            first_received.set()
+            allow_current_audio.set()
+            stream._stop_event.set()
+            if not recording.done():
+                await recording
+
+    assert len(delivered) == 2
+    assert np.all(delivered[0] == 1)
+    assert np.all(delivered[1] == 3)
+
+
+@pytest.mark.asyncio
 async def test_record_loop_discards_warmup_audio() -> None:
     """Frames read while the audio board warms up never reach the handler."""
     warmup_frame = np.full(4, 1, dtype=np.int16)
@@ -1072,7 +1161,9 @@ async def test_record_loop_discards_warmup_audio() -> None:
     await asyncio.wait_for(recording, timeout=2)
 
     handler.receive.assert_awaited_once()
-    np.testing.assert_array_equal(handler.receive.await_args.args[0][1], live_frame)
+    delivered_samples = handler.receive.await_args.args[0][1]
+    assert delivered_samples.size > 0
+    assert np.all(delivered_samples == 2)
 
 
 @pytest.mark.asyncio

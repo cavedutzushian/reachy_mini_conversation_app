@@ -293,3 +293,14 @@ T020 is checked using this live evidence plus the unchanged 673-test gate's simu
 HF-default, setup-failure and recovery coverage. The earlier silent attempt's cause remains
 unresolved; see quickstart.md. Progress is 45/47, with only T031/T046 unchecked and no
 extended/camera/memory acceptance claimed.
+
+T031 has partial live evidence: robot name and physical turns, post-fix dance/stop, rejected
+camera/memory operations while disabled, continued Chinese conversation after failure, and
+separate sleep/relaunch passed with user observations. The trial exposed daemon HTTP response
+resets and lost connected microphone samples; both have failing-before/passing-after offline
+regressions, and the corrected full gate passes 680 tests plus Ruff/format/mypy/lock checks.
+The sample-count diagnostic improved from 77920/158080 to 157600/157760 forwarded samples.
+Input buffering remains bounded and mute/connection boundaries discard old audio. See
+quickstart.md for exact measurement limits and the outstanding isolated volume recheck.
+T031/T046 remain unchecked because enabled-camera, cross-provider-memory and extended
+acceptance are not covered by the authorized camera/memory-off trials; progress stays 45/47.

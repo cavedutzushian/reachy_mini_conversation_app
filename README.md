@@ -59,6 +59,14 @@ TLS shutdown error (`WinError 10022`). Other platforms and the process-wide even
 keep their defaults. Custom tools running on this loop cannot use asyncio subprocess or pipe
 APIs on Windows; run blocking subprocess work with `asyncio.to_thread` instead.
 
+Daemon tools read HTTP responses before closing their connections to avoid resets on
+Windows daemons. These requests connect directly to the SDK-selected daemon host without
+environment proxies or automatic retries of action requests.
+
+Connected microphone chunks are combined when sends are delayed, preserving continuous
+speech with up to 250 ms of pending audio. Longer backlogs drop the oldest pending samples
+with a warning. Muting or replacing a connection discards its pending microphone audio.
+
 <details open>
 <summary>Using uv (recommended)</summary>
 

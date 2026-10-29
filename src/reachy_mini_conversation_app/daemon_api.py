@@ -5,10 +5,9 @@ where; only the endpoints the conversation tools need are wrapped here.
 """
 
 import json
-import urllib.error
-import urllib.request
 from typing import Any
-from http.client import IncompleteRead
+
+import httpx
 
 from reachy_mini import ReachyMini
 
@@ -44,28 +43,30 @@ def daemon_request(
     data = json.dumps(payload).encode() if payload is not None else None
     headers = {"Content-Type": "application/json"} if payload is not None else {}
 
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            body = response.read()
-    except urllib.error.HTTPError as e:
-        message = f"{method} {path} failed: HTTP {e.code}"
-        try:
-            with e:
-                error_body = e.read()
-            error_response: object = json.loads(error_body) if error_body else None
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError, IncompleteRead) as body_error:
-            raise DaemonApiError(f"{message}; could not read error detail: {body_error}", status_code=e.code) from e
-        detail = error_response.get("detail") if isinstance(error_response, dict) else None
-        if not isinstance(detail, str):
-            detail = None
-        if detail is not None:
-            message = f"{message}: {detail}"
-        raise DaemonApiError(message, status_code=e.code, detail=detail) from e
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # Read the body before closing: Windows daemons can reset Connection: close responses.
+        with httpx.Client(timeout=timeout_s, trust_env=False) as client:
+            with client.stream(method, url, content=data, headers=headers) as response:
+                if response.is_error:
+                    message = f"{method} {path} failed: HTTP {response.status_code}"
+                    try:
+                        error_body = response.read()
+                        error_response: object = json.loads(error_body) if error_body else None
+                    except (json.JSONDecodeError, UnicodeDecodeError, httpx.RequestError) as body_error:
+                        raise DaemonApiError(
+                            f"{message}; could not read error detail: {body_error}", status_code=response.status_code
+                        ) from body_error
+                    detail = error_response.get("detail") if isinstance(error_response, dict) else None
+                    if not isinstance(detail, str):
+                        detail = None
+                    if detail is not None:
+                        message = f"{message}: {detail}"
+                    raise DaemonApiError(message, status_code=response.status_code, detail=detail)
+                body = response.read()
+    except httpx.RequestError as e:
         raise DaemonApiError(f"{method} {path} failed: {e}") from e
 
     try:
         return json.loads(body)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise DaemonApiError(f"{method} {path} returned invalid JSON") from e
