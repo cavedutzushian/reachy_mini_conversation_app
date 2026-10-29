@@ -271,5 +271,14 @@ T047 self-review is complete: provider defaults/selection, ownership/deadlines, 
 privacy boundaries were checked against the feature documents and AGENTS.md. The feature
 adds no new suppressions; contribution/CI/private environment files remain unchanged, and
 PR creation remains with the developer. T020/T031/T046 retain the explicitly deferred live
-service and physical-robot evidence. No paid API call, PR, measured interruption latency or
-physical action/camera acceptance is claimed. See quickstart.md for exact validation results.
+service and physical-robot evidence. The subsequent live smoke trial confirmed speech,
+physical nod and qualitative interruption; it did not measure the latency target or validate
+camera/memory. No paid API call or PR is claimed. See quickstart.md for exact validation results.
+
+The Windows shutdown correction now uses a public Selector loop factory only for the
+LocalStream conversation loop on Windows, preserving other platforms and the global policy.
+The isolated Gemini TLS probe reproduces WinError 10022 on Proactor and closes without
+callback errors on Selector. A 30-second real-robot repeat shuts down with exit code 0 and no
+callback error. The full gate passes 673 tests, strict mypy, Ruff/format and lock validation.
+The user chose to finish only this correction this round; the extended trial and camera/memory
+acceptance remain deferred, with T020/T031/T046 unchecked and the total still 44/47.

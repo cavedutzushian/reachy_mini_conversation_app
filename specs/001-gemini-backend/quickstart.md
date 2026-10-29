@@ -2,7 +2,8 @@
 
 Follow the root README for environment/robot setup. The latest local result is **44/47
 tasks complete, with the full local gate green**; earlier sections retain historical results.
-Live-service and physical-robot trials remain deferred under the personal customization scope.
+Basic Gemini/robot voice acceptance passed; extended live-service and robot acceptance remains
+deferred. The latest Windows shutdown fix and validation are recorded at the end of this file.
 
 ## Prerequisites
 
@@ -347,3 +348,47 @@ memory remain disabled for this trial; camera/memory acceptance is still outstan
 T020, T031 and T046 remain unchecked: this partial evidence does not establish all
 required spoken exchanges and settings checks, interruption timing, reconnect behavior,
 camera/memory behavior or the fifteen-minute acceptance target. No PR was opened.
+
+## Windows shutdown correction (2026-10-29)
+
+A setup-only Gemini WebSocket probe using Python 3.12.12's native Windows Proactor loop
+reproduced the same `WinError 10022` from `_call_connection_lost` during TLS cleanup, without
+the robot SDK, microphone, camera, tools or generated speech. The corresponding Selector
+probe received `setupComplete` and reported no callback errors. This isolates the observed
+failure from robot action/media shutdown; it does not establish that every Windows cleanup
+failure has the same cause. An ordinary local WebSocket echo closed cleanly on both loops.
+
+LocalStream now passes a Windows-only `asyncio.SelectorEventLoop` factory to `asyncio.run`.
+Other platforms retain their default loop, and the process-wide event-loop policy is unchanged.
+No SDK/Python internals are patched, errors remain visible, and no dependency changes were
+needed. Existing application tools do not use asyncio subprocess/pipe APIs. Custom tools on
+this Windows conversation loop must use blocking subprocess APIs through `asyncio.to_thread`
+instead; see the [Python platform limitations](https://docs.python.org/3.12/library/asyncio-platforms.html).
+The root README documents this trade-off.
+
+A new offline console regression exercises real loopback socket closure, checks callback
+errors and preserves the global loop policy. It also passed before the correction: the local
+plain-socket test alone does not reproduce the remote TLS failure. The isolated live TLS
+comparison above supplies the failing/passing evidence for that failure.
+
+| Check | Result after correction |
+| --- | --- |
+| Console suite | 99 passed |
+| Full Python 3.12.12 suite | 673 passed in 23.03 seconds |
+| Ruff check . --fix / format . | Pass; 119 files unchanged by formatting |
+| Strict mypy | Pass; 55 source files |
+| uv lock --check / git diff --check | Pass; dependency lock unchanged |
+| Bounded robot startup/shutdown | 30-second deadline, exit code 0, Shutdown complete |
+| Callback errors in robot repeat | No WinError 10022 or asyncio callback error logged |
+
+Full test command: `cache/verify-python312/Scripts/python.exe -m pytest tests/ -q
+--basetemp cache/pytest-win-close-gate -o cache_dir=cache/pytest-cache`. The ignored local
+repeat log is `cache/live-gemini-cleanup-fixed.log`; no credentials or live transcripts are
+added to tracked files. The repeat reached Gemini tool-manager startup and a welcome-emotion
+call; it does not add a verified spoken exchange. SDK 1.12.0 versus daemon 1.13.0 and the seven
+denied audio parameter writes remain separate environment limitations.
+
+The user explicitly limited this run to the shutdown correction and kept camera/memory off.
+T020, T031 and T046 therefore remain unchecked (44/47 complete). The fifteen-minute trial,
+measured ten-interruption target, full selection/reconnect matrix, camera/memory acceptance,
+and unavailable platform evidence remain outstanding. No PR was opened.

@@ -54,6 +54,11 @@ Python 3.12 or newer is required.
 > Install [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/) before using this app.<br>
 > Windows support is currently experimental and has not been extensively tested. Use with caution.
 
+On Windows, the conversation loop uses `SelectorEventLoop` to avoid a Python 3.12 Proactor
+TLS shutdown error (`WinError 10022`). Other platforms and the process-wide event-loop policy
+keep their defaults. Custom tools running on this loop cannot use asyncio subprocess or pipe
+APIs on Windows; run blocking subprocess work with `asyncio.to_thread` instead.
+
 <details open>
 <summary>Using uv (recommended)</summary>
 

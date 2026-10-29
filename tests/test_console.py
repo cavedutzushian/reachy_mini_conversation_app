@@ -960,6 +960,57 @@ def test_media_warmup_overlaps_audio_startup_config(monkeypatch: pytest.MonkeyPa
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
+def test_launch_closes_network_stream_without_callback_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Conversation shutdown closes sockets without leaking event-loop callback errors."""
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    monkeypatch.setattr(console_mod, "apply_audio_startup_config", MagicMock())
+    media = SimpleNamespace(start_recording=MagicMock(), start_playing=MagicMock())
+    stream = LocalStream(MagicMock(shutdown=AsyncMock()), SimpleNamespace(media=media))
+    loop_policy = asyncio.get_event_loop_policy()
+    errors: list[dict[str, object]] = []
+
+    async def close_peer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.readexactly(1)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def connect_and_stop() -> None:
+        loop = asyncio.get_running_loop()
+
+        def report_error(loop: asyncio.AbstractEventLoop, context: dict[str, object]) -> None:
+            errors.append(context)
+            loop.default_exception_handler(context)
+
+        loop.set_exception_handler(report_error)
+        server = await asyncio.start_server(close_peer, "127.0.0.1", 0)
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+            try:
+                writer.write(b"x")
+                await writer.drain()
+                assert await asyncio.wait_for(reader.read(), 2) == b""
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            server.close()
+            await asyncio.wait_for(server.wait_closed(), 2)
+            stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_run_handler_startup_loop", connect_and_stop)
+    monkeypatch.setattr(stream, "record_loop", AsyncMock())
+    monkeypatch.setattr(stream, "play_loop", AsyncMock())
+    try:
+        stream.launch()
+    finally:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+    assert not errors
+    assert asyncio.get_event_loop_policy() is loop_policy
+
+
 def test_launch_reads_microphone_while_audio_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     """The microphone is drained during audio configuration, so no backlog builds up before live input."""
     monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)

@@ -5,6 +5,7 @@ served via the Reachy Mini Apps settings server so users can configure it.
 """
 
 import re
+import sys
 import json
 import time
 import asyncio
@@ -1181,7 +1182,9 @@ class LocalStream:
                 # Ensure handler connection is closed
                 await self._shutdown_active_handler()
 
-        asyncio.run(runner())
+        # Proactor TLS shutdown can raise WinError 10022 after an otherwise clean close.
+        loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
+        asyncio.run(runner(), loop_factory=loop_factory)
 
     def close(self) -> None:
         """Stop the stream and underlying media pipelines.
