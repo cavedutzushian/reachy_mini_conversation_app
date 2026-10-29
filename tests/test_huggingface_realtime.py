@@ -24,6 +24,49 @@ HF_DEFAULT_VOICE = get_default_voice()
 
 
 @pytest.mark.asyncio
+async def test_setup_acknowledgement_gates_microphone_and_greeting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HF remains connecting until the service confirms the submitted session settings."""
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    submitted = asyncio.Event()
+    acknowledged = asyncio.Event()
+    greeted = asyncio.Event()
+    stopped = asyncio.Event()
+    connection = MagicMock()
+
+    async def update(**_kwargs: object) -> None:
+        submitted.set()
+
+    async def events():
+        await acknowledged.wait()
+        yield _FakeEvent("session.updated")
+        await stopped.wait()
+
+    connection.session.update = update
+    connection.input_audio_buffer.append = AsyncMock()
+    connection.__aiter__.side_effect = events
+    handler.client = MagicMock()
+    handler.client.realtime.connect.return_value.__aenter__.return_value = connection
+    monkeypatch.setattr(hf_mod, "get_tool_specs", lambda: [])
+    monkeypatch.setattr(handler, "_send_startup_greeting_prompt", AsyncMock(side_effect=greeted.set))
+    task = asyncio.create_task(handler._run_realtime_session())
+    try:
+        await asyncio.wait_for(submitted.wait(), 1)
+        for _step in range(10):
+            await asyncio.sleep(0)
+        assert not handler._is_connected()
+        await handler.receive((16000, np.zeros(512, dtype=np.int16)))
+        connection.input_audio_buffer.append.assert_not_awaited()
+        assert not greeted.is_set()
+        acknowledged.set()
+        await asyncio.wait_for(greeted.wait(), 1)
+        assert handler._is_connected()
+    finally:
+        stopped.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_retired_handler_cannot_forward_microphone_or_transcript() -> None:
     """A replacement generation rejects stale HF callbacks and input sends."""
     handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
@@ -80,6 +123,7 @@ async def test_local_and_server_vad_keep_listening_until_both_stop(
     microphone = np.full((512, 2), [16384, 0], dtype=np.int16)
 
     async def event_stream():
+        yield _FakeEvent("session.updated")
         await handler.receive((16000, microphone))
         movement_manager.set_listening.assert_called_once_with(True)
         handler._clear_queue.assert_not_called()
@@ -295,7 +339,7 @@ def _make_fake_realtime_client(
         response = FakeNoop()
 
         def __init__(self) -> None:
-            self._events = iter(events)
+            self._events = iter((_FakeEvent("session.updated"), *events))
 
         async def __aenter__(self) -> "FakeConn":
             return self
@@ -949,16 +993,23 @@ async def test_run_session_skips_empty_completed_transcript(monkeypatch: Any) ->
 
 
 @pytest.mark.asyncio
-async def test_run_session_generic_error_is_surfaced(monkeypatch: Any) -> None:
-    """A generic realtime error is forwarded to the UI as an assistant message."""
+async def test_run_session_generic_error_is_surfaced(monkeypatch: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """Remote error bodies stay out of logs and assistant messages."""
     handler = _session_handler(
         monkeypatch,
-        (_FakeEvent("error", error=SimpleNamespace(message="bad", code="server_error")),),
+        (
+            _FakeEvent(
+                "error", error=SimpleNamespace(message="private-api-key private-checkpoint", code="server_error")
+            ),
+        ),
     )
 
     await handler._run_realtime_session()
 
-    assert {"role": "assistant", "content": "[error] bad"} in _messages(_drain(handler))
+    messages = _messages(_drain(handler))
+    assert any("[error]" in str(message) for message in messages)
+    assert "private-api-key" not in caplog.text + str(messages)
+    assert "private-checkpoint" not in caplog.text + str(messages)
 
 
 @pytest.mark.asyncio

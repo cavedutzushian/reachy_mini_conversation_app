@@ -1,10 +1,14 @@
 import json
 import base64
 import asyncio
+import logging
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
 import pytest
+from websockets.frames import Close
+from websockets.exceptions import ConnectionClosedError
 
 import reachy_mini_conversation_app.gemini_realtime as gemini
 import reachy_mini_conversation_app.huggingface_realtime as realtime
@@ -18,7 +22,7 @@ from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, Re
 class FakeConnection:
     """Replay remote messages and capture outgoing payloads."""
 
-    def __init__(self, messages: list[dict[str, object]]) -> None:
+    def __init__(self, messages: list[object]) -> None:
         """Initialize the connection state."""
         self.messages = iter(messages)
         self.sent: list[dict[str, object]] = []
@@ -57,6 +61,212 @@ class FakeConnect:
 
 
 @pytest.mark.asyncio
+async def test_actual_rate_stereo_input_is_sent_as_mono_pcm_and_not_buffered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Captured float stereo audio is converted to correctly labelled PCM16 input."""
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    frame = np.full((4800, 2), 0.5, dtype=np.float32)
+    await handler.receive((48000, frame))
+    assert not socket.sent
+    handler._ready = True
+    await handler.receive((48000, frame))
+    audio = socket.sent[0]["realtimeInput"]["audio"]
+    assert audio["mimeType"] == "audio/pcm;rate=16000"
+    samples = np.frombuffer(base64.b64decode(audio["data"]), dtype="<i2")
+    assert 1000 < samples.size <= 1600 and np.median(samples) == pytest.approx(16384, abs=2)
+    handler._ready = False
+    await handler.receive((48000, frame))
+    assert len(socket.sent) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {"serverContent": "private-malformed-payload"},
+        {"serverContent": {"modelTurn": {"parts": "private-malformed-payload"}}},
+        {"serverContent": {"modelTurn": {"parts": [{"inlineData": "private-malformed-payload"}]}}},
+        {"toolCall": {"functionCalls": "private-malformed-payload"}},
+        {"toolCall": {"functionCalls": [{"name": "move_head"}]}},
+    ],
+)
+async def test_malformed_required_events_are_normalized(envelope: dict[str, object]) -> None:
+    """Malformed required fields fail safely instead of silently dropping capabilities."""
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    with pytest.raises(gemini.GeminiConnectionError, match="^connection_lost$"):
+        await handler._handle_message(envelope)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resume", [False, True])
+async def test_connect_setup_and_fresh_fallback_share_fifteen_seconds(
+    resume: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Connect latency and rejected resumption never restart the original setup deadline."""
+    loop = asyncio.get_running_loop()
+    elapsed = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: elapsed[0])
+    monkeypatch.setattr(gemini, "time", SimpleNamespace(monotonic=lambda: elapsed[0]))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "private-api-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    opening = asyncio.Event()
+    allow_open = asyncio.Event()
+    awaiting_ack = asyncio.Event()
+    socket = FakeConnection([])
+
+    async def wait_for_ack() -> str:
+        awaiting_ack.set()
+        await asyncio.Event().wait()
+        return "{}"
+
+    monkeypatch.setattr(socket, "recv", wait_for_ack)
+    rejected = FakeConnection([{"error": {"code": 400, "message": "Rejected resumption handle"}}])
+    contexts = 0
+
+    class DelayedConnect(FakeConnect):
+        """Consume ten seconds before the first websocket opens."""
+
+        async def __aenter__(self) -> FakeConnection:
+            """Open only when the test releases the first handshake."""
+            if contexts == 1:
+                opening.set()
+                await allow_open.wait()
+            return self.socket
+
+    def connect(*_args: object, **_kwargs: object) -> FakeConnect:
+        nonlocal contexts
+        contexts += 1
+        return DelayedConnect(rejected if resume and contexts == 1 else socket)
+
+    monkeypatch.setattr(gemini, "connect", connect)
+    state = RealtimeSessionState(
+        provider="gemini", resumable=resume, resumption_handle="checkpoint" if resume else None
+    )
+    handler = gemini.GeminiRealtimeHandler(
+        ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()), session_state=state
+    )
+    task = asyncio.create_task(handler.start_up())
+    try:
+        await opening.wait()
+        elapsed[0] += 10
+        allow_open.set()
+        await awaiting_ack.wait()
+        elapsed[0] += 4.9
+        for _step in range(10):
+            await asyncio.sleep(0)
+        assert not task.done() and not handler._is_connected()
+        elapsed[0] += 0.2
+        for _step in range(30):
+            await asyncio.sleep(0)
+        assert task.done()
+        with pytest.raises(gemini.GeminiConnectionError, match="setup_timeout"):
+            await task
+        assert contexts == (2 if resume else 1)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_slow_socket_close_aborts_after_five_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A close that ignores cancellation loses its transport at the graceful-close deadline."""
+    loop = asyncio.get_running_loop()
+    elapsed = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: elapsed[0])
+    closing = asyncio.Event()
+    released = asyncio.Event()
+    socket = FakeConnection([])
+
+    async def close() -> None:
+        closing.set()
+        try:
+            await released.wait()
+        except asyncio.CancelledError:
+            await released.wait()
+
+    monkeypatch.setattr(socket, "close", close)
+    socket.transport.abort.side_effect = released.set
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    monkeypatch.setattr(handler, "connection", socket)
+    task = asyncio.create_task(handler.shutdown())
+    try:
+        await closing.wait()
+        elapsed[0] += 5.1
+        for _step in range(30):
+            await asyncio.sleep(0)
+        assert task.done() and not handler._is_connected()
+        socket.transport.abort.assert_called_once()
+        await task
+    finally:
+        released.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", [{"setupComplete": "private-payload"}, ["private-payload"]])
+async def test_malformed_setup_ack_is_not_readiness(message: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only a valid setup acknowledgement can make the selected provider ready."""
+    socket = FakeConnection([message])
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(socket))
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    with pytest.raises(gemini.GeminiConnectionError, match="^connection_lost$"):
+        await handler.start_up()
+    assert not handler._is_connected()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("code", "recoverable"), [(1011, True), (4001, False)])
+async def test_close_reasons_and_debug_frames_do_not_expose_credentials(
+    code: int, recoverable: bool, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Configured wire logging and normalized close errors keep private payloads out of logs."""
+    caplog.set_level(logging.DEBUG)
+    key, handle, image = "private-api-key", "private-checkpoint", "private-image-payload"
+    monkeypatch.setattr(config, "GEMINI_API_KEY", key)
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(config, "LOCAL_VAD_ENABLED", False)
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    socket = FakeConnection([])
+    received = 0
+
+    async def receive() -> str:
+        nonlocal received
+        received += 1
+        if received == 1:
+            return '{"setupComplete":{}}'
+        gemini.transport_logger.debug("Remote frame %s", image)
+        raise ConnectionClosedError(Close(code, key + handle + image), None)
+
+    async def send(message: str) -> None:
+        gemini.transport_logger.debug("Outgoing frame %s", message)
+        socket.sent.append(json.loads(message))
+
+    monkeypatch.setattr(socket, "recv", receive)
+    monkeypatch.setattr(socket, "send", send)
+
+    def connect(*_args: object, **kwargs: object) -> FakeConnect:
+        assert kwargs["logger"] is gemini.transport_logger
+        gemini.transport_logger.debug("Request headers %s", kwargs["additional_headers"])
+        return FakeConnect(socket)
+
+    monkeypatch.setattr(gemini, "connect", connect)
+    state = RealtimeSessionState(provider="gemini", resumable=True, resumption_handle=handle)
+    handler = gemini.GeminiRealtimeHandler(
+        ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()), session_state=state
+    )
+    with pytest.raises(gemini.GeminiConnectionError) as caught:
+        await handler.start_up()
+    assert caught.value.recoverable is recoverable
+    assert not any(secret in caplog.text + str(caught.value) for secret in (key, handle, image))
+
+
+@pytest.mark.asyncio
 async def test_interruption_discards_old_media_and_preserves_multipart_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only output after the remote turn barrier survives an interruption."""
     samples = np.ones(2400, dtype="<i2")
@@ -82,6 +292,8 @@ async def test_interruption_discards_old_media_and_preserves_multipart_output(mo
     handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=robot, movement_manager=MagicMock()))
     transcripts: list[tuple[str, str, bool]] = []
     handler.set_transcript_observer(lambda role, text, final: transcripts.append((role, text, final)))
+    completed = MagicMock()
+    handler.exchange_completed = completed
     with pytest.raises(ConnectionError, match="simulated"):
         await handler.start_up()
     outputs = []
@@ -89,6 +301,7 @@ async def test_interruption_discards_old_media_and_preserves_multipart_output(mo
         outputs.append(handler.output_queue.get_nowait())
     assert sum(output[1].size for output in outputs if not isinstance(output, AdditionalOutputs)) == 3200
     assert ("assistant", "new answer", True) in transcripts
+    completed.assert_called_once()
     setup = socket.sent[0]["setup"]
     assert isinstance(setup, dict) and setup["systemInstruction"] == {"parts": [{"text": "personality"}]}
     assert "secret-not-for-logs" not in json.dumps(socket.sent)
@@ -249,8 +462,76 @@ async def test_camera_tool_sends_one_snapshot_and_silent_sanitized_result(monkey
         assert calls == ["capture"]
         await handler._tool_call({"id": "invalid", "name": alias, "args": {"unknown": True}})
         assert calls == ["capture"] and "Invalid tool arguments" in str(socket.sent[-1])
+        handler.session_state.begin_connection()
+        replacement = gemini.GeminiRealtimeHandler(handler.deps, session_state=handler.session_state)
+        replacement_socket = FakeConnection([])
+        monkeypatch.setattr(replacement, "connection", replacement_socket)
+        replacement._declarations()
+        await replacement._tool_call({"id": "snapshot-1", "name": alias, "args": {}})
+        assert calls == ["capture"] and "snapshot" in str(replacement_socket.sent)
+        assert "video" not in str(replacement_socket.sent)
     finally:
         await handler.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_multiple_functions_keep_ids_and_suppress_late_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each enabled function is independently dispatched and cancelled results stay suppressed."""
+    specs = [
+        {"name": name, "description": name, "type": "function", "parameters": {"type": "object"}}
+        for name in ("move_head", "get_robot_status")
+    ]
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: specs)
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    handler._declarations()
+    start = AsyncMock(side_effect=lambda call_id, *_args, **_kwargs: SimpleNamespace(tool_id="manager-" + call_id))
+    cancel = AsyncMock()
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start)
+    monkeypatch.setattr(type(handler.tool_manager), "cancel_tool", cancel)
+    await handler._handle_message(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {"id": "head", "name": "move_head", "args": {}},
+                    {"id": "status", "name": "get_robot_status", "args": {}},
+                ]
+            }
+        }
+    )
+    assert start.await_count == 2
+    await handler._handle_message({"toolCallCancellation": {"ids": ["head"]}})
+    cancel.assert_awaited_once_with("manager-head")
+    for call_id, name in (("head", "move_head"), ("status", "get_robot_status")):
+        await handler._handle_tool_result(
+            gemini.ToolNotification(
+                id=call_id, tool_name=name, is_idle_tool_call=False, status="completed", result={"ok": True}
+            )
+        )
+    assert len(socket.sent) == 1
+    assert socket.sent[0]["toolResponse"]["functionResponses"][0]["id"] == "status"
+    handler.session_state.begin_connection()
+    await handler._handle_tool_result(
+        gemini.ToolNotification(
+            id="status", tool_name="get_robot_status", is_idle_tool_call=False, status="completed", result={"ok": True}
+        )
+    )
+    assert len(socket.sent) == 1
+
+
+@pytest.mark.parametrize("parameters", [{"type": "unknown"}, {"type": "array"}])
+def test_unsupported_tool_schema_blocks_setup(parameters: dict[str, object], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsupported tool declarations require correction instead of disappearing from setup."""
+    monkeypatch.setattr(
+        gemini,
+        "get_tool_specs",
+        lambda: [{"type": "function", "name": "bad.tool", "description": "bad", "parameters": parameters}],
+    )
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    with pytest.raises(gemini.GeminiConnectionError, match="tool_schema_unsupported") as caught:
+        handler._declarations()
+    assert not caught.value.recoverable
 
 
 @pytest.mark.asyncio
@@ -313,6 +594,62 @@ async def test_resume_or_fresh_fallback_uses_same_owner_state(
         {} if reject_checkpoint else {"handle": "private-checkpoint"}
     )
     assert len(accepted.sent) == (2 if reject_checkpoint else 1)
+
+
+@pytest.mark.asyncio
+async def test_goaway_preserves_eligible_context_for_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GoAway returns recovery to the owner while retaining the latest eligible checkpoint."""
+    state = RealtimeSessionState(provider="gemini", resumable=True, resumption_handle="checkpoint")
+    first = FakeConnection(
+        [
+            {"setupComplete": {}},
+            {"sessionResumptionUpdate": {"resumable": True, "newHandle": "new-checkpoint"}},
+            {"goAway": {"timeLeft": "10s"}},
+        ]
+    )
+    second = FakeConnection([{"setupComplete": {}}])
+    sockets = iter([first, second])
+    monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(next(sockets)))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(config, "LOCAL_VAD_ENABLED", False)
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    handler = gemini.GeminiRealtimeHandler(deps, session_state=state)
+    with pytest.raises(gemini.GeminiConnectionError) as caught:
+        await handler.start_up()
+    assert caught.value.recoverable
+    state.begin_connection()
+    replacement = gemini.GeminiRealtimeHandler(deps, session_state=state)
+    with pytest.raises(ConnectionError, match="simulated"):
+        await replacement.start_up()
+    assert second.sent[0]["setup"]["sessionResumption"] == {"handle": "new-checkpoint"}
+    assert state.context_state == "resumed"
+
+
+@pytest.mark.asyncio
+async def test_transient_resume_handshake_failure_keeps_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transient socket loss before acknowledgement is not evidence of a rejected checkpoint."""
+    state = RealtimeSessionState(provider="gemini", resumable=True, resumption_handle="checkpoint")
+    socket = FakeConnection([])
+
+    async def receive() -> str:
+        raise ConnectionClosedError(Close(1011, "Temporary service error"), None)
+
+    monkeypatch.setattr(socket, "recv", receive)
+    connections = MagicMock(return_value=FakeConnect(socket))
+    monkeypatch.setattr(gemini, "connect", connections)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    handler = gemini.GeminiRealtimeHandler(
+        ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()), session_state=state
+    )
+    with pytest.raises(gemini.GeminiConnectionError) as caught:
+        await handler.start_up()
+    assert caught.value.recoverable
+    assert state.resumable and state.resumption_handle == "checkpoint"
+    connections.assert_called_once()
 
 
 @pytest.mark.asyncio

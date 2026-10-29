@@ -13,8 +13,7 @@ without requiring network access, a paid key, or robot hardware in the automated
 
 **Organization**: Foundation first, then user stories in priority order. This document
 creates no implementation. This regeneration supersedes the original manual-Gemini and
-older-runtime tasks; all tasks remain unchecked. Check a task only after its behavior and
-evidence are verified.
+older-runtime tasks. Check a task only after its behavior and evidence are verified.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -69,8 +68,8 @@ manual provider selection remain usable.
 ### Tests for User Story 1
 
 - [X] T010 [P] [US1] Add additive-settings contract tests in `tests/test_settings_store.py` for missing-provider HF default, saved-over-environment precedence, invalid persisted values, nonempty model/voice strings, provider settings isolation, and absence of keys/handles/transcripts in settings.json.
-- [ ] T011 [P] [US1] Add fake Gemini setup/audio/transcript tests in `tests/test_gemini_realtime.py` for setupComplete readiness, multipart content, actual-rate PCM16 input, 24 kHz output, personality/greeting, malformed required events and normalized authentication/access/model/voice/quota failures; include silent setup and blocked-send fake-clock tests for the shared 15-second connection/setup deadline and 5-second send deadline, with no sensitive output.
-- [ ] T012 [P] [US1] Extend `tests/test_console.py` for backend.config/status.get, legacy HF payloads, provider-aware readiness, key-missing waiting_for_config, manual-Retry coalescing and safe status metadata; use a fake clock to prove both providers retry recoverable failures at 1/2/4/8/16/30... seconds for at least ten attempts, reset only after a completed exchange, wait on permanent configuration/authentication failures, and keep configuration/manual selection usable.
+- [X] T011 [P] [US1] Add fake Gemini setup/audio/transcript tests in `tests/test_gemini_realtime.py` for setupComplete readiness, multipart content, actual-rate PCM16 input, 24 kHz output, personality/greeting, malformed required events and normalized authentication/access/model/voice/quota failures; include silent setup and blocked-send fake-clock tests for the shared 15-second connection/setup deadline and 5-second send deadline, with no sensitive output.
+- [X] T012 [P] [US1] Extend `tests/test_console.py` for backend.config/status.get, legacy HF payloads, provider-aware readiness, key-missing waiting_for_config, manual-Retry coalescing and safe status metadata; use a fake clock to prove both providers retry recoverable failures at 1/2/4/8/16/30... seconds for at least ten attempts, reset only after a completed exchange, wait on permanent configuration/authentication failures, and keep configuration/manual selection usable.
 
 ### Implementation for User Story 1
 
@@ -79,7 +78,7 @@ manual provider selection remain usable.
 - [X] T015 [US1] Implement Gemini voice resolution in `src/reachy_mini_conversation_app/config.py`, `src/reachy_mini_conversation_app/prompts.py` and `src/reachy_mini_conversation_app/console.py` with saved Gemini override, compatible personality voice, environment, then Kore; absent override plus incompatible profile voice requires a valid override instead of fallthrough, while a saved override bypasses incompatibility; preserve `src/reachy_mini_conversation_app/startup_settings.py` HF resolution/storage and profile.md, and extend `tests/test_startup_settings.py` for unchanged legacy behavior and override isolation.
 - [X] T016 [US1] Implement Gemini Developer API TLS/header authentication, initial setup, acknowledgement, multipart audio/transcript validation and greeting/text injection in `src/reachy_mini_conversation_app/gemini_realtime.py`; use shared state/events and PCM16 true-rate input/resampled output, enforce one 15-second budget across connection/setup and 5 seconds per send, and classify transient versus permanent failures without logging raw frames, keys, handles or credential-bearing URLs.
 - [X] T017 [US1] Select HF or Gemini in the existing factory in `src/reachy_mini_conversation_app/main.py`, passing the LocalStream-owned state from T009 rather than allocating replacement-handler-local state; keep imports at module scope and robot/tool dependencies shared; extend `tests/test_main.py` for HF default, Gemini selection and state-reference preservation without paid calls.
-- [ ] T018 [US1] Extend backend.config/status.get/backend.retry in `src/reachy_mini_conversation_app/console.py` per `specs/001-gemini-backend/contracts/backend-selection.md` and implement one LocalStream recovery scheduler for both providers: indefinite 1/2/4/8/16/30... second waits, reset after a completed exchange, one immediate manual-Retry attempt, coalesced clicks, 15/5/5-second setup/send/close deadlines, and cancellation on switch/shutdown; await correction for invalid credentials/configuration, denied access and hard billing/quota errors, distinguish transient rate limits, eliminate nested retries, preserve HF request/status compatibility, reject key parameters and expose only safe readiness/context/retry metadata.
+- [X] T018 [US1] Extend backend.config/status.get/backend.retry in `src/reachy_mini_conversation_app/console.py` per `specs/001-gemini-backend/contracts/backend-selection.md` and implement one LocalStream recovery scheduler for both providers: indefinite 1/2/4/8/16/30... second waits, reset after a completed exchange, one immediate manual-Retry attempt, coalesced clicks, 15/5/5-second setup/send/close deadlines, and cancellation on switch/shutdown; await correction for invalid credentials/configuration, denied access and hard billing/quota errors, distinguish transient rate limits, eliminate nested retries, preserve HF request/status compatibility, reject key parameters and expose only safe readiness/context/retry metadata.
 - [X] T019 [US1] Add provider/voice controls, setup errors, automatic-recovery status, manual Retry/selection and shared-memory disclosure in `src/reachy_mini_conversation_app/static/js/views/settings.js` and RPC calls/reason messages in `src/reachy_mini_conversation_app/static/js/api.js`; display only relevant controls, preserve HF voice behavior, and show neither secret fields nor implementation details.
 - [ ] T020 [US1] Verify T010-T019 with fake-session/RPC suites and the available-account three-exchange trial from `specs/001-gemini-backend/quickstart.md`; record persisted selection, correct personality/greeting/transcripts, Gemini voice precedence, unchanged HF defaults without a key, bounded setup failures and automatic recovery for both providers, keeping unavailable live evidence incomplete.
 
@@ -97,8 +96,8 @@ provider directions. Verify disabled tools/global controls block their respectiv
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] Extend `tests/test_gemini_realtime.py` for ordered interrupted/turnComplete barriers, both flags in one message, media bundled with interrupted, delayed old-epoch audio, generationComplete alone, independently ordered input transcripts, repeated/missing barriers and app interrupt after generation ended; also cover aliases/schema rejection, simultaneous functions, nonblocking SILENT results, permissions/argument errors, cancellation and duplicate calls.
-- [ ] T022 [P] [US2] Extend `tests/tools/test_camera.py` and `tests/tools/test_background_tool_manager.py` for camera failure/disabled capture, cancellable versus already-started work, and error results that leave subsequent conversation usable; reuse SDK media and existing manager semantics.
+- [X] T021 [P] [US2] Extend `tests/test_gemini_realtime.py` for ordered interrupted/turnComplete barriers, both flags in one message, media bundled with interrupted, delayed old-epoch audio, generationComplete alone, independently ordered input transcripts, repeated/missing barriers and app interrupt after generation ended; also cover aliases/schema rejection, simultaneous functions, nonblocking SILENT results, permissions/argument errors, cancellation and duplicate calls.
+- [X] T022 [P] [US2] Extend `tests/tools/test_camera.py` and `tests/tools/test_background_tool_manager.py` for camera failure/disabled capture, cancellable versus already-started work, and error results that leave subsequent conversation usable; reuse SDK media and existing manager semantics.
 - [X] T023 [P] [US2] Extend `tests/test_memory_routes.py` for cross-provider saved-memory recall and deletion, memory-operation failures, fresh Gemini instruction refresh, global memory disabled without deleting facts, and the distinction between global injection control and remember/forget tool permissions.
 
 ### Implementation for User Story 2
@@ -126,18 +125,18 @@ the current conversation. Repeat rapid selections/retries and verify one active 
 
 ### Tests for User Story 3
 
-- [ ] T032 [P] [US3] Extend `tests/test_console.py` for rapid selection races, cancellation during backoff/setup/close, coalesced Retry, one active generation, stale callback rejection and truthful fresh/resumed status; replace the handler object while retaining owner state, inject the same tool call ID and prove no repeated action; fake a nonresponsive close to verify its five-second bound and usable switching/shutdown.
-- [ ] T033 [P] [US3] Extend `tests/test_gemini_realtime.py` for automatic GoAway recovery, valid/invalid/resumable=false handles, fresh fallback within remaining setup budget, handler replacement with retained ledger, model/voice/profile/toolset/memory invalidation, cancelled/late tool completion and unknown effects without replay; verify transient recovery versus authentication/access/configuration/hard-quota waiting.
+- [X] T032 [P] [US3] Extend `tests/test_console.py` for rapid selection races, cancellation during backoff/setup/close, coalesced Retry, one active generation, stale callback rejection and truthful fresh/resumed status; replace the handler object while retaining owner state, inject the same tool call ID and prove no repeated action; fake a nonresponsive close to verify its five-second bound and usable switching/shutdown.
+- [X] T033 [P] [US3] Extend `tests/test_gemini_realtime.py` for automatic GoAway recovery, valid/invalid/resumable=false handles, fresh fallback within remaining setup budget, handler replacement with retained ledger, model/voice/profile/toolset/memory invalidation, cancelled/late tool completion and unknown effects without replay; verify transient recovery versus authentication/access/configuration/hard-quota waiting.
 
 ### Implementation for User Story 3
 
 - [X] T034 [US3] Serialize selection/configuration transitions in `src/reachy_mini_conversation_app/console.py`, using the existing restart lifecycle and sole scheduler; invalidate old generation before flushing/close, cancel obsolete backoff/in-flight attempts, keep the counter monotonic across fresh states, retain state reference only for same-provider/same-config recovery, and preserve other-provider settings/shared memories without live-history transfer.
 - [X] T035 [US3] Enforce active owner/generation/epoch at receipt and before audio enqueue/send, observers, images and tool dispatch/results in `src/reachy_mini_conversation_app/huggingface_realtime.py`, `src/reachy_mini_conversation_app/gemini_realtime.py` and `src/reachy_mini_conversation_app/console.py`; never relabel delayed old events with a new epoch, buffer disconnected microphone input or let late cleanup regain ownership, and preserve existing cancellation behavior for already-started physical effects.
-- [ ] T036 [US3] Complete bounded transition cleanup in `src/reachy_mini_conversation_app/console.py` and shared handler lifecycle: use a monotonic 15-second combined setup budget, 5-second send limit and 5-second graceful close, invalidate ownership on timeout and abandon slow cleanup through public transport APIs without freezing configuration/switch/shutdown; retain exactly one common retry scheduler from T018 and one active media owner.
+- [X] T036 [US3] Complete bounded transition cleanup in `src/reachy_mini_conversation_app/console.py` and shared handler lifecycle: use a monotonic 15-second combined setup budget, 5-second send limit and 5-second graceful close, invalidate ownership on timeout and abandon slow cleanup through public transport APIs without freezing configuration/switch/shutdown; retain exactly one common retry scheduler from T018 and one active media owner.
 - [X] T037 [US3] Implement contextWindowCompression/sessionResumption updates and automatic serialized GoAway reconnect in `src/reachy_mini_conversation_app/gemini_realtime.py` using the same LocalStream-owned state through replacement handlers; handles stay "Memory only, never logged or exposed", latest resumable=false clears eligibility, changed configuration revision discards stale handles, and invalid resume visibly starts fresh within the original setup deadline before any new backoff.
 - [X] T038 [US3] Reconcile the retained owner ledger in `src/reachy_mini_conversation_app/huggingface_realtime.py` and `src/reachy_mini_conversation_app/gemini_realtime.py` after valid resume: rebind only calls from that logical session, report uncertain effects without retry, resubmit a known result only for the same resumed call without re-execution, and report uncertainty before disposing a state that must start fresh; transfer no old queues or action requests.
 - [X] T039 [US3] Display GoAway/reconnecting status, safe retry attempt/delay metadata, actionable permanent errors, fresh versus resumed context and uncertain-action feedback in `src/reachy_mini_conversation_app/static/js/views/settings.js` and `src/reachy_mini_conversation_app/static/js/components/conversation-panel.js`; permit manual Retry/provider selection throughout without displaying handles or claiming continuity falsely.
-- [ ] T040 [US3] Run US3 suites and switch/disconnection scenarios from `specs/001-gemini-backend/quickstart.md`, recording SC-005/SC-006/SC-007 results; use simulated time for at least ten automatic attempts on each provider capped at 30 seconds, validate permanent-error waiting and 15/5/5-second deadlines, cancellation during backoff/close, handler-replacement resumption, stale-handle invalidation and no replay of uncertain actions.
+- [X] T040 [US3] Run US3 suites and switch/disconnection scenarios from `specs/001-gemini-backend/quickstart.md`, recording SC-005/SC-006/SC-007 results; use simulated time for at least ten automatic attempts on each provider capped at 30 seconds, validate permanent-error waiting and 15/5/5-second deadlines, cancellation during backoff/close, handler-replacement resumption, stale-handle invalidation and no replay of uncertain actions.
 
 **Checkpoint**: All three stories can be demonstrated individually using the shared
 foundation and earlier integrated increments; none requires unavailable later-story work.
@@ -149,7 +148,7 @@ foundation and earlier integrated increments; none requires unavailable later-st
 - [X] T041 [P] Update the existing root `README.md` with Python 3.12 minimum setup, Gemini configuration, agreed voice order, indefinite same-provider retries capped at 30 seconds, operation deadlines/fresh-context boundaries, personal Developer API scope, on-demand camera/shared-memory disclosure and exclusions; reconcile the runtime change begun in T003 without adding a README or changing protected contribution files.
 - [X] T042 [P] Document REACHY_MINI_CONVERSATION_BACKEND, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_VOICE and precedence in `.env.example`; check the existing packaging mapping in `setup.py`/`MANIFEST.in` to ensure packaged defaults receive the same example, without introducing a redundant source file or committing a private .env.
 - [X] T043 [P] Record the architecture-diagram update requirement for the future human-authored PR in `specs/001-gemini-backend/quickstart.md`, referencing `docs/scheme.mmd` and generated `docs/assets/conversation_app_arch.svg`; do not hand-edit SVG or create Markdown under docs/.
-- [ ] T044 Extend redaction/retention tests in `tests/test_gemini_realtime.py` and `tests/test_console.py` to prove failures/status/debug logging cannot expose keys, handles, raw image data or prior-provider live history; review shared-module changes for narrow logged exceptions, typed public signatures, and no new suppressions.
+- [X] T044 Extend redaction/retention tests in `tests/test_gemini_realtime.py` and `tests/test_console.py` to prove failures/status/debug logging cannot expose keys, handles, raw image data or prior-provider live history; review shared-module changes for narrow logged exceptions, typed public signatures, and no new suppressions.
 - [ ] T045 Run a clean Python 3.12 locked install and the full Ruff/format/mypy/pytest gate plus `uv lock --check` against `pyproject.toml`, `uv.lock`, `src/` and `tests/`; record actual versions/results and supported-platform evidence in `specs/001-gemini-backend/quickstart.md`, require green checks and metadata/guidance alignment with constitution 2.0.0 before review, and leave unavailable platform evidence incomplete without CI edits.
 - [ ] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, 9/10 sub-second recognized interruptions with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance.
 - [ ] T047 Self-review the focused diff against `specs/001-gemini-backend/spec.md`, `specs/001-gemini-backend/plan.md`, and `AGENTS.md`, ensure no secrets or unrelated changes, and leave human review/PR creation to the developer using the existing `.github/pull_request_template.md` without modifying that template.
@@ -244,14 +243,24 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
-Checked tasks reflect local implementation and available simulated evidence in quickstart.md.
-The feature remains incomplete. T011/T012/T021/T022/T032/T033/T040/T044 retain broader
-acceptance cases not yet demonstrated, including actual-rate input, malformed events,
-rapid transition races and complete log/retention assertions. Existing camera/manager
-regressions pass, but the additional T022 cases have not been added to those test files.
-T018/T036 remain open for complete connection/setup acknowledgement and transition-deadline
-acceptance across both transports. T020/T031 include deferred live-account/hardware trials.
-T045 is not green because repository-wide Spec Kit checks remain red and MCP integration
-is intermittent; a final clean isolated install and unavailable-platform checks are also
-outstanding. T046 remains deferred, and T047 cannot establish review readiness before the
-gate is green. No live service call, external PR, or physical robot acceptance is claimed.
+Local implementation and simulated acceptance are complete through T044: 42/47 tasks
+are checked. T011/T012 cover actual-rate stereo PCM, acknowledgement gates, malformed
+messages, missing credentials, safe errors, completed-exchange backoff reset and virtual
+15/5-second budgets. T018/T036 now keep factory/revision failures inside recovery,
+distinguish child-attempt cancellation from owner shutdown, capture old cleanup ownership,
+and abort cancellation-resistant closes at five seconds. T021/T022 exercise multipart
+interruption barriers, duplicate and simultaneous tools, late/cancelled results, unsupported
+schemas, camera recovery and already-started effects. T032/T033/T040 cover ten switches,
+rapid requests, waits/cancellation, stale observers, GoAway, handler-replacement deduplication,
+all five configuration revisions and transient-versus-rejected resumption. T044 covers
+normalized service errors, wire-log privacy, safe status and retired observer retention.
+See quickstart.md for commands and limits of the simulated evidence.
+
+T045 remains open: clean locked Python 3.12 installation passed, and all 670 tests outside
+the two MCP integration items passed, but repository-wide Ruff still has 55 existing Spec Kit
+script findings and seven formatting differences. The full clean-environment run stalled
+in pytest-asyncio fixture finalization after the first MCP integration item passed; the
+30-second faulthandler trace confirms teardown, not the root cause. No checks were excluded
+from configuration or weakened to claim a full green gate. T047 remains open until the gate
+can support final review readiness. T020/T031/T046 retain the expressly deferred live-service
+and physical-robot evidence. No paid service call, PR or hardware acceptance is claimed.

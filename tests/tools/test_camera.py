@@ -1,10 +1,12 @@
 """Tests for the camera tool."""
 
+import json
 import base64
 from unittest.mock import MagicMock
 
 import pytest
 
+from reachy_mini_conversation_app.tools import core_tools
 from reachy_mini_conversation_app.tools.camera import Camera
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 
@@ -58,3 +60,17 @@ async def test_camera_tool_reports_error_when_camera_disabled() -> None:
 
     assert "error" in result
     reachy_mini.media.get_frame_jpeg.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_capture_error_does_not_block_the_next_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK capture errors become tool results and a subsequent capture can succeed."""
+    robot = MagicMock()
+    robot.media.get_frame_jpeg.side_effect = [OSError("Camera temporarily unavailable"), b"jpeg"]
+    deps = ToolDependencies(reachy_mini=robot, movement_manager=MagicMock(), camera_enabled=True)
+    monkeypatch.setattr(core_tools, "get_tools", lambda: {"camera": Camera()})
+    arguments = json.dumps({"question": "What is visible?"})
+    failed = await core_tools.dispatch_tool_call("camera", arguments, deps)
+    assert "error" in failed and "b64_im" not in failed
+    succeeded = await core_tools.dispatch_tool_call("camera", arguments, deps)
+    assert succeeded["b64_im"] == base64.b64encode(b"jpeg").decode()

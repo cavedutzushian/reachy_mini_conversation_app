@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from collections.abc import Callable
 
+import httpx
 import numpy as np
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -19,6 +20,7 @@ from reachy_mini_conversation_app.config import HF_AVAILABLE_VOICES, config
 from reachy_mini_conversation_app.console import LocalStream
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.settings_store import read_settings
+from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
 from reachy_mini_conversation_app.startup_settings import (
     StartupSettings,
     load_startup_settings_into_runtime,
@@ -109,14 +111,24 @@ async def test_ten_recoverable_attempts_share_capped_schedule(provider: str, mon
 
 
 @pytest.mark.asyncio
-async def test_permanent_failure_waits_for_manual_correction(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+async def test_permanent_failure_waits_for_manual_correction(
+    provider: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """Authentication failures do not create an automatic retry schedule."""
-    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
     monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    request = httpx.Request("GET", "https://service.invalid")
+    error = (
+        httpx.HTTPStatusError("private-api-key", request=request, response=httpx.Response(401, request=request))
+        if provider == "huggingface"
+        else console_mod.GeminiConnectionError("authentication_failed", recoverable=False)
+    )
     handler = MagicMock(
         connection=None,
         shutdown=AsyncMock(),
-        start_up=AsyncMock(side_effect=console_mod.GeminiConnectionError("authentication_failed", recoverable=False)),
+        start_up=AsyncMock(side_effect=error),
     )
     stream = LocalStream(handler, MagicMock())
     waits: list[float | None] = []
@@ -130,6 +142,29 @@ async def test_permanent_failure_waits_for_manual_correction(monkeypatch: pytest
     assert waits == [None]
     assert stream._backend_connection_state == "waiting_for_config"
     assert stream._retry_attempt == 0
+    assert "private-api-key" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_missing_gemini_key_preserves_configuration_controls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unconfigured saved selection waits without touching the paid transport."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    app = FastAPI()
+    handler = MagicMock(connection=None, start_up=AsyncMock(), shutdown=AsyncMock())
+    stream = LocalStream(handler, MagicMock(), settings_app=app)
+    stream._init_settings_ui_if_needed()
+
+    async def wait(_delay: float | None) -> None:
+        stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    handler.start_up.assert_not_called()
+    status = _rpc_call(app, "status.get")["result"]
+    assert status["backend"] == "gemini" and status["backend_error_reason"] == "missing_gemini_key"
+    assert status["backend_connection_state"] == "waiting_for_config"
+    assert _rpc_call(app, "backend.config", {"backend": "huggingface"})["result"]["ok"]
 
 
 @pytest.mark.asyncio
@@ -155,6 +190,336 @@ async def test_slow_cleanup_cannot_keep_ownership_or_freeze_switching(monkeypatc
     finally:
         released.set()
         await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+async def test_only_completed_exchange_resets_retry_delay(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replacement handlers retain backoff until one acknowledged exchange completes."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    monkeypatch.setattr(console_mod, "get_tool_specs", lambda: [])
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    attempt = 0
+
+    def factory(_voice: str | None):
+        handler = GeminiRealtimeHandler(deps) if provider == "gemini" else HuggingFaceRealtimeHandler(deps)
+
+        async def start() -> None:
+            nonlocal attempt
+            attempt += 1
+            handler.connection = MagicMock(close=AsyncMock())
+            if isinstance(handler, GeminiRealtimeHandler):
+                handler._ready = True
+            if attempt == 3:
+                handler.notify_exchange_completed()
+            raise ConnectionError("simulated connection loss")
+
+        monkeypatch.setattr(handler, "start_up", start)
+        return handler
+
+    stream = LocalStream(factory(None), MagicMock(), handler_factory=factory)
+    delays: list[float | None] = []
+
+    async def wait(delay: float | None) -> None:
+        delays.append(delay)
+        if len(delays) == 4:
+            stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    assert delays == [1, 2, 1, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+async def test_owner_setup_budget_expires_at_fifteen_seconds(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner bounds an unacknowledged transport without terminating the settings loop."""
+    loop = asyncio.get_running_loop()
+    elapsed = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: elapsed[0])
+    monkeypatch.setattr(console_mod, "time", SimpleNamespace(monotonic=lambda: elapsed[0], time=time.time))
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    started = asyncio.Event()
+
+    async def silent_setup() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    handler = MagicMock(connection=None, start_up=silent_setup, shutdown=AsyncMock())
+    stream = LocalStream(handler, MagicMock())
+    delays: list[float | None] = []
+
+    async def wait(delay: float | None) -> None:
+        delays.append(delay)
+        stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    task = asyncio.create_task(stream._run_handler_startup_loop())
+    try:
+        await started.wait()
+        elapsed[0] += 14.9
+        for _step in range(10):
+            await asyncio.sleep(0)
+        assert not task.done()
+        elapsed[0] += 0.2
+        for _step in range(40):
+            await asyncio.sleep(0)
+        assert task.done()
+        await task
+        assert stream._backend_error_reason == "setup_timeout" and delays == [1]
+        assert stream.session_state.generation > 1
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Switching and coalesced requests never let a retired handler regain media ownership."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    monkeypatch.setattr(console_mod, "get_tool_specs", lambda: [])
+    state = console_mod.RealtimeSessionState()
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    handlers = []
+    started: asyncio.Queue[HuggingFaceRealtimeHandler | GeminiRealtimeHandler] = asyncio.Queue()
+    ownership_counts: list[int] = []
+
+    def factory(_voice: str | None):
+        handler = (
+            GeminiRealtimeHandler(deps, session_state=state)
+            if config.CONVERSATION_BACKEND == "gemini"
+            else HuggingFaceRealtimeHandler(deps, session_state=state)
+        )
+        handlers.append(handler)
+
+        async def start() -> None:
+            handler.connection = MagicMock(close=AsyncMock())
+            if isinstance(handler, GeminiRealtimeHandler):
+                handler._ready = True
+            ownership_counts.append(
+                sum(active._owns_connection() and active.connection is not None for active in handlers)
+            )
+            started.put_nowait(handler)
+            try:
+                await asyncio.Event().wait()
+            finally:
+                handler.connection = None
+
+        monkeypatch.setattr(handler, "start_up", start)
+        return handler
+
+    stream = LocalStream(factory(None), MagicMock(), handler_factory=factory)
+    monitor = asyncio.create_task(stream._run_handler_startup_loop())
+    try:
+        current = await asyncio.wait_for(started.get(), 1)
+        for index in range(10):
+            previous = current
+            config.CONVERSATION_BACKEND = "gemini" if index % 2 == 0 else "huggingface"
+            await stream.request_backend_restart("provider_selected")
+            current = await asyncio.wait_for(started.get(), 1)
+            assert not previous._owns_connection() and current._owns_connection()
+            assert current.session_state is state
+            previous._emit_transcript("assistant", "private old-session fragment", True)
+            stream._retry_attempt = 7
+            previous.notify_exchange_completed()
+            assert stream._retry_attempt == 7
+        config.CONVERSATION_BACKEND = "gemini"
+        await asyncio.gather(*(stream.request_backend_restart("rapid_selection") for _request in range(10)))
+        await _wait_until(lambda: isinstance(stream.handler, GeminiRealtimeHandler) and stream._backend_connected())
+        assert max(ownership_counts) == 1
+        assert all(not handler._owns_connection() for handler in handlers if handler is not stream.handler)
+        assert "private old-session fragment" not in str(stream._conversation_history)
+    finally:
+        stream._stop_event.set()
+        monitor.cancel()
+        await stream._shutdown_active_handler()
+        await asyncio.gather(monitor, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_manual_retry_and_shutdown_cancel_pending_waits() -> None:
+    """Repeated Retry signals expedite one wait; shutdown cancels an indefinite wait."""
+    stream = LocalStream(MagicMock(), MagicMock())
+    waiting = asyncio.create_task(stream._sleep_or_restart_requested(30))
+    await asyncio.sleep(0)
+    stream._retry_requested.set()
+    stream._retry_requested.set()
+    await asyncio.wait_for(waiting, 1)
+    assert not stream._retry_requested.is_set()
+    following = asyncio.create_task(stream._sleep_or_restart_requested(None))
+    await asyncio.sleep(0)
+    assert not following.done()
+    stream._stop_event.set()
+    await asyncio.wait_for(following, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["model", "voice", "profile", "tools", "memory"])
+async def test_changed_configuration_never_reuses_checkpoint(changed: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every prompt or provider revision invalidates the retained checkpoint before replacement setup."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "gemini-3.8-live")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    instructions = ["personality"]
+    specs: list[dict[str, object]] = []
+    monkeypatch.setattr(console_mod, "get_tool_specs", lambda: specs)
+    monkeypatch.setattr(console_mod, "get_session_instructions", lambda _path: instructions[0])
+    state = console_mod.RealtimeSessionState(provider="gemini")
+    initial_id = state.logical_session_id
+    observed: list[str | None] = []
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+
+    def factory(_voice: str | None):
+        handler = GeminiRealtimeHandler(deps, session_state=state)
+
+        async def start() -> None:
+            observed.append(state.resumption_handle)
+            state.resumption_handle = "private-checkpoint"
+            state.resumable = True
+            raise ConnectionError("simulated loss")
+
+        monkeypatch.setattr(handler, "start_up", start)
+        return handler
+
+    stream = LocalStream(factory(None), MagicMock(), handler_factory=factory)
+
+    async def wait(_delay: float | None) -> None:
+        if len(observed) == 2:
+            stream._stop_event.set()
+        elif changed == "model":
+            config.GEMINI_MODEL = "gemini-next-live"
+        elif changed == "voice":
+            config.GEMINI_VOICE_OVERRIDE = "Puck"
+        elif changed == "profile":
+            config.REACHY_MINI_CUSTOM_PROFILE = "new-profile"
+            instructions[0] = "new personality"
+        elif changed == "tools":
+            specs.append(
+                {"name": "move_head", "type": "function", "description": "Move", "parameters": {"type": "object"}}
+            )
+        else:
+            instructions[0] = "personality with changed saved memories"
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    assert observed == [None, None]
+    assert state.logical_session_id != initial_id
+
+
+@pytest.mark.asyncio
+async def test_retired_cleanup_cannot_abort_replacement_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A delayed close belongs to its captured transport even after a new handler is installed."""
+    loop = asyncio.get_running_loop()
+    elapsed = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: elapsed[0])
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    old = HuggingFaceRealtimeHandler(deps)
+    old_socket = MagicMock()
+    old.connection = old_socket
+    closing = asyncio.Event()
+    released = asyncio.Event()
+    old_socket._connection.transport.abort.side_effect = released.set
+
+    async def close() -> None:
+        closing.set()
+        try:
+            await released.wait()
+        except asyncio.CancelledError:
+            await released.wait()
+
+    monkeypatch.setattr(old, "shutdown", close)
+    stream = LocalStream(old, MagicMock())
+    cleanup = asyncio.create_task(stream._shutdown_active_handler())
+    replacement = None
+    try:
+        await closing.wait()
+        replacement = GeminiRealtimeHandler(deps, session_state=stream.session_state)
+        replacement_socket = MagicMock(close=AsyncMock())
+        replacement.connection = replacement_socket
+        replacement._ready = True
+        stream._install_handler(replacement)
+        elapsed[0] += 5.1
+        for _step in range(40):
+            await asyncio.sleep(0)
+        assert cleanup.done()
+        await cleanup
+        old_socket._connection.transport.abort.assert_called_once()
+        replacement_socket.transport.abort.assert_not_called()
+        assert replacement._is_connected()
+    finally:
+        released.set()
+        cleanup.cancel()
+        await asyncio.gather(cleanup, return_exceptions=True)
+        if replacement is not None:
+            await replacement.shutdown()
+
+
+def test_retired_observers_cannot_publish_or_retain_old_fragments() -> None:
+    """Replacing the handler invalidates every captured notification callback."""
+    old = MagicMock()
+    stream = LocalStream(old, MagicMock())
+    transcript = old.set_transcript_observer.call_args.args[0]
+    latency = old.set_latency_observer.call_args.args[0]
+    vad = old.set_vad_observer.call_args.args[0]
+    interrupted = old.transcript_interrupted
+    completed = old.exchange_completed
+    stream._rpc = MagicMock()
+    stream._install_handler(MagicMock())
+    stream._retry_attempt = 4
+    transcript("assistant", "prior-provider-live-fragment", True)
+    latency({"e2e_ms": 10})
+    vad({})
+    interrupted()
+    completed()
+    assert stream._retry_attempt == 4
+    assert not stream._conversation_history
+    stream._rpc.broadcast_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["revision", "factory"])
+async def test_local_setup_failure_keeps_status_and_selection_available(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed local configuration cannot terminate the recovery/settings owner."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    monkeypatch.setattr(console_mod, "has_hf_realtime_target", lambda: True)
+    app = FastAPI()
+    stream = LocalStream(
+        MagicMock(connection=None, shutdown=AsyncMock()),
+        MagicMock(),
+        settings_app=app,
+        handler_factory=lambda _voice: MagicMock(),
+    )
+    stream._init_settings_ui_if_needed()
+
+    def invalid() -> None:
+        raise ValueError("private malformed configuration")
+
+    if failure == "revision":
+        monkeypatch.setattr(console_mod, "get_tool_specs", invalid)
+    else:
+        stream._restart_requested.set()
+        monkeypatch.setattr(stream, "_build_handler_for_current_backend", invalid)
+
+    async def wait(delay: float | None) -> None:
+        assert delay is None
+        stream._stop_event.set()
+
+    monkeypatch.setattr(stream, "_sleep_or_restart_requested", wait)
+    await stream._run_handler_startup_loop()
+    status = _rpc_call(app, "status.get")["result"]
+    assert status["backend_connection_state"] == "waiting_for_config"
+    assert "private malformed configuration" not in str(status)
 
 
 @pytest.mark.asyncio

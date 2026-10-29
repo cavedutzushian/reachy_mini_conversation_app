@@ -87,7 +87,8 @@ context. The exact sequence tests are in the session contract.
 
 Key: logical_session_id plus provider call_id. Fields: app tool ID, wire alias, origin
 generation/epoch, execution state (received/running/completed/cancelled/uncertain), sanitized
-result, cancellation eligibility. Register before execution. Duplicate IDs never execute
+result, cancellation eligibility, and whether an uncertainty notice was already recorded.
+Register before execution. Duplicate IDs never execute
 again. Retain ledger across resume, reconciling callbacks to the current generation only
 when their origin belongs to the resumed logical session. Do not automatically retry an
 uncertain action. Known completed results may be resubmitted for the same resumed call

@@ -173,6 +173,7 @@ class ToolInvocation:
     result: dict[str, object] | None = None
     generation: int = 0
     response_epoch: int = 0
+    uncertainty_reported: bool = False
 
 
 @dataclass
@@ -188,6 +189,17 @@ class RealtimeSessionState:
     resumable: bool = False
     context_state: Literal["new", "resumed", "unavailable"] = "new"
     invocations: dict[str, ToolInvocation] = field(default_factory=dict)
+
+    def mark_uncertain_actions(self) -> bool:
+        """Mark unfinished effects and return whether they need an uncertainty notice."""
+        notification_needed = False
+        for invocation in self.invocations.values():
+            if invocation.status in ("received", "running", "uncertain"):
+                invocation.status = "uncertain"
+                if not invocation.uncertainty_reported:
+                    invocation.uncertainty_reported = True
+                    notification_needed = True
+        return notification_needed
 
     def begin_connection(self) -> int:
         """Invalidate previous connection ownership while retaining logical context."""
@@ -1025,13 +1037,23 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
             try:
                 session_config = self._get_session_config(tool_specs)
                 await self._bounded_send(conn.session.update(session=session_config))
+                events = conn.__aiter__()
+                async for setup_event in events:
+                    if not self._owns_connection():
+                        return
+                    if setup_event.type == "error":
+                        raise ValueError("Realtime session configuration rejected")
+                    if setup_event.type == "session.updated":
+                        break
+                else:
+                    raise ConnectionError("Realtime connection ended before setup acknowledgement")
                 logger.info(
                     "Realtime session initialized with profile=%r voice=%r",
                     getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
                     self.get_current_voice(),
                 )
-            except Exception:
-                logger.exception("Realtime session.update failed; aborting startup")
+            except Exception as error:
+                logger.warning("Realtime setup failed (%s)", type(error).__name__)
                 raise
 
             logger.info("Realtime session updated successfully")
@@ -1059,7 +1081,7 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                 response_sender_task = asyncio.create_task(self._response_sender_loop(), name="response-sender")
                 await self._send_startup_greeting_prompt()
 
-                async for event in self.connection:
+                async for event in events:
                     if not self._owns_connection():
                         break
                     logger.debug("Realtime event: %s", event.type)
@@ -1248,7 +1270,6 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                     # server error
                     if event.type == "error":
                         err = getattr(event, "error", None)
-                        msg = getattr(err, "message", str(err) if err else "unknown error")
                         code = getattr(err, "code", "") or getattr(err, "type", "")
 
                         if code == "conversation_already_has_active_response":
@@ -1260,7 +1281,7 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                             logger.debug("response.create rejected; worker will retry after active response finishes")
                         else:
                             self._response_started_or_rejected_event.set()
-                            logger.error("Realtime error [%s]: %s (raw=%s)", code, msg, err)
+                            logger.error("Realtime service reported an error")
 
                         if code == "input_audio_buffer_commit_empty":
                             self._set_listening(server=False)
@@ -1271,7 +1292,12 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                             "conversation_already_has_active_response",
                         ):
                             await self.output_queue.put(
-                                AdditionalOutputs({"role": "assistant", "content": f"[error] {msg}"})
+                                AdditionalOutputs(
+                                    {
+                                        "role": "assistant",
+                                        "content": "[error] Realtime service error. Check configuration and retry.",
+                                    }
+                                )
                             )
             finally:
                 self.connection = None

@@ -138,7 +138,7 @@ Python 3.12 uv lock/sync succeeded, including soxr 1.1.0. Baseline excluding the
 local MCP integration tests: 588 passed; wheel-build test failed in sandbox with a cp950
 subprocess decoding warning. Other operating systems and robot hardware remain unverified.
 
-## Implementation progress and validation (2026-10-29)
+## First implementation progress and validation (2026-10-29)
 
 Local personal customization now includes the optional Gemini wire adapter, persisted
 provider/model/voice selection, HF default/factory preservation, settings controls and
@@ -191,3 +191,66 @@ the generated SVG has not been hand-edited. No Markdown was added under docs/.
 Full review readiness remains blocked at T045. Keep paid API and physical robot checks
 deferred under the user's personal-only authorization; do not check T046 or claim the
 15-minute/ten-exchange, interruption latency, or physical action/camera acceptance passed.
+
+## Lifecycle acceptance continuation (2026-10-29)
+
+The remaining local simulation work is now complete through T044 (42/47 checked tasks).
+This continuation supersedes the earlier list of missing lifecycle simulations, while
+retaining all live-account, hardware and non-Windows limitations.
+
+Fixes and regression evidence:
+
+- HF now waits for session.updated before accepting microphone input, showing connected,
+  starting tools or greeting. The same owner enforces the combined setup budget.
+- Factory and configuration-revision failures are handled by recovery and leave status and
+  provider selection available. A cancelled connection child no longer cancels the sole
+  recovery owner during rapid selection.
+- Virtual-clock tests exercise the real 15-second connect/setup budget, including ten seconds
+  spent opening the socket and rejected-resume fallback inside the remaining five seconds.
+  Both providers' actual five-second send limit retires ownership before transport abort.
+- Cancellation-resistant Gemini close is bounded by a five-second wait plus transport abort.
+  Late owner cleanup captures its original handler and cannot abort a replacement socket.
+- Ten alternating provider switches and ten rapid restart requests preserve one media owner.
+  Backoff tests cover ten attempts per provider and reset only after a completed exchange.
+  Normal converter drain now finishes before marking the Gemini exchange completed.
+- Actual 48 kHz float stereo capture becomes labelled mono PCM16 at 16 kHz, with no offline
+  buffering. Required malformed messages and invalid acknowledgements fail safely.
+- Multi-function calls preserve independent IDs; cancellation and late generations suppress
+  results. A replacement handler reuses a completed camera result without executing or
+  transmitting another image. Capture failure allows the next camera call to succeed.
+- GoAway retains eligible context. Model, voice, profile, toolset and injected-memory revisions
+  clear checkpoints. Transient handshake loss retains a valid handle; only identified resume
+  rejection permits fresh fallback. Unknown close codes await correction/Retry.
+- Raw remote HF errors no longer enter logs or assistant output. Debug-frame tests protect
+  Gemini headers, handles and image data. Retired transcript/latency/VAD/interruption and
+  completion callbacks cannot publish old content or reset current recovery state. Uncertain
+  action notices are recorded once while call IDs remain deduplicated.
+
+| Check | Result |
+| --- | --- |
+| Clean install | UV_PROJECT_ENVIRONMENT=cache/verify-python312; uv --cache-dir cache/uv sync --locked --python 3.12; pass, 127 installed packages |
+| Minimum runtime/imports | Python 3.12.12; soxr, websockets and jsonschema imports passed |
+| Source Ruff and format | Pass; 107 Python source/test files formatted |
+| Strict mypy | Pass; 55 source files |
+| Full clean-environment pytest | First MCP integration item passed, then fixture finalization stalled; interrupted after a 30-second diagnostic stack dump |
+| Clean-environment pytest excluding only the two MCP integration items | 670 passed in 62.16 seconds |
+| Lockfile | uv lock --check passed |
+| Repository-wide Ruff | Still 55 pre-existing .specify script findings |
+| Repository-wide formatting | Still seven pre-existing .specify script differences |
+
+Complete run: cache/verify-python312/Scripts/python.exe -m pytest tests/ -v
+--basetemp cache/pytest-clean-final -o cache_dir=cache/pytest-cache
+-o faulthandler_timeout=30 (captured to cache/pytest-clean-final.txt).
+The diagnostic stack is inside pytest_asyncio.plugin.finalizer and pytest_runtest_teardown,
+with the Windows event loop waiting; an upstream/fixture root cause is not established.
+The successful remainder run uses the same clean interpreter with -q and
+--ignore tests/test_mcp_client_integration.py --basetemp cache/pytest-clean-remainder.
+These ignored working artifacts and the exclusion are disclosed; no test configuration,
+CI, MCP test fixture or Spec Kit script was changed to bypass the full gate.
+
+Self-review found changes confined to the two provider/shared lifecycle modules, console,
+related tests and these feature records. No dependencies, protected contribution/CI files,
+private environment files, generated diagrams or transcript persistence were added in this
+continuation. The earlier architecture-diagram follow-up still applies. Final review is
+not claimed: T045 and T047 remain unchecked, alongside T020/T031/T046 for deferred live
+service and physical robot trials.

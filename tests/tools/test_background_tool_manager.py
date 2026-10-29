@@ -146,6 +146,35 @@ def manager() -> BackgroundToolManager:
     return BackgroundToolManager()
 
 
+@pytest.mark.asyncio
+async def test_cancellation_preserves_started_effects_and_allows_following_work(
+    manager: BackgroundToolManager,
+) -> None:
+    """Cancelling pending work cannot undo an action that already started."""
+    effects: list[str] = []
+    started = asyncio.Event()
+
+    async def motion(_manager: BackgroundToolManager) -> dict[str, object]:
+        effects.append("head moved")
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return {"error": "Tool cancelled"}
+        return {"ok": True}
+
+    routine = MagicMock(spec=ToolCallRoutine, tool_name="move_head", side_effect=motion)
+    active = await manager.start_tool("moving", routine, is_idle_tool_call=False)
+    await asyncio.wait_for(started.wait(), 1)
+    await manager.cancel_tool(active.tool_id)
+    notification = await asyncio.wait_for(manager._notification_queue.get(), 1)
+    assert notification.status == ToolState.CANCELLED and effects == ["head moved"]
+    await manager.start_tool("next", _make_routine("get_robot_status"), is_idle_tool_call=False)
+    following = await asyncio.wait_for(manager._notification_queue.get(), 1)
+    assert following.status == ToolState.COMPLETED
+    await manager.shutdown()
+
+
 class TestSetLoop:
     """Verify event-loop assignment via set_loop."""
 

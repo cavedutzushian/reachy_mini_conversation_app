@@ -200,8 +200,8 @@ class LocalStream:
         """Set the active handler and wire LocalStream-owned helpers into it."""
         self.handler = handler
         handler.session_state = self.session_state
-        handler.exchange_completed = self._exchange_completed
-        handler.transcript_interrupted = self._dispatch_interrupted
+        handler.exchange_completed = lambda: self._exchange_completed() if self.handler is handler else None
+        handler.transcript_interrupted = lambda: self._dispatch_interrupted() if self.handler is handler else None
         self.handler._clear_queue = lambda: self.clear_audio_queue(handler)
         self._attach_observers_to_handler()
 
@@ -223,6 +223,14 @@ class LocalStream:
             if self.handler is owner:
                 self._dispatch_transcript(role, text, final)
 
+        def latency(timing: dict[str, int | str | None]) -> None:
+            if self.handler is owner:
+                self._dispatch_latency(timing)
+
+        def vad(status: VADStatus) -> None:
+            if self.handler is owner:
+                self._dispatch_vad(status)
+
         setter = getattr(self.handler, "set_activity_observer", None)
         if callable(setter):
             setter(activity)
@@ -231,9 +239,9 @@ class LocalStream:
             transcript_setter(transcript)
         latency_setter = getattr(self.handler, "set_latency_observer", None)
         if callable(latency_setter):
-            latency_setter(self._dispatch_latency)
+            latency_setter(latency)
 
-        self.handler.set_vad_observer(self._dispatch_vad)
+        self.handler.set_vad_observer(vad)
 
     def _dispatch_vad(self, status: VADStatus) -> None:
         if self._rpc is not None:
@@ -346,33 +354,41 @@ class LocalStream:
 
     async def _shutdown_active_handler(self) -> None:
         """Best-effort shutdown for the currently active handler."""
-        if self._retired_handler is self.handler:
+        handler = self.handler
+        if self._retired_handler is handler:
             return
-        self._retired_handler = self.handler
+        self._retired_handler = handler
         self.session_state.begin_connection()
-        if any(
-            invocation.status in ("running", "uncertain") for invocation in self.session_state.invocations.values()
-        ):
+        if self.session_state.mark_uncertain_actions():
             self._dispatch_activity("uncertain_action")
-        cleanup = asyncio.create_task(self.handler.shutdown())
+        cleanup = asyncio.create_task(handler.shutdown())
         operations = {cleanup}
-        if isinstance(self.handler, ConversationHandler):
-            operations.add(asyncio.create_task(self.clear_audio_queue(self.handler)))
+        if isinstance(handler, ConversationHandler):
+            operations.add(asyncio.create_task(self.clear_audio_queue(handler)))
         try:
             finished, pending = await asyncio.wait(operations, timeout=CLOSE_TIMEOUT_S)
             for operation in pending:
                 operation.cancel()
                 operation.add_done_callback(self._consume_retired_task)
             if pending:
+                if isinstance(handler, RealtimeConversationHandler):
+                    handler._abort_connection()
                 logger.warning("Backend close exceeded five seconds")
             for operation in finished:
                 await operation
         except asyncio.CancelledError:
+            if isinstance(handler, RealtimeConversationHandler):
+                handler._abort_connection()
             raise
         except TimeoutError:
             logger.warning("Backend close exceeded five seconds")
         except Exception:
             logger.warning("Backend cleanup failed")
+        finally:
+            for operation in operations:
+                if not operation.done():
+                    operation.cancel()
+                    operation.add_done_callback(self._consume_retired_task)
 
     @staticmethod
     def _consume_retired_task(task: asyncio.Task[None]) -> None:
@@ -398,10 +414,7 @@ class LocalStream:
                 self._pending_say = None
             if self._session_task is not None:
                 self._session_task.cancel()
-            if any(
-                invocation.status in ("received", "running", "uncertain")
-                for invocation in self.session_state.invocations.values()
-            ):
+            if self.session_state.mark_uncertain_actions():
                 self._dispatch_activity("uncertain_action")
             self.session_state.fresh(config.CONVERSATION_BACKEND, "")
             self._dispatch_activity("fresh_context")
@@ -950,63 +963,57 @@ class LocalStream:
         """Own the sole recovery schedule for the explicitly selected provider."""
         replace = False
         while not self._stop_event.is_set():
-            if self._restart_requested.is_set() or replace:
-                await self._shutdown_active_handler()
-                if self.session_state.provider != config.CONVERSATION_BACKEND:
-                    if any(
-                        invocation.status in ("running", "uncertain")
-                        for invocation in self.session_state.invocations.values()
-                    ):
-                        self._dispatch_activity("uncertain_action")
-                    self.session_state.fresh(config.CONVERSATION_BACKEND, "")
-                    self._dispatch_activity("fresh_context")
-                if self._restart_requested.is_set() and not self._can_rebuild_handler():
-                    self._restart_requested.clear()
-                    self._set_backend_connection_state("restart_required")
-                    await self._sleep_or_restart_requested(0.5)
-                    continue
-                self._restart_requested.clear()
-                if self._can_rebuild_handler():
-                    self._build_handler_for_current_backend()
-                replace = False
-            if not self._configuration_ready():
-                reason = (
-                    "missing_gemini_key"
-                    if config.CONVERSATION_BACKEND == GEMINI_BACKEND
-                    else "Hugging Face target is not configured."
-                )
-                self._set_backend_connection_state("waiting_for_config", reason)
-                await self._sleep_or_restart_requested(0.5)
-                continue
-            self.session_state.begin_connection()
-            revision = hashlib.sha256(
-                json.dumps(
-                    {
-                        "provider": config.CONVERSATION_BACKEND,
-                        "model": config.GEMINI_MODEL,
-                        "voice": self.get_current_voice(),
-                        "instructions": get_session_instructions(self._instance_path),
-                        "tools": get_tool_specs(),
-                    },
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-            if self.session_state.revision and self.session_state.revision != revision:
-                if any(
-                    invocation.status in ("running", "uncertain")
-                    for invocation in self.session_state.invocations.values()
-                ):
-                    self._dispatch_activity("uncertain_action")
-                self.session_state.fresh(config.CONVERSATION_BACKEND, revision)
-                self._dispatch_activity("fresh_context")
-            self.session_state.revision = revision
-            if isinstance(self.handler, RealtimeConversationHandler):
-                self.handler._generation = self.session_state.generation
-                self.handler._closed = False
-            self._retry_delay_seconds = None
-            self._set_backend_connection_state("connecting")
             recoverable = True
             try:
+                if self._restart_requested.is_set() or replace:
+                    await self._shutdown_active_handler()
+                    if self.session_state.provider != config.CONVERSATION_BACKEND:
+                        if self.session_state.mark_uncertain_actions():
+                            self._dispatch_activity("uncertain_action")
+                        self.session_state.fresh(config.CONVERSATION_BACKEND, "")
+                        self._dispatch_activity("fresh_context")
+                    if self._restart_requested.is_set() and not self._can_rebuild_handler():
+                        self._restart_requested.clear()
+                        self._set_backend_connection_state("restart_required")
+                        await self._sleep_or_restart_requested(0.5)
+                        continue
+                    self._restart_requested.clear()
+                    if self._can_rebuild_handler():
+                        self._build_handler_for_current_backend()
+                    replace = False
+                if not self._configuration_ready():
+                    reason = (
+                        "missing_gemini_key"
+                        if config.CONVERSATION_BACKEND == GEMINI_BACKEND
+                        else "Hugging Face target is not configured."
+                    )
+                    self._set_backend_connection_state("waiting_for_config", reason)
+                    await self._sleep_or_restart_requested(0.5)
+                    continue
+                self.session_state.begin_connection()
+                revision = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "provider": config.CONVERSATION_BACKEND,
+                            "model": config.GEMINI_MODEL,
+                            "voice": self.get_current_voice(),
+                            "instructions": get_session_instructions(self._instance_path),
+                            "tools": get_tool_specs(),
+                        },
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest()
+                if self.session_state.revision and self.session_state.revision != revision:
+                    if self.session_state.mark_uncertain_actions():
+                        self._dispatch_activity("uncertain_action")
+                    self.session_state.fresh(config.CONVERSATION_BACKEND, revision)
+                    self._dispatch_activity("fresh_context")
+                self.session_state.revision = revision
+                if isinstance(self.handler, RealtimeConversationHandler):
+                    self.handler._generation = self.session_state.generation
+                    self.handler._closed = False
+                self._retry_delay_seconds = None
+                self._set_backend_connection_state("connecting")
                 self._session_task = asyncio.create_task(self.handler.start_up())
                 deadline = time.monotonic() + SETUP_TIMEOUT_S
                 acknowledged = False
@@ -1041,8 +1048,10 @@ class LocalStream:
                     self._session_task.add_done_callback(self._consume_retired_task)
                 self._set_backend_connection_state("disconnected", "connection_lost")
             except asyncio.CancelledError:
-                if not self._restart_requested.is_set():
+                owner_task = asyncio.current_task()
+                if owner_task is not None and owner_task.cancelling():
                     raise
+                self._restart_requested.set()
             except Exception as error:
                 if isinstance(error, GeminiConnectionError):
                     recoverable = error.recoverable

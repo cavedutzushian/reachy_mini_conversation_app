@@ -55,6 +55,13 @@ def _object(value: object) -> dict[str, object]:
     return {key: entry for key, entry in value.items() if isinstance(key, str)}
 
 
+def _decode_message(message: str | bytes) -> dict[str, object]:
+    parsed: object = json.loads(message)
+    if not isinstance(parsed, dict):
+        raise GeminiConnectionError("connection_lost")
+    return _object(parsed)
+
+
 class GeminiRealtimeHandler(RealtimeConversationHandler):
     """Translate Gemini Live messages into the application's shared conversation behavior."""
 
@@ -162,6 +169,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         voice = self.get_current_voice()
         self._closed = False
         self._generation = self.session_state.generation
+        self._logical_session_id = self.session_state.logical_session_id
         self._aliases.clear()
         self._validators.clear()
         declarations = self._declarations()
@@ -203,11 +211,12 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                         self.connection = await socket_context.__aenter__()
                         await self._send({"setup": setup})
                         while True:
-                            parsed: object = json.loads(await self.connection.recv())
-                            envelope = _object(parsed)
+                            envelope = _decode_message(await self.connection.recv())
                             if "error" in envelope:
                                 self._raise_remote_error(_object(envelope["error"]))
                             if "setupComplete" in envelope:
+                                if not isinstance(envelope["setupComplete"], dict):
+                                    raise GeminiConnectionError("connection_lost")
                                 break
                     if not self._owns_connection():
                         return
@@ -229,16 +238,24 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                         timeout = max(0, self._barrier_deadline - time.monotonic()) if self._draining else None
                         try:
                             async with asyncio.timeout(timeout):
-                                parsed = json.loads(await self.connection.recv())
+                                envelope = _decode_message(await self.connection.recv())
                         except TimeoutError:
                             await self._fresh_context()
                             raise GeminiConnectionError("resume_unavailable") from None
                         if self._owns_connection():
-                            await self._handle_message(_object(parsed))
+                            await self._handle_message(envelope)
                     return
                 except (GeminiConnectionError, ConnectionClosed) as error:
                     # A rejected checkpoint gets one fresh attempt inside the original setup budget.
-                    rejected_resume = isinstance(error, ConnectionClosed) or error.reason == "resume_unavailable"
+                    if isinstance(error, ConnectionClosed):
+                        close_reason = error.rcvd.reason.lower() if error.rcvd is not None else ""
+                        rejected_resume = (
+                            error.rcvd is not None
+                            and error.rcvd.code in (1007, 1008)
+                            and any(word in close_reason for word in ("resum", "invalid handle", "session handle"))
+                        )
+                    else:
+                        rejected_resume = error.reason == "resume_unavailable"
                     if not self._ready and handle and not fallback and rejected_resume and time.monotonic() < deadline:
                         await self._close_socket()
                         await self._fresh_context()
@@ -249,9 +266,10 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                     if isinstance(error, GeminiConnectionError):
                         raise
                     code = error.rcvd.code if error.rcvd is not None else 1006
+                    recoverable = code in (1000, 1001, 1006, 1011, 1012, 1013, 1014)
                     raise GeminiConnectionError(
-                        "access_unavailable" if code in (1007, 1008) else "connection_lost",
-                        recoverable=code not in (1007, 1008),
+                        "connection_lost" if recoverable else "access_unavailable",
+                        recoverable=recoverable,
                     ) from None
         except TimeoutError:
             raise GeminiConnectionError("setup_timeout") from None
@@ -297,7 +315,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                 reason = "authentication_failed"
             elif any(word in message for word in ("tool", "function", "schema")):
                 reason = "tool_schema_unsupported"
-            elif any(word in message for word in ("resum", "handle")):
+            elif any(word in message for word in ("resum", "invalid handle", "session handle")):
                 reason = "resume_unavailable"
         raise GeminiConnectionError(reason, recoverable=reason == "connection_lost")
 
@@ -355,6 +373,8 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             return
         epoch = self.playback_epoch
         calls = _object(envelope.get("toolCall")).get("functionCalls")
+        if "toolCall" in envelope and not isinstance(calls, list):
+            raise GeminiConnectionError("connection_lost")
         if isinstance(calls, list):
             for call in calls:
                 await self._tool_call(_object(call))
@@ -363,7 +383,10 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             raise GeminiConnectionError("connection_lost")
         if isinstance(parts, list):
             for part in parts:
-                inline = _object(_object(part).get("inlineData"))
+                part_fields = _object(part)
+                if "inlineData" in part_fields and not isinstance(part_fields["inlineData"], dict):
+                    raise GeminiConnectionError("connection_lost")
+                inline = _object(part_fields.get("inlineData"))
                 encoded = inline.get("data")
                 if inline and not isinstance(encoded, str):
                     raise GeminiConnectionError("connection_lost")
@@ -383,10 +406,10 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             self._assistant_text += transcript
             self._emit_transcript("assistant", self._assistant_text, False)
         if content.get("turnComplete") is True:
-            self._turn_active = content.get("interactionStatus") == "IN_PROGRESS"
-            self.deps.movement_manager.set_speaking(False)
             if self._output_resampler is not None:
                 await self._queue_audio(self._output_resampler.process(np.empty(0, dtype=np.int16), final=True), epoch)
+            self._turn_active = content.get("interactionStatus") == "IN_PROGRESS"
+            self.deps.movement_manager.set_speaking(False)
             for role, text in (("user", self._input_text), ("assistant", self._assistant_text)):
                 if text:
                     self._emit_transcript(role, text, True)
@@ -514,10 +537,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         )
 
     async def _fresh_context(self) -> None:
-        if any(
-            invocation.status in ("received", "running", "uncertain")
-            for invocation in self.session_state.invocations.values()
-        ):
+        if self.session_state.mark_uncertain_actions():
             self._mark_activity("uncertain_action")
         self.session_state.fresh("gemini", self.session_state.revision)
         self._logical_session_id = self.session_state.logical_session_id
@@ -556,11 +576,20 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
     async def _close_socket(self) -> None:
         connection, self.connection = self.connection, None
         if connection is not None:
+            closing = asyncio.create_task(connection.close())
             try:
-                async with asyncio.timeout(CLOSE_TIMEOUT_S):
-                    await connection.close()
-            except (TimeoutError, ConnectionClosed):
+                completed, _pending = await asyncio.wait({closing}, timeout=CLOSE_TIMEOUT_S)
+                if completed:
+                    await closing
+                else:
+                    logger.warning("Gemini connection cleanup exceeded its deadline")
+            except ConnectionClosed:
                 logger.warning("Gemini connection cleanup did not complete")
+            finally:
+                if not closing.done():
+                    connection.transport.abort()
+                    closing.cancel()
+                    closing.add_done_callback(self._consume_send)
 
     async def shutdown(self) -> None:
         """Release transport ownership while preserving the owner's resume ledger."""

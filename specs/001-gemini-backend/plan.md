@@ -85,9 +85,9 @@ specs/001-gemini-backend/
     realtime-session.md
 ```
 
-tasks.md has been regenerated against this plan and the clarified requirements. All
-implementation tasks remain unchecked; generation does not establish implementation or
-validation completion.
+tasks.md tracks implementation against this plan and the clarified requirements. Checked
+items require the evidence recorded in quickstart.md; they do not establish live-service,
+hardware acceptance or full review readiness.
 
 ### Source Code (repository root)
 
