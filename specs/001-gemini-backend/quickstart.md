@@ -338,6 +338,11 @@ memory remain disabled for this trial; camera/memory acceptance is still outstan
 - Environment limitations: client SDK `1.12.0` differs from daemon `1.13.0`; seven
   audio DSP parameter writes were denied. Audio pipelines and conversation nevertheless
   started. These warnings are not resolved by this trial.
+- At the four-minute deadline the stop event ran, audio queues were cleared, movement
+  management and head wobbling stopped, and the process logged `Shutdown complete`
+  with exit code `0`. Windows asyncio also logged `WinError 10022` in the Proactor
+  connection-loss callback during teardown. Shutdown is therefore not error-free;
+  investigate this runtime/platform cleanup issue before claiming clean live acceptance.
 
 T020, T031 and T046 remain unchecked: this partial evidence does not establish all
 required spoken exchanges and settings checks, interruption timing, reconnect behavior,
