@@ -504,3 +504,53 @@ Progress remains **45/47**. T031 stays unchecked for enabled-camera observation/
 cross-provider memory and remaining independent acceptance; T046 stays unchecked for the
 fifteen-minute, measured-interruption, switch/reconnect and full acceptance matrix. Repeated
 short sessions do not substitute for that endurance trial. No PR was opened.
+
+## Volume completion verification and partial T046 run (2026-10-29)
+
+The independent speaker trial initially confirmed normal conversation after setting 40,
+but restoration responses timed out. Readback showed 60 had actually applied; the spoken
+restoration had been transcribed as 60. A single explicit restoration returned the speaker
+to 50, with microphone 100 unchanged. This is evidence that a lost response cannot safely
+be treated as a write that did not happen.
+
+Volume writes now use a ten-second network timeout for the daemon's confirmation sound.
+After a transport/unreadable-response failure, the tool reads the level once without
+repeating the POST. A matching level confirms the desired state. If it cannot be verified,
+the tool reports a fixed, safe uncertainty message instructing the model to ask the user
+before another attempt. Known HTTP rejections remain failures. Gemini preserves this
+specific uncertainty in its ledger/feedback rather than replacing it with a generic error;
+replayed call IDs cannot dispatch the action again. No dependency or SDK changes were made.
+
+The corrected real trial produced exactly one successful speaker write to 40 and one to
+50. The user confirmed both settings and normal subsequent Chinese conversation, with
+no uncertainty/retry prompt. The final readback was speaker 50 and microphone 100. The
+earlier transient SDK heartbeat loss during confirmation sounds remains an environment
+limitation; extending the tool timeout does not fix the daemon's event-loop behavior.
+
+Latest full gate: **685 passed in 44.84 seconds**, strict mypy passed for 55 source files,
+repository-wide Ruff/format passed (119 files), uv lock --check and git diff --check passed.
+Command: `cache/verify-python312/Scripts/python.exe -m pytest tests/ -q --basetemp
+cache/pytest-volume-readback-gate -o cache_dir=cache/pytest-cache`. Failing-before/passing-after
+tests cover applied-but-timed-out writes, failed/mismatched readback, explicit HTTP rejection,
+and preserved uncertainty with no same-ID replay. Live uncertainty failures were not induced.
+
+The user then authorized a fifteen-minute, camera/memory-off trial using the ignored local
+measurement page in `cache/t046_acceptance.py`. The timer began with connected microphone
+input. For each armed trial, it measured receipt of the server's interrupted marker until
+the user's click after hearing the old speech stop. This includes observer reaction and
+loopback-request time, so it is an upper bound on that client-marker-to-audible-stop interval,
+not a measurement from speech onset or proof that a longer bound means slow robot playback.
+
+The page received its explicit early-end command. The process shut down normally, exit 0;
+the summary elapsed time was 258.27 seconds including final cleanup. It recorded five
+completed spoken exchanges and three measured interruptions: **1328, 875, 875 ms**; two
+upper bounds were sub-second. One initial connection, no GoAway/reconnect and 16000 Hz
+device input/output were observed. These data do not establish fifteen minutes, ten exchanges,
+9/10 sub-second interruptions, or resumption behavior. The sanitized numeric summary is
+`cache/t046-acceptance-summary.json`; transcript text was filtered out of the trial log.
+Temporary trial logs were removed after recording this evidence, and no raw audio was saved.
+
+The isolated volume recheck is complete. Overall progress remains **45/47**: T031 still
+requires enabled-camera/cross-provider-memory and remaining independent acceptance; T046
+still requires its full endurance/interruption and switch/reconnect matrix. Camera/memory
+remain disabled, all trial processes are stopped, and no PR was opened.

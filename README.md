@@ -270,6 +270,11 @@ Every bundled profile enables `head_tracking` by default; users can still disabl
 | `pollen_robotics_reachy_mini_knowledge_tool__get_info` | Read the official overview, capabilities, versions, and prices for a Pollen Robotics product or the company. | Preinstalled MCP Space: `pollen-robotics/reachy-mini-knowledge-tool`. |
 | `pollen_robotics_reachy_mini_knowledge_tool__search_docs` | Search the official Reachy Mini FAQ and troubleshooting documentation. | Preinstalled MCP Space: `pollen-robotics/reachy-mini-knowledge-tool`. |
 
+Volume writes allow up to ten seconds for the daemon's confirmation sound. If the write
+response is lost, the tool reads back the level once without repeating the write. A matching
+level confirms the setting; an unverified result is reported as uncertain and asks for user
+direction before another attempt. Gemini retains that uncertainty in its action ledger.
+
 > [!NOTE]
 > `remember`/`forget` facts are stored in `memory.v1.json` inside the app's instance data directory (`~/.local/share/reachy_mini_conversation_app/` by default, or the instance path used by the desktop launcher). `forget` only removes facts matched by query. To reset all remembered facts, delete this file.
 

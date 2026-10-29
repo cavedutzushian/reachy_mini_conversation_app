@@ -7,6 +7,8 @@ from reachy_mini_conversation_app.tools.core_tools import Tool, ToolDependencies
 
 
 logger = logging.getLogger(__name__)
+VOLUME_SET_TIMEOUT_S = 10.0
+VOLUME_CHANGE_UNCERTAIN = "Volume change outcome is uncertain. Do not retry automatically; ask the user first."
 
 _DEVICE_PATHS = {
     "speaker": "/api/volume",
@@ -68,9 +70,20 @@ class VolumeControl(Tool):
                     f"{base_path}/set",
                     method="POST",
                     payload={"volume": level},
+                    timeout_s=VOLUME_SET_TIMEOUT_S,
                 )
         except DaemonApiError as e:
             logger.error("volume_control failed: %s", e)
-            return {"error": str(e)}
+            if level is None or e.status_code is not None:
+                return {"error": str(e)}
+            try:
+                response = await asyncio.to_thread(daemon_request, deps.reachy_mini, f"{base_path}/current")
+            except DaemonApiError as readback_error:
+                logger.warning("Could not verify %s volume after a failed response: %s", device, readback_error)
+                return {"error": VOLUME_CHANGE_UNCERTAIN}
+            if not isinstance(response, dict) or response.get("volume") != level:
+                logger.warning("The %s volume change could not be confirmed", device)
+                return {"error": VOLUME_CHANGE_UNCERTAIN}
+            logger.warning("Confirmed %s volume by reading it after the write response failed", device)
 
         return {"device": device, "volume": response.get("volume") if isinstance(response, dict) else None}

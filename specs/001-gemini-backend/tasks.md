@@ -304,3 +304,13 @@ Input buffering remains bounded and mute/connection boundaries discard old audio
 quickstart.md for exact measurement limits and the outstanding isolated volume recheck.
 T031/T046 remain unchecked because enabled-camera, cross-provider-memory and extended
 acceptance are not covered by the authorized camera/memory-off trials; progress stays 45/47.
+
+The isolated volume recheck now passes: one speaker change to 40 and one to 50, followed by
+normal Chinese exchanges and verified microphone 100. An earlier timed-out write had applied,
+so volume operations now allow a bounded confirmation interval and use one readback after
+transport failure, never a write retry. Unverified outcomes retain explicit uncertainty in
+Gemini's ledger. The full gate passes 685 tests plus Ruff/format/mypy/lock validation.
+The subsequent T046 page was explicitly ended early: about 258 seconds, five spoken
+exchanges, three observer-click upper bounds (1328/875/875 ms), no reconnect. These are partial
+measurements, not a completed fifteen-minute/ten-interruption acceptance. T031/T046 remain
+unchecked, camera/memory remain off, and progress remains 45/47; see quickstart.md.

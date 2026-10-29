@@ -74,3 +74,43 @@ async def test_volume_control_reports_daemon_failure(monkeypatch: pytest.MonkeyP
     result = await volume_control_module.VolumeControl()(_deps())
 
     assert result == {"error": "boom"}
+
+
+@pytest.mark.asyncio
+async def test_volume_timeout_reads_back_applied_setting_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lost write response can be confirmed by reading without repeating the write."""
+    request = _fake_request(monkeypatch, side_effect=[DaemonApiError("timed out"), {"volume": 40}])
+
+    result = await volume_control_module.VolumeControl()(_deps(), device="speaker", level=40)
+
+    assert result == {"device": "speaker", "volume": 40}
+    assert request.call_count == 2
+    assert request.call_args_list[0].kwargs["method"] == "POST"
+    assert request.call_args_list[1].args[1] == "/api/volume/current"
+    assert "method" not in request.call_args_list[1].kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("readback", [{"volume": 30}, DaemonApiError("readback unavailable")])
+async def test_unverified_volume_change_is_uncertain_without_retry(
+    monkeypatch: pytest.MonkeyPatch, readback: object
+) -> None:
+    """An unconfirmed write asks for user direction instead of automatic replay."""
+    request = _fake_request(monkeypatch, side_effect=[DaemonApiError("timed out"), readback])
+
+    result = await volume_control_module.VolumeControl()(_deps(), device="speaker", level=40)
+
+    assert "uncertain" in result["error"].lower()
+    assert "do not retry" in result["error"].lower()
+    assert sum(call.kwargs.get("method") == "POST" for call in request.call_args_list) == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_volume_change_does_not_claim_readback_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rejected request remains an error even if a later state might match."""
+    request = _fake_request(monkeypatch, side_effect=DaemonApiError("rejected", status_code=400))
+
+    result = await volume_control_module.VolumeControl()(_deps(), level=40)
+
+    assert result == {"error": "rejected"}
+    request.assert_called_once()

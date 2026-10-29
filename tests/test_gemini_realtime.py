@@ -339,6 +339,32 @@ def test_voice_precedence(
 
 
 @pytest.mark.asyncio
+async def test_uncertain_volume_result_is_not_treated_as_a_retryable_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown volume outcomes remain explicit and cannot replay the same action ID."""
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    handler._aliases = {"volume_control": "volume_control"}
+    handler.session_state.invocations["volume-1"] = ToolInvocation("volume_control", "running")
+    error = "Volume change outcome is uncertain. Do not retry automatically; ask the user first."
+
+    await handler._handle_tool_result(
+        gemini.ToolNotification(
+            id="volume-1", tool_name="volume_control", is_idle_tool_call=False, status="failed", error=error
+        )
+    )
+
+    response = socket.sent[0]["toolResponse"]["functionResponses"][0]["response"]
+    assert response == {"error": error, "uncertain": True}
+    assert handler.session_state.invocations["volume-1"].status == "uncertain"
+    start_tool = AsyncMock()
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start_tool)
+    await handler._tool_call({"id": "volume-1", "name": "volume_control", "args": {"level": 40}})
+    start_tool.assert_not_called()
+    assert "uncertain" in str(socket.sent[-1])
+
+
+@pytest.mark.asyncio
 async def test_replacement_handler_reuses_result_without_repeating_action(monkeypatch: pytest.MonkeyPatch) -> None:
     """A resumed call reuses known results and never repeats uncertain effects."""
     state = RealtimeSessionState(provider="gemini", resumable=True, resumption_handle="opaque-checkpoint")

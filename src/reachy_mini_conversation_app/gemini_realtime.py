@@ -29,6 +29,7 @@ from reachy_mini_conversation_app.huggingface_realtime import (
     RealtimeSessionState,
     RealtimeConversationHandler,
 )
+from reachy_mini_conversation_app.tools.volume_control import VOLUME_CHANGE_UNCERTAIN
 from reachy_mini_conversation_app.tools.background_tool_manager import ToolCallRoutine, ToolNotification
 
 
@@ -472,16 +473,22 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         invocation = self.session_state.invocations.get(notification.id)
         if not self._owns_connection() or invocation is None or invocation.status != "running":
             return
+        uncertain = notification.tool_name == "volume_control" and notification.error == VOLUME_CHANGE_UNCERTAIN
         result: dict[str, object] = (
             _object(notification.result)
             if notification.result is not None
             else {"error": "Tool failed or was cancelled"}
         )
+        if uncertain:
+            result = {"error": VOLUME_CHANGE_UNCERTAIN, "uncertain": True}
         image = result.pop("b64_im", None)
         if isinstance(image, str):
             result["snapshot"] = "captured"
         invocation.result = result
-        invocation.status = "completed"
+        invocation.status = "uncertain" if uncertain else "completed"
+        if uncertain and not invocation.uncertainty_reported:
+            invocation.uncertainty_reported = True
+            self._mark_activity("uncertain_action")
         alias = next(alias for alias, name in self._aliases.items() if name == invocation.tool_name)
         await self._function_response(notification.id, alias, result)
         if isinstance(image, str) and self.deps.camera_enabled and self._owns_connection():
