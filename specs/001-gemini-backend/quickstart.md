@@ -1,15 +1,17 @@
 # Validation Guide: Optional Gemini Conversation Backend
 
-This guide applies after implementation. Planning does not add Gemini support, dependencies,
-RPC methods, or environment options. Follow the root README for environment/robot setup.
+Follow the root README for environment/robot setup. The latest local result is **44/47
+tasks complete, with the full local gate green**; earlier sections retain historical results.
+Live-service and physical-robot trials remain deferred under the personal customization scope.
 
 ## Prerequisites
 
-- Agreed issue and maintainer approach review; accepted usage/data budget.
+- Accepted service/account eligibility and usage/data budget before live trials. Local
+  implementation and simulated tests are already authorized for personal customization;
+  upstream Issue/maintainer review applies to a future contribution, not this local work.
 - Python 3.12 minimum and Reachy with working microphone, speaker, and camera.
-- Implementation aligns requires-python >=3.12, uv.lock, root README, and older Python
-  minimum statements in repository guidance with constitution 2.0.0. Do not claim the
-  current >=3.11 metadata already satisfies the new baseline.
+- Package metadata, lockfile, root README and repository guidance now target Python 3.12
+  consistently with constitution 2.0.0. Verify the actual robot/platform environment too.
 - Eligible personal Gemini Developer API account, Live model access, and quota.
 - Private credentials in the existing process/instance environment configuration.
 - Implementation dependencies installed and lock synchronized. Verify soxr wheels on actual
@@ -254,3 +256,61 @@ private environment files, generated diagrams or transcript persistence were add
 continuation. The earlier architecture-diagram follow-up still applies. Final review is
 not claimed: T045 and T047 remain unchecked, alongside T020/T031/T046 for deferred live
 service and physical robot trials.
+
+## Full local gate and self-review completed (2026-10-29)
+
+The previously blocked local gate is now green. Tooling/test repair commit fdd2066 is
+separate from the Gemini runtime implementation. No runtime conversation modules changed
+in this gate-repair continuation.
+
+The 55 Spec Kit findings were fixed with concise API descriptions and import/format
+corrections in the installed scripts. An AST comparison with the previous revision
+confirmed executable statements unchanged after removing docstrings/import ordering from
+the comparison. Six affected command entry points passed their --help smoke checks;
+check_prerequisites.py still resolves the current feature. No lint exclusions or new
+suppression comments were added.
+
+A bounded teardown reproduction exposed WinError 10022 in Python 3.12 Windows Proactor
+connection-lost callbacks, followed by a stranded server.wait_closed despite zero Uvicorn
+connections/tasks. A complete HTTP readiness probe did not resolve it and was reverted.
+The fix uses pytest-asyncio's documented loop-factory hook: the two socket-only local MCP
+integration tests use the standard portable SelectorEventLoop, while other async tests use
+asyncio.new_event_loop and the application keeps its native loop behavior. This is a test
+harness compatibility choice; native Windows Proactor MCP server cleanup is not claimed
+fixed. The fixture now raises on a five-second shutdown timeout and cancels leftover test
+server work instead of hanging, without suppressing the failure.
+
+The existing pytest-asyncio dependency minimum was flagged and set to >=1.4 to support
+that public hook. uv.lock still resolves 1.4.0; no package version or runtime dependency
+was added. See the [official loop-factory guide](https://pytest-asyncio.readthedocs.io/en/v1.4.0/how-to-guides/configure_loop_factories_per_test.html)
+for the per-fixture selection pattern. The original discovery, authentication, invocation
+and timeout assertions still execute against a real loopback HTTP MCP server.
+
+| Check | Latest result |
+| --- | --- |
+| Locked environments | uv sync --locked --python 3.12 passed for the project and clean cache/verify-python312 environment |
+| Full clean-environment tests | 672 passed in 50.06 seconds; no ignored or skipped MCP tests |
+| Repository-wide Ruff check . | Pass |
+| Repository-wide Ruff format --check . | Pass; 119 files formatted |
+| Strict mypy | Pass; 55 source files |
+| uv lock --check | Pass; 131 resolved packages |
+| git diff --check | Pass |
+| Spec Kit CLI smoke checks | Six --help entry points passed |
+
+Full test command: cache/verify-python312/Scripts/python.exe -m pytest tests/ -q
+--basetemp cache/pytest-full-gate-fixed2 -o cache_dir=cache/pytest-cache. The clean interpreter
+is Python 3.12.12 on Windows. No other operating system or robot deployment was tested.
+
+T047 self-review checked FR-001 through FR-017 against provider selection/defaults, shared
+session ownership, setup/send/close limits, retry classification, deduplication, snapshots,
+shared-memory controls and transcript/privacy boundaries. The automated evidence supports
+local implementation and simulated behavior; account access, speech quality, actual device
+sample rates, physical actions, camera observations and timing targets remain unverified.
+A diff check against pre-implementation revision 2fdd366 confirmed protected contribution/CI
+files and private .env files unchanged, and no new source suppressions/future-annotations
+imports. The existing README/environment guidance and architecture-diagram follow-up remain
+applicable. The developer retains human review and any future PR creation.
+
+T045 and T047 are checked for this completed local scope. T020, T031 and T046 remain
+unchecked for the explicitly deferred live-service and hardware acceptance. No paid API or
+real robot calls were made, and no PR was opened.

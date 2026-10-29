@@ -149,9 +149,9 @@ foundation and earlier integrated increments; none requires unavailable later-st
 - [X] T042 [P] Document REACHY_MINI_CONVERSATION_BACKEND, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_VOICE and precedence in `.env.example`; check the existing packaging mapping in `setup.py`/`MANIFEST.in` to ensure packaged defaults receive the same example, without introducing a redundant source file or committing a private .env.
 - [X] T043 [P] Record the architecture-diagram update requirement for the future human-authored PR in `specs/001-gemini-backend/quickstart.md`, referencing `docs/scheme.mmd` and generated `docs/assets/conversation_app_arch.svg`; do not hand-edit SVG or create Markdown under docs/.
 - [X] T044 Extend redaction/retention tests in `tests/test_gemini_realtime.py` and `tests/test_console.py` to prove failures/status/debug logging cannot expose keys, handles, raw image data or prior-provider live history; review shared-module changes for narrow logged exceptions, typed public signatures, and no new suppressions.
-- [ ] T045 Run a clean Python 3.12 locked install and the full Ruff/format/mypy/pytest gate plus `uv lock --check` against `pyproject.toml`, `uv.lock`, `src/` and `tests/`; record actual versions/results and supported-platform evidence in `specs/001-gemini-backend/quickstart.md`, require green checks and metadata/guidance alignment with constitution 2.0.0 before review, and leave unavailable platform evidence incomplete without CI edits.
+- [X] T045 Run a clean Python 3.12 locked install and the full Ruff/format/mypy/pytest gate plus `uv lock --check` against `pyproject.toml`, `uv.lock`, `src/` and `tests/`; record actual versions/results and supported-platform evidence in `specs/001-gemini-backend/quickstart.md`, require green checks and metadata/guidance alignment with constitution 2.0.0 before review, and leave unavailable platform evidence incomplete without CI edits.
 - [ ] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, 9/10 sub-second recognized interruptions with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance.
-- [ ] T047 Self-review the focused diff against `specs/001-gemini-backend/spec.md`, `specs/001-gemini-backend/plan.md`, and `AGENTS.md`, ensure no secrets or unrelated changes, and leave human review/PR creation to the developer using the existing `.github/pull_request_template.md` without modifying that template.
+- [X] T047 Self-review the focused diff against `specs/001-gemini-backend/spec.md`, `specs/001-gemini-backend/plan.md`, and `AGENTS.md`, ensure no secrets or unrelated changes, and leave human review/PR creation to the developer using the existing `.github/pull_request_template.md` without modifying that template.
 
 ## Dependencies & Execution Order
 
@@ -243,8 +243,8 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
-Local implementation and simulated acceptance are complete through T044: 42/47 tasks
-are checked. T011/T012 cover actual-rate stereo PCM, acknowledgement gates, malformed
+Local implementation, simulated acceptance, the local gate and self-review are complete:
+44/47 tasks are checked. T011/T012 cover actual-rate stereo PCM, acknowledgement gates, malformed
 messages, missing credentials, safe errors, completed-exchange backoff reset and virtual
 15/5-second budgets. T018/T036 now keep factory/revision failures inside recovery,
 distinguish child-attempt cancellation from owner shutdown, capture old cleanup ownership,
@@ -256,11 +256,20 @@ all five configuration revisions and transient-versus-rejected resumption. T044 
 normalized service errors, wire-log privacy, safe status and retired observer retention.
 See quickstart.md for commands and limits of the simulated evidence.
 
-T045 remains open: clean locked Python 3.12 installation passed, and all 670 tests outside
-the two MCP integration items passed, but repository-wide Ruff still has 55 existing Spec Kit
-script findings and seven formatting differences. The full clean-environment run stalled
-in pytest-asyncio fixture finalization after the first MCP integration item passed; the
-30-second faulthandler trace confirms teardown, not the root cause. No checks were excluded
-from configuration or weakened to claim a full green gate. T047 remains open until the gate
-can support final review readiness. T020/T031/T046 retain the expressly deferred live-service
-and physical-robot evidence. No paid service call, PR or hardware acceptance is claimed.
+T045 now passes locally on Windows/Python 3.12.12: the complete clean-environment suite
+passes all 672 tests, including both MCP integrations, and repository-wide Ruff/format,
+strict mypy and uv lock --check are green. The earlier tooling/test blockers were repaired
+separately in fdd2066. The MCP fixture uses the documented pytest-asyncio loop-factory hook
+with a portable Selector loop for its socket-only tests and native loops elsewhere; failed
+server shutdown still raises after five seconds. This is a test-harness compatibility fix,
+not a change or validation of the application's native Windows event-loop behavior.
+The existing pytest-asyncio test dependency now declares >=1.4, matching the locked 1.4.0.
+No test cases or lint rules were excluded. Linux/macOS and robot-platform evidence remain
+unavailable and are not represented by this local gate result.
+
+T047 self-review is complete: provider defaults/selection, ownership/deadlines, ledger and
+privacy boundaries were checked against the feature documents and AGENTS.md. The feature
+adds no new suppressions; contribution/CI/private environment files remain unchanged, and
+PR creation remains with the developer. T020/T031/T046 retain the explicitly deferred live
+service and physical-robot evidence. No paid API call, PR, measured interruption latency or
+physical action/camera acceptance is claimed. See quickstart.md for exact validation results.
