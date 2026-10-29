@@ -314,3 +314,31 @@ applicable. The developer retains human review and any future PR creation.
 T045 and T047 are checked for this completed local scope. T020, T031 and T046 remain
 unchecked for the explicitly deferred live-service and hardware acceptance. No paid API or
 real robot calls were made, and no PR was opened.
+
+## Live acceptance started (2026-10-29)
+
+The user confirmed a free-tier Gemini key and authorized spoken conversation and basic
+robot actions while present. The budget remains zero paid usage. Camera and long-term
+memory remain disabled for this trial; camera/memory acceptance is still outstanding.
+
+- Read-only daemon discovery found `http://127.0.0.1:8000`: state `running`, version
+  `1.13.0`, simulation disabled, and robot app lock free before launch.
+- A single bounded Gemini Live setup-only probe returned `setupComplete`; it sent no
+  microphone audio, images, tools, memory or greeting. Account access is confirmed for
+  the configured model, without asserting unlimited free quota.
+- A four-minute application trial uses a disposable ignored instance under
+  `cache/live-gemini-acceptance`, Gemini selection, Kore voice, default personality,
+  camera hard-off and memory disabled. Existing user settings are unchanged.
+- The running application produced an assistant greeting, an input transcript and a
+  Chinese assistant reply. A spoken nod request invoked `dance` with `simple_nod`
+  and repeat `1`. The user confirmed audible speech, physical nod and successful
+  interruption with no observed abnormality. Logs also show playback-queue flushing
+  and a subsequent assistant reply. This confirms the basic smoke trial; interruption
+  latency was not measured and the ten-attempt target was not exercised.
+- Environment limitations: client SDK `1.12.0` differs from daemon `1.13.0`; seven
+  audio DSP parameter writes were denied. Audio pipelines and conversation nevertheless
+  started. These warnings are not resolved by this trial.
+
+T020, T031 and T046 remain unchecked: this partial evidence does not establish all
+required spoken exchanges and settings checks, interruption timing, reconnect behavior,
+camera/memory behavior or the fifteen-minute acceptance target. No PR was opened.
