@@ -94,7 +94,13 @@ async def local_mcp_server(unused_tcp_port: int) -> AsyncIterator[tuple[str, str
         yield (f"http://127.0.0.1:{unused_tcp_port}/mcp", token)
     finally:
         server.should_exit = True
-        await task
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=5)
+        finally:
+            if not task.done():
+                server.force_exit = True
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

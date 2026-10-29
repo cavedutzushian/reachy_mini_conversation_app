@@ -2,10 +2,10 @@
 """Setup implementation plan for a feature."""
 
 from __future__ import annotations
-
-import json
 import sys
+import json
 from pathlib import Path
+
 
 try:
     from common import (
@@ -34,6 +34,7 @@ def _help_text(argv0: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Prepare the implementation plan from the resolved project template."""
     args = list(argv if argv is not None else sys.argv[1:])
     json_mode = False
     for arg in args:

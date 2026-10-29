@@ -2,15 +2,15 @@
 """Create a new feature directory and spec file."""
 
 from __future__ import annotations
-
-import datetime
-import json
 import os
 import re
-import shlex
 import sys
-from dataclasses import dataclass
+import json
+import shlex
+import datetime
 from pathlib import Path
+from dataclasses import dataclass
+
 
 try:
     from common import (
@@ -43,24 +43,18 @@ _STOP_WORDS = frozenset(
 
 _MAX_BRANCH_LENGTH = 244
 _MAX_FEATURE_NUMBER = 2**63 - 1
-_ASCII_LOWER = str.maketrans(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
-)
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 def _int64_from_digits(value: str) -> int | None:
     normalized = value.lstrip("0") or "0"
     maximum = str(_MAX_FEATURE_NUMBER)
-    if len(normalized) > len(maximum) or (
-        len(normalized) == len(maximum) and normalized > maximum
-    ):
+    if len(normalized) > len(maximum) or (len(normalized) == len(maximum) and normalized > maximum):
         return None
     return int(normalized, 10)
 
 
-def _persistence_assignments(
-    branch_name: str, feature_dir: str, *, powershell: bool
-) -> tuple[str, str]:
+def _persistence_assignments(branch_name: str, feature_dir: str, *, powershell: bool) -> tuple[str, str]:
     if powershell:
         quoted_branch = "'" + branch_name.replace("'", "''") + "'"
         quoted_dir = "'" + feature_dir.replace("'", "''") + "'"
@@ -102,6 +96,8 @@ Examples:
 
 @dataclass(frozen=True)
 class Args:
+    """Parsed command-line options for this Spec Kit command."""
+
     json_mode: bool = False
     dry_run: bool = False
     allow_existing: bool = False
@@ -176,10 +172,7 @@ def _clean_branch_name(name: str) -> str:
 
 
 def _unicode_words(name: str, separator: str) -> str:
-    return "".join(
-        char if char.isalpha() or char.isdecimal() else separator
-        for char in name.translate(_ASCII_LOWER)
-    )
+    return "".join(char if char.isalpha() or char.isdecimal() else separator for char in name.translate(_ASCII_LOWER))
 
 
 def _generate_branch_name(description: str) -> str:
@@ -215,9 +208,7 @@ def _get_highest_from_specs(specs_dir: Path) -> int:
             continue
         name = entry.name
         # Match sequential prefixes (>=3 digits), but skip timestamp dirs.
-        if re.match(r"^[0-9]{3,}-", name) and not re.match(
-            r"^[0-9]{8}-[0-9]{6}-", name
-        ):
+        if re.match(r"^[0-9]{3,}-", name) and not re.match(r"^[0-9]{8}-[0-9]{6}-", name):
             number = _int64_from_digits(re.match(r"^[0-9]+", name).group())
             if number is not None:
                 highest = max(highest, number)
@@ -231,19 +222,14 @@ def _fit_branch_name(feature_num: str, branch_suffix: str) -> str:
         return branch_name
 
     max_suffix_length = _MAX_BRANCH_LENGTH - (len(feature_num) + 1)
-    truncated_suffix = branch_suffix.encode("utf-8")[:max_suffix_length].decode(
-        "utf-8", errors="ignore"
-    ).rstrip("-")
+    truncated_suffix = branch_suffix.encode("utf-8")[:max_suffix_length].decode("utf-8", errors="ignore").rstrip("-")
     return f"{feature_num}-{truncated_suffix}"
 
 
 def _spec_prefix_exists(specs_dir: Path, feature_num: str) -> bool:
     """Return whether a spec directory owns the given numeric prefix."""
     try:
-        return any(
-            entry.is_dir() and entry.name.startswith(f"{feature_num}-")
-            for entry in specs_dir.iterdir()
-        )
+        return any(entry.is_dir() and entry.name.startswith(f"{feature_num}-") for entry in specs_dir.iterdir())
     except OSError:
         # Match Bash globbing and PowerShell's ErrorAction=SilentlyContinue.
         return False
@@ -264,6 +250,7 @@ def _has_spec_prefix_conflict(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Prepare the feature directory and specification from the selected template."""
     argv0 = sys.argv[0]
     args = _parse_args(list(argv if argv is not None else sys.argv[1:]), argv0)
 
@@ -301,16 +288,14 @@ def main(argv: list[str] | None = None) -> int:
             # characters that int() would otherwise tolerate.
             if not re.fullmatch(r"[0-9]+", branch_number):
                 print(
-                    "Error: --number must be an unsigned integer, "
-                    f"got '{branch_number}'",
+                    f"Error: --number must be an unsigned integer, got '{branch_number}'",
                     file=sys.stderr,
                 )
                 return 1
             number = _int64_from_digits(branch_number)
             if number is None:
                 print(
-                    "Error: --number must be between 0 and "
-                    f"{_MAX_FEATURE_NUMBER}, got '{branch_number}'",
+                    f"Error: --number must be between 0 and {_MAX_FEATURE_NUMBER}, got '{branch_number}'",
                     file=sys.stderr,
                 )
                 return 1
@@ -320,8 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             rejected_number = branch_number or str(number)
             number_label = "--number" if branch_number else "feature number"
             print(
-                f"Error: {number_label} must be between 0 and "
-                f"{_MAX_FEATURE_NUMBER}, got '{rejected_number}'",
+                f"Error: {number_label} must be between 0 and {_MAX_FEATURE_NUMBER}, got '{rejected_number}'",
                 file=sys.stderr,
             )
             return 1
@@ -345,8 +329,7 @@ def main(argv: list[str] | None = None) -> int:
                     number += 1
                     if number > _MAX_FEATURE_NUMBER:
                         print(
-                            f"Error: feature number must be between 0 and "
-                            f"{_MAX_FEATURE_NUMBER}, got '{number}'",
+                            f"Error: feature number must be between 0 and {_MAX_FEATURE_NUMBER}, got '{number}'",
                             file=sys.stderr,
                         )
                         return 1
@@ -374,13 +357,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
-            f"[specify] Original: {original_branch_name} "
-            f"({len(original_branch_name.encode('utf-8'))} bytes)",
+            f"[specify] Original: {original_branch_name} ({len(original_branch_name.encode('utf-8'))} bytes)",
             file=sys.stderr,
         )
         print(
-            f"[specify] Truncated to: {branch_name} "
-            f"({len(branch_name.encode('utf-8'))} bytes)",
+            f"[specify] Truncated to: {branch_name} ({len(branch_name.encode('utf-8'))} bytes)",
             file=sys.stderr,
         )
 
@@ -408,9 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         needs_spec = not spec_file.is_file()
         if needs_spec:
             try:
-                template_content = resolve_template_content(
-                    "spec-template", repo_root
-                )
+                template_content = resolve_template_content("spec-template", repo_root)
             except TemplateResolutionError as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 return 1

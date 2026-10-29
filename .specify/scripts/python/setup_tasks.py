@@ -2,18 +2,18 @@
 """Check tasks prerequisites and resolve the tasks template."""
 
 from __future__ import annotations
-
-import json
 import sys
+import json
 from pathlib import Path
+
 
 try:
     from common import (
         FeaturePaths,
         TemplateResolutionError,
-        format_speckit_command,
-        get_feature_paths,
         resolve_template,
+        get_feature_paths,
+        format_speckit_command,
         resolve_template_content,
     )
 except ImportError:  # pragma: no cover - direct execution from unusual cwd
@@ -21,9 +21,9 @@ except ImportError:  # pragma: no cover - direct execution from unusual cwd
     from common import (
         FeaturePaths,
         TemplateResolutionError,
-        format_speckit_command,
-        get_feature_paths,
         resolve_template,
+        get_feature_paths,
+        format_speckit_command,
         resolve_template_content,
     )
 
@@ -87,6 +87,7 @@ def _check_dir(path: Path, description: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Prepare the tasks document from the resolved project template."""
     json_mode = False
     for arg in list(argv if argv is not None else sys.argv[1:]):
         if arg == "--json":
@@ -125,16 +126,13 @@ def main(argv: list[str] | None = None) -> int:
     docs = _available_docs(paths)
 
     try:
-        tasks_template_content = resolve_template_content(
-            "tasks-template", paths.repo_root
-        )
+        tasks_template_content = resolve_template_content("tasks-template", paths.repo_root)
     except TemplateResolutionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     if tasks_template_content is None:
         print(
-            "ERROR: Could not resolve required tasks-template from the template "
-            f"override stack for {paths.repo_root}",
+            f"ERROR: Could not resolve required tasks-template from the template override stack for {paths.repo_root}",
             file=sys.stderr,
         )
         print(

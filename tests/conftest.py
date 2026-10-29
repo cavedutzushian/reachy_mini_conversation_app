@@ -2,7 +2,11 @@
 
 import os
 import sys
+import asyncio
 from pathlib import Path
+from collections.abc import Callable
+
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).parents[1].resolve()
@@ -18,3 +22,13 @@ os.environ["REACHY_MINI_SKIP_DOTENV"] = "1"
 os.environ.pop("REACHY_MINI_CUSTOM_PROFILE", None)
 os.environ.pop("REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY", None)
 os.environ.pop("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY", None)
+
+
+def pytest_asyncio_loop_factories(
+    config: pytest.Config, item: pytest.Item
+) -> dict[str, Callable[[], asyncio.AbstractEventLoop]]:
+    """Use native test loops with a portable socket loop for the local MCP fixture."""
+    if isinstance(item, pytest.Function) and "local_mcp_server" in item.fixturenames:
+        # Proactor close callbacks can strand Server.wait_closed on Python 3.12 Windows.
+        return {"http": asyncio.SelectorEventLoop}
+    return {"default": asyncio.new_event_loop}

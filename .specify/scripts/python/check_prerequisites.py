@@ -2,18 +2,18 @@
 """Consolidated prerequisite checking script."""
 
 from __future__ import annotations
-
-import json
 import sys
-from dataclasses import dataclass
+import json
 from pathlib import Path
+from dataclasses import dataclass
+
 
 try:
     from common import (
         FeaturePaths,
         TemplateResolutionError,
-        format_speckit_command,
         get_feature_paths,
+        format_speckit_command,
         resolve_template_content,
     )
 except ImportError:  # pragma: no cover - direct execution from unusual cwd
@@ -21,8 +21,8 @@ except ImportError:  # pragma: no cover - direct execution from unusual cwd
     from common import (
         FeaturePaths,
         TemplateResolutionError,
-        format_speckit_command,
         get_feature_paths,
+        format_speckit_command,
         resolve_template_content,
     )
 
@@ -59,6 +59,8 @@ EXAMPLES:
 
 @dataclass(frozen=True)
 class Args:
+    """Parsed command-line options for this Spec Kit command."""
+
     json_mode: bool = False
     require_spec: bool = False
     require_tasks: bool = False
@@ -203,6 +205,7 @@ def _print_text_results(paths: FeaturePaths, include_tasks: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Validate feature prerequisites and report the available artifact paths."""
     args = _parse_args(list(argv if argv is not None else sys.argv[1:]))
 
     try:
@@ -266,9 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     template_content = None
     if args.template_name:
         try:
-            template_content = resolve_template_content(
-                args.template_name, paths.repo_root
-            )
+            template_content = resolve_template_content(args.template_name, paths.repo_root)
         except TemplateResolutionError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
@@ -287,9 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         if args.template_name:
             payload["TEMPLATE_CONTENT"] = template_content
-        sys.stdout.write(
-            _json_line(payload)
-        )
+        sys.stdout.write(_json_line(payload))
     else:
         _print_text_results(paths, args.include_tasks)
     return 0

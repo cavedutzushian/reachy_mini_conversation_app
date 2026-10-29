@@ -1,14 +1,13 @@
 """Shared helpers for Spec Kit Python scripts."""
 
 from __future__ import annotations
-
-import json
 import os
 import re
-import subprocess
 import sys
-from dataclasses import dataclass
+import json
+import subprocess
 from pathlib import Path
+from dataclasses import dataclass
 
 
 def _trim_trailing_separators(value: Path) -> str:
@@ -19,6 +18,7 @@ def _trim_trailing_separators(value: Path) -> str:
 
 
 def find_specify_root(start_dir: Path | None = None) -> Path | None:
+    """Find the nearest ancestor containing the Spec Kit project directory."""
     current = (start_dir or Path.cwd()).resolve()
     while True:
         if (current / ".specify").is_dir():
@@ -30,6 +30,7 @@ def find_specify_root(start_dir: Path | None = None) -> Path | None:
 
 
 def resolve_specify_init_dir() -> Path:
+    """Validate the project root selected by SPECIFY_INIT_DIR."""
     raw = os.environ.get("SPECIFY_INIT_DIR", "")
     candidate = Path(raw)
     if not candidate.is_absolute():
@@ -50,8 +51,7 @@ def resolve_specify_init_dir() -> Path:
         raise SystemExit(1)
     if not (init_root / ".specify").is_dir():
         print(
-            "ERROR: SPECIFY_INIT_DIR is not a Spec Kit project "
-            f"(no .specify/ directory): {init_root}",
+            f"ERROR: SPECIFY_INIT_DIR is not a Spec Kit project (no .specify/ directory): {init_root}",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -59,6 +59,7 @@ def resolve_specify_init_dir() -> Path:
 
 
 def get_repo_root(script_file: Path | None = None) -> Path:
+    """Resolve the repository root from configuration, the working tree or the script path."""
     if os.environ.get("SPECIFY_INIT_DIR"):
         return resolve_specify_init_dir()
 
@@ -77,10 +78,12 @@ def get_repo_root(script_file: Path | None = None) -> Path:
 
 
 def get_current_branch() -> str:
+    """Return the explicit feature selector from the environment."""
     return os.environ.get("SPECIFY_FEATURE", "")
 
 
 def read_feature_json_feature_directory(repo_root: Path) -> str:
+    """Read the active feature directory from the project state file."""
     feature_json = repo_root / ".specify" / "feature.json"
     if not feature_json.is_file():
         return ""
@@ -101,6 +104,7 @@ def persist_feature_json(repo_root: Path, feature_dir_value: str) -> None:
     # Bash/PowerShell helpers: with a symlinked <repo>/specs, resolve() would
     # escape the repo and persist a machine-specific absolute path instead of
     # the relative "specs/NNN-name" the other variants store.
+    """Store the active feature directory relative to the repository when possible."""
     value = feature_dir_value
     relative = Path(value)
     if relative.is_absolute():
@@ -115,13 +119,13 @@ def persist_feature_json(repo_root: Path, feature_dir_value: str) -> None:
 
     specify_dir = repo_root / ".specify"
     specify_dir.mkdir(parents=True, exist_ok=True)
-    (specify_dir / "feature.json").write_bytes(
-        _json_dump({"feature_directory": value}).encode("utf-8")
-    )
+    (specify_dir / "feature.json").write_bytes(_json_dump({"feature_directory": value}).encode("utf-8"))
 
 
 @dataclass(frozen=True)
 class FeaturePaths:
+    """Resolved paths to the active feature and its planning artifacts."""
+
     repo_root: Path
     current_branch: str
     feature_dir: Path
@@ -134,9 +138,8 @@ class FeaturePaths:
     contracts_dir: Path
 
 
-def get_feature_paths(
-    *, no_persist: bool = False, script_file: Path | None = None
-) -> FeaturePaths:
+def get_feature_paths(*, no_persist: bool = False, script_file: Path | None = None) -> FeaturePaths:
+    """Resolve and optionally persist the active feature artifact paths."""
     repo_root = get_repo_root(script_file)
     current_branch = get_current_branch()
 
@@ -194,10 +197,7 @@ _SAFE_COMPONENT_PATTERN = re.compile(r"[a-z0-9-]+")
 
 
 def _is_safe_component(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and _SAFE_COMPONENT_PATTERN.fullmatch(value) is not None
-    )
+    return isinstance(value, str) and _SAFE_COMPONENT_PATTERN.fullmatch(value) is not None
 
 
 def _normalize_priority(value: object) -> int:
@@ -222,26 +222,16 @@ def _sorted_preset_ids(presets_dir: Path) -> list[str]:
                 for pid, meta in sorted(
                     presets.items(),
                     key=lambda kv: (
-                        _normalize_priority(kv[1].get("priority"))
-                        if isinstance(kv[1], dict)
-                        else 10,
+                        _normalize_priority(kv[1].get("priority")) if isinstance(kv[1], dict) else 10,
                         kv[0],
                     ),
                 )
-                if (
-                    _is_safe_component(pid)
-                    and isinstance(meta, dict)
-                    and bool(meta.get("enabled", True))
-                )
+                if (_is_safe_component(pid) and isinstance(meta, dict) and bool(meta.get("enabled", True)))
             ]
         except Exception:
             pass
     try:
-        return sorted(
-            p.name
-            for p in presets_dir.iterdir()
-            if p.is_dir() and _is_safe_component(p.name)
-        )
+        return sorted(p.name for p in presets_dir.iterdir() if p.is_dir() and _is_safe_component(p.name))
     except OSError:
         return []
 
@@ -252,57 +242,36 @@ def _sorted_extension_ids(extensions_dir: Path) -> list[str]:
     extensions: dict[object, object] = {}
     if os.path.lexists(registry):
         if not registry.is_file():
-            raise TemplateResolutionError(
-                f"Invalid extension registry {registry}: not a regular file"
-            )
+            raise TemplateResolutionError(f"Invalid extension registry {registry}: not a regular file")
         try:
             data = json.loads(registry.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise TemplateResolutionError(
-                f"Failed to parse extension registry {registry}: {exc}"
-            ) from exc
+            raise TemplateResolutionError(f"Failed to parse extension registry {registry}: {exc}") from exc
         if not isinstance(data, dict):
-            raise TemplateResolutionError(
-                f"Invalid extension registry {registry}: root must be a mapping"
-            )
+            raise TemplateResolutionError(f"Invalid extension registry {registry}: root must be a mapping")
         raw_extensions = data.get("extensions", {})
         if not isinstance(raw_extensions, dict):
-            raise TemplateResolutionError(
-                f"Invalid extension registry {registry}: "
-                "'extensions' must be a mapping"
-            )
+            raise TemplateResolutionError(f"Invalid extension registry {registry}: 'extensions' must be a mapping")
         extensions = raw_extensions
-        registered_ids = {
-            ext_id for ext_id in extensions if isinstance(ext_id, str)
-        }
+        registered_ids = {ext_id for ext_id in extensions if isinstance(ext_id, str)}
 
     ranked: list[tuple[int, str]] = []
     for ext_id, metadata in extensions.items():
-        if (
-            _is_safe_component(ext_id)
-            and isinstance(metadata, dict)
-            and bool(metadata.get("enabled", True))
-        ):
+        if _is_safe_component(ext_id) and isinstance(metadata, dict) and bool(metadata.get("enabled", True)):
             ranked.append((_normalize_priority(metadata.get("priority")), ext_id))
 
     try:
         ranked.extend(
             (10, path.name)
             for path in extensions_dir.iterdir()
-            if (
-                path.is_dir()
-                and _is_safe_component(path.name)
-                and path.name not in registered_ids
-            )
+            if (path.is_dir() and _is_safe_component(path.name) and path.name not in registered_ids)
         )
     except OSError:
         pass
     return [ext_id for _, ext_id in sorted(ranked)]
 
 
-def _conventional_template(
-    base_dir: Path, template_name: str
-) -> Path | None:
+def _conventional_template(base_dir: Path, template_name: str) -> Path | None:
     for candidate in (
         base_dir / "templates" / f"{template_name}.md",
         base_dir / f"{template_name}.md",
@@ -333,9 +302,7 @@ def resolve_template(template_name: str, repo_root: Path) -> Path | None:
     presets_dir = repo_root / ".specify" / "presets"
     if presets_dir.is_dir():
         for preset_id in _sorted_preset_ids(presets_dir):
-            candidate = _conventional_template(
-                presets_dir / preset_id, template_name
-            )
+            candidate = _conventional_template(presets_dir / preset_id, template_name)
             if candidate is not None:
                 return candidate
 
@@ -382,9 +349,7 @@ def _validate_manifest_template_entry(entry: object) -> None:
     if strategy not in _VALID_TEMPLATE_STRATEGIES:
         raise ValueError(f"invalid manifest template strategy '{strategy}'")
     if entry["type"] == "script" and strategy not in _VALID_SCRIPT_STRATEGIES:
-        raise ValueError(
-            f"invalid manifest script strategy '{strategy}'"
-        )
+        raise ValueError(f"invalid manifest script strategy '{strategy}'")
 
 
 class _DelegatedYAMLError(Exception):
@@ -504,25 +469,17 @@ class _DelegatedYAML:
                 timeout=10,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise _DelegatedYAMLError(
-                f"SPECKIT_PYTHON_EXECUTABLE could not parse the manifest: {exc}"
-            ) from exc
+            raise _DelegatedYAMLError(f"SPECKIT_PYTHON_EXECUTABLE could not parse the manifest: {exc}") from exc
         if proc.returncode != 0:
-            raise _DelegatedYAMLError(
-                proc.stderr.strip()
-                or "SPECKIT_PYTHON_EXECUTABLE could not parse the manifest"
-            )
+            raise _DelegatedYAMLError(proc.stderr.strip() or "SPECKIT_PYTHON_EXECUTABLE could not parse the manifest")
         try:
             return json.loads(proc.stdout, object_hook=_delegated_yaml_object_hook)
         except json.JSONDecodeError as exc:
-            raise _DelegatedYAMLError(
-                f"SPECKIT_PYTHON_EXECUTABLE returned invalid JSON: {exc}"
-            ) from exc
+            raise _DelegatedYAMLError(f"SPECKIT_PYTHON_EXECUTABLE returned invalid JSON: {exc}") from exc
 
 
 def _import_yaml() -> object | None:
-    """Import PyYAML, delegating to SPECKIT_PYTHON_EXECUTABLE (or the
-    deprecated SPECKIT_PYTHON alias) if this interpreter lacks it."""
+    """Load PyYAML locally or through the configured Python interpreter."""
     try:
         import yaml
 
@@ -530,9 +487,7 @@ def _import_yaml() -> object | None:
     except ImportError:
         pass
 
-    python_override = os.environ.get("SPECKIT_PYTHON_EXECUTABLE") or os.environ.get(
-        "SPECKIT_PYTHON"
-    )
+    python_override = os.environ.get("SPECKIT_PYTHON_EXECUTABLE") or os.environ.get("SPECKIT_PYTHON")
     if not python_override:
         return None
     try:
@@ -552,9 +507,7 @@ def _import_yaml() -> object | None:
     return _DelegatedYAML(python_override)
 
 
-def _preset_template_layer(
-    preset_dir: Path, template_name: str
-) -> tuple[Path, str] | None:
+def _preset_template_layer(preset_dir: Path, template_name: str) -> tuple[Path, str] | None:
     """Return the preset template path and composition strategy."""
     manifest_path = preset_dir / "preset.yml"
     conventional = _conventional_template(preset_dir, template_name)
@@ -564,9 +517,7 @@ def _preset_template_layer(
 
     yaml = _import_yaml()
     if yaml is None:
-        raise TemplateResolutionError(
-            "PyYAML is required to resolve preset template composition"
-        )
+        raise TemplateResolutionError("PyYAML is required to resolve preset template composition")
 
     try:
         manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -587,10 +538,7 @@ def _preset_template_layer(
         for entry in templates:
             _validate_manifest_template_entry(entry)
         for entry in templates:
-            if (
-                entry.get("name") != template_name
-                or entry.get("type", "template") != "template"
-            ):
+            if entry.get("name") != template_name or entry.get("type", "template") != "template":
                 continue
             file_value = entry.get("file", "")
             strategy = entry.get("strategy", "replace")
@@ -602,9 +550,7 @@ def _preset_template_layer(
                 return None
             return candidate, strategy.lower()
     except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
-        raise TemplateResolutionError(
-            f"Failed to parse preset manifest {manifest_path}: {exc}"
-        ) from exc
+        raise TemplateResolutionError(f"Failed to parse preset manifest {manifest_path}: {exc}") from exc
 
     return (conventional, "replace") if conventional is not None else None
 
@@ -628,27 +574,15 @@ def resolve_template_content(template_name: str, repo_root: Path) -> str | None:
                 elif strategy == "wrap":
                     placeholder = "{CORE_TEMPLATE}"
                     if placeholder not in layer_content:
-                        raise TemplateResolutionError(
-                            f"Wrap layer {path} is missing {placeholder}"
-                        )
+                        raise TemplateResolutionError(f"Wrap layer {path} is missing {placeholder}")
                     content = layer_content.replace(placeholder, content)
                 else:
-                    raise TemplateResolutionError(
-                        f"Unknown template composition strategy '{strategy}' in {path}"
-                    )
+                    raise TemplateResolutionError(f"Unknown template composition strategy '{strategy}' in {path}")
         except (OSError, UnicodeError) as exc:
-            raise TemplateResolutionError(
-                f"Failed to read template layer for '{template_name}': {exc}"
-            ) from exc
+            raise TemplateResolutionError(f"Failed to read template layer for '{template_name}': {exc}") from exc
         return content
 
-    override = (
-        repo_root
-        / ".specify"
-        / "templates"
-        / "overrides"
-        / f"{template_name}.md"
-    )
+    override = repo_root / ".specify" / "templates" / "overrides" / f"{template_name}.md"
     if override.is_file():
         layers.append((override, "replace"))
         return compose_from_base()
@@ -677,12 +611,11 @@ def resolve_template_content(template_name: str, repo_root: Path) -> str | None:
     if not layers:
         return None
 
-    raise TemplateResolutionError(
-        f"Template '{template_name}' has composing layers but no replace base"
-    )
+    raise TemplateResolutionError(f"Template '{template_name}' has composing layers but no replace base")
 
 
 def get_invoke_separator(repo_root: Path) -> str:
+    """Read the configured command separator, falling back to a period."""
     integration_json = repo_root / ".specify" / "integration.json"
     if not integration_json.is_file():
         return "."
@@ -711,6 +644,7 @@ def get_invoke_separator(repo_root: Path) -> str:
 
 
 def format_speckit_command(command_name: str, repo_root: Path) -> str:
+    """Format a Spec Kit command using the configured command separator."""
     separator = get_invoke_separator(repo_root)
     name = command_name.lstrip("/")
     if name.startswith("speckit."):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Git extension: auto_commit.py
+"""Git extension: auto_commit.py.
 
 Automatically commit changes after a Spec Kit command completes.
 Python port of ``auto-commit.sh`` / ``auto-commit.ps1``.
@@ -10,11 +10,10 @@ Usage: auto_commit.py <event_name>
 """
 
 from __future__ import annotations
-
 import re
+import sys
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -46,9 +45,7 @@ def _strip_quotes(value: str) -> str:
     return re.sub(r"[\"']*$", "", value)
 
 
-def _parse_auto_commit_config(
-    config_file: Path, event_name: str
-) -> tuple[bool, str]:
+def _parse_auto_commit_config(config_file: Path, event_name: str) -> tuple[bool, str]:
     """Parse the auto_commit section for this event, mirroring the bash line parser.
 
     Returns (enabled, commit_msg). Looks for auto_commit.<event_name>.enabled
@@ -115,6 +112,7 @@ def _parse_auto_commit_config(
 
 
 def main(argv: list[str]) -> int:
+    """Commit outstanding changes when the configured hook is enabled."""
     event_name = argv[0] if argv else ""
     if not event_name:
         print(f"Usage: {Path(sys.argv[0]).name} <event_name>", file=sys.stderr)
@@ -151,12 +149,7 @@ def main(argv: list[str]) -> int:
 
     # Check if there are changes to commit
     def _quiet(*args: str) -> bool:
-        return (
-            subprocess.run(
-                ["git", *args], cwd=repo_root, capture_output=True, text=True
-            ).returncode
-            == 0
-        )
+        return subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True).returncode == 0
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],

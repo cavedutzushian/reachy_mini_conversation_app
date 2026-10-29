@@ -39,7 +39,7 @@ dependencies = [
 dev = [
   "allure-pytest==2.16.0",
   "pytest",
-  "pytest-asyncio",
+  "pytest-asyncio>=1.4",
   "pytest-cov==7.1.0",
   "ruff==0.15.20",
   "mypy==2.2.0",

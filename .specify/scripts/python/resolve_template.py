@@ -2,11 +2,11 @@
 """Resolve composed template content from the project template stack."""
 
 from __future__ import annotations
-
-import argparse
-import json
 import sys
+import json
+import argparse
 from pathlib import Path
+
 
 try:
     from common import (
@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - direct execution from unusual cwd
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Resolve a layered template and print its content or metadata."""
     parser = argparse.ArgumentParser()
     parser.add_argument("template_name")
     parser.add_argument("--json", action="store_true")
@@ -37,8 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if content is None:
         print(
-            f"ERROR: Could not resolve required {args.template_name} from the "
-            f"template override stack for {repo_root}",
+            f"ERROR: Could not resolve required {args.template_name} from the template override stack for {repo_root}",
             file=sys.stderr,
         )
         return 1

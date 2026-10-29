@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Git extension: initialize_repo.py
+"""Git extension: initialize_repo.py.
 
 Initialize a Git repository with an initial commit.
 Python port of ``initialize-repo.sh`` / ``initialize-repo.ps1``.
@@ -8,11 +8,10 @@ default branch config, git-flow, LFS, signing, etc.
 """
 
 from __future__ import annotations
-
 import re
+import sys
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -47,6 +46,7 @@ def _read_commit_message(repo_root: Path) -> str:
 
 
 def main() -> int:
+    """Initialize the project repository and create its first commit when needed."""
     script_dir = Path(__file__).resolve().parent
     repo_root = _find_project_root(script_dir) or Path.cwd()
 

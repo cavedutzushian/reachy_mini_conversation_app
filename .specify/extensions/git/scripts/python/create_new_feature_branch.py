@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Git extension: create_new_feature_branch.py
+"""Git extension: create_new_feature_branch.py.
 
 Creates a git feature branch only. The feature directory and spec file are
 created by the core create-new-feature script. Python port of
@@ -10,17 +10,17 @@ available, falling back to the minimal git helpers next to this script.
 """
 
 from __future__ import annotations
-
-import importlib.util
-import json
 import os
 import re
+import sys
+import json
 import shutil
 import subprocess
-import sys
-from dataclasses import dataclass, field
-from datetime import datetime
+import importlib.util
 from pathlib import Path
+from datetime import datetime
+from dataclasses import field, dataclass
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 MAX_BRANCH_LENGTH = 244  # GitHub enforces a 244-byte limit on branch names
@@ -78,6 +78,8 @@ def _persist_hint(var_name: str, value: str) -> str:
 
 @dataclass
 class Args:
+    """Parsed command-line options for this Spec Kit command."""
+
     json_mode: bool = False
     dry_run: bool = False
     allow_existing: bool = False
@@ -88,6 +90,7 @@ class Args:
 
 
 def parse_args(argv: list[str]) -> Args:
+    """Parse feature-branch command options and description arguments."""
     args = Args()
     i = 0
     while i < len(argv):
@@ -180,6 +183,7 @@ def _local_has_git(repo_root: Path) -> bool:
 
 
 def get_highest_from_specs(specs_dir: Path) -> int:
+    """Find the highest sequential feature number in the specification directories."""
     highest = 0
     if specs_dir.is_dir():
         for entry in specs_dir.iterdir():
@@ -187,9 +191,7 @@ def get_highest_from_specs(specs_dir: Path) -> int:
                 continue
             name = entry.name
             # Match sequential prefixes (>=3 digits), but skip timestamp dirs.
-            if re.match(r"^[0-9]{3,}-", name) and not re.match(
-                r"^[0-9]{8}-[0-9]{6}-", name
-            ):
+            if re.match(r"^[0-9]{3,}-", name) and not re.match(r"^[0-9]{8}-[0-9]{6}-", name):
                 number = int(re.match(r"^[0-9]+", name).group(0))
                 highest = max(highest, number)
     return highest
@@ -222,15 +224,14 @@ def _git_lines(repo_root: Path, *args: str, env_extra: dict | None = None) -> li
     if shutil.which("git") is None:
         return []
     env = {**os.environ, **(env_extra or {})}
-    result = subprocess.run(
-        ["git", *args], cwd=repo_root, capture_output=True, text=True, env=env
-    )
+    result = subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         return []
     return result.stdout.splitlines()
 
 
 def get_highest_from_branches(repo_root: Path, scope_prefix: str) -> int:
+    """Find the highest sequential feature number among matching Git branches."""
     names = []
     for line in _git_lines(repo_root, "branch", "-a"):
         line = re.sub(r"^[+*]\s+", "", line)
@@ -256,9 +257,7 @@ def get_highest_from_remote_refs(repo_root: Path, scope_prefix: str) -> int:
     return highest
 
 
-def check_existing_branches(
-    repo_root: Path, specs_dir: Path, skip_fetch: bool, scope_prefix: str
-) -> int:
+def check_existing_branches(repo_root: Path, specs_dir: Path, skip_fetch: bool, scope_prefix: str) -> int:
     """Check existing branches and return the next available number."""
     if skip_fetch:
         highest_branch = max(
@@ -281,6 +280,7 @@ def check_existing_branches(
 
 
 def clean_branch_name(name: str) -> str:
+    """Normalize text into a lowercase hyphenated branch component."""
     name = re.sub(r"[^a-z0-9]", "-", name.lower())
     name = re.sub(r"-+", "-", name)
     return name.strip("-")
@@ -317,11 +317,13 @@ def generate_branch_name(description: str) -> str:
 
 
 def branch_token(value: str, fallback: str) -> str:
+    """Normalize a branch token, using the fallback when it becomes empty."""
     cleaned = clean_branch_name(value)
     return cleaned if cleaned else fallback
 
 
 def get_author_token(repo_root: Path) -> str:
+    """Resolve the author token from Git identity or the process environment."""
     author = ""
     if shutil.which("git") is not None:
         lines = _git_lines(repo_root, "config", "user.name")
@@ -336,10 +338,12 @@ def get_author_token(repo_root: Path) -> str:
 
 
 def get_app_token(repo_root: Path) -> str:
+    """Derive an app token from the repository directory name."""
     return branch_token(repo_root.name, "app")
 
 
 def read_git_config_value(config_file: Path, key: str) -> str:
+    """Read a scalar value from the Git extension configuration."""
     if not config_file.is_file():
         return ""
     try:
@@ -358,6 +362,7 @@ def read_git_config_value(config_file: Path, key: str) -> str:
 
 
 def resolve_branch_template(config_file: Path) -> str:
+    """Resolve the branch template or build one from the configured prefix."""
     template = read_git_config_value(config_file, "branch_template")
     if template:
         return template
@@ -371,6 +376,7 @@ def resolve_branch_template(config_file: Path) -> str:
 
 
 def validate_branch_template(template: str) -> None:
+    """Reject templates that cannot produce valid feature branch names."""
     if not template:
         return
     if "{number}" not in template:
@@ -398,6 +404,7 @@ def validate_branch_template(template: str) -> None:
 def render_branch_template(
     template: str, feature_num: str, branch_suffix: str, author_token: str, app_token: str
 ) -> str:
+    """Substitute feature and identity tokens in the branch-name template."""
     rendered = template
     rendered = rendered.replace("{author}", author_token)
     rendered = rendered.replace("{app}", app_token)
@@ -407,6 +414,7 @@ def render_branch_template(
 
 
 def extract_feature_num_from_branch(branch_name: str) -> str:
+    """Extract a recognized feature prefix, otherwise preserve the branch name."""
     feature_segment = branch_name.rsplit("/", 1)[-1]
     match = re.match(r"^[0-9]{8}-[0-9]{6}-", feature_segment)
     if match:
@@ -425,6 +433,7 @@ def _byte_length(value: str) -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Create a feature branch using the configured numbering and naming rules."""
     args = parse_args(argv)
 
     feature_description = " ".join(args.description_parts)
@@ -442,9 +451,7 @@ def main(argv: list[str]) -> int:
     # SPECIFY_INIT_DIR is resolved (and validated) by the core resolver. If the
     # core helpers were not found, refuse rather than silently falling back to
     # the wrong root.
-    if os.environ.get("SPECIFY_INIT_DIR") and (
-        core is None or not hasattr(core, "resolve_specify_init_dir")
-    ):
+    if os.environ.get("SPECIFY_INIT_DIR") and (core is None or not hasattr(core, "resolve_specify_init_dir")):
         _err(
             "Error: SPECIFY_INIT_DIR requires updated Spec Kit core scripts "
             "(common.py with resolve_specify_init_dir), which were not found."
@@ -482,9 +489,7 @@ def main(argv: list[str]) -> int:
 
     def build_branch_name(feature_num: str, branch_suffix: str) -> str:
         if branch_template:
-            return render_branch_template(
-                branch_template, feature_num, branch_suffix, author_token, app_token
-            )
+            return render_branch_template(branch_template, feature_num, branch_suffix, author_token, app_token)
         return f"{feature_num}-{branch_suffix}"
 
     branch_number = args.branch_number
@@ -512,20 +517,14 @@ def main(argv: list[str]) -> int:
             scope_prefix = ""
             if branch_template:
                 prefix_template = branch_template.split("{number}")[0]
-                scope_prefix = render_branch_template(
-                    prefix_template, "", branch_suffix, author_token, app_token
-                )
+                scope_prefix = render_branch_template(prefix_template, "", branch_suffix, author_token, app_token)
             if not branch_number:
                 if args.dry_run and has_git_repo:
-                    branch_number = check_existing_branches(
-                        repo_root, specs_dir, True, scope_prefix
-                    )
+                    branch_number = check_existing_branches(repo_root, specs_dir, True, scope_prefix)
                 elif args.dry_run:
                     branch_number = get_highest_from_specs(specs_dir) + 1
                 elif has_git_repo:
-                    branch_number = check_existing_branches(
-                        repo_root, specs_dir, False, scope_prefix
-                    )
+                    branch_number = check_existing_branches(repo_root, specs_dir, False, scope_prefix)
                 else:
                     branch_number = get_highest_from_specs(specs_dir) + 1
 
@@ -534,10 +533,7 @@ def main(argv: list[str]) -> int:
 
     branch_byte_len = _byte_length(branch_name)
     if env_branch_name and branch_byte_len > MAX_BRANCH_LENGTH:
-        _err(
-            "Error: GIT_BRANCH_NAME must be 244 bytes or fewer in UTF-8. "
-            f"Provided value is {branch_byte_len} bytes."
-        )
+        _err(f"Error: GIT_BRANCH_NAME must be 244 bytes or fewer in UTF-8. Provided value is {branch_byte_len} bytes.")
         return 1
     if branch_byte_len > MAX_BRANCH_LENGTH:
         original_branch_name = branch_name
@@ -551,10 +547,7 @@ def main(argv: list[str]) -> int:
             return 1
 
         _err("[specify] Warning: Branch name exceeded GitHub's 244-byte limit")
-        _err(
-            f"[specify] Original: {original_branch_name} "
-            f"({_byte_length(original_branch_name)} bytes)"
-        )
+        _err(f"[specify] Original: {original_branch_name} ({_byte_length(original_branch_name)} bytes)")
         _err(f"[specify] Truncated to: {branch_name} ({_byte_length(branch_name)} bytes)")
 
     if not args.dry_run:
@@ -566,13 +559,9 @@ def main(argv: list[str]) -> int:
                 text=True,
             )
             if create.returncode != 0:
-                current_branch_lines = _git_lines(
-                    repo_root, "rev-parse", "--abbrev-ref", "HEAD"
-                )
+                current_branch_lines = _git_lines(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
                 current_branch = current_branch_lines[0] if current_branch_lines else ""
-                branch_exists = bool(
-                    _git_lines(repo_root, "branch", "--list", branch_name)
-                )
+                branch_exists = bool(_git_lines(repo_root, "branch", "--list", branch_name))
                 if branch_exists:
                     if args.allow_existing:
                         if current_branch != branch_name:
@@ -610,10 +599,7 @@ def main(argv: list[str]) -> int:
                         _err("Please check your git configuration and try again.")
                     return 1
         else:
-            _err(
-                "[specify] Warning: Git repository not detected; skipped branch "
-                f"creation for {branch_name}"
-            )
+            _err(f"[specify] Warning: Git repository not detected; skipped branch creation for {branch_name}")
 
         _err(f"# To persist: {_persist_hint('SPECIFY_FEATURE', branch_name)}")
 
@@ -629,10 +615,7 @@ def main(argv: list[str]) -> int:
         print(f"BRANCH_NAME: {branch_name}")
         print(f"FEATURE_NUM: {feature_num}")
         if not args.dry_run:
-            print(
-                "# To persist in your shell: "
-                f"{_persist_hint('SPECIFY_FEATURE', branch_name)}"
-            )
+            print(f"# To persist in your shell: {_persist_hint('SPECIFY_FEATURE', branch_name)}")
 
     return 0
 
