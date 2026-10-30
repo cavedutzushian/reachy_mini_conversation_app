@@ -211,11 +211,12 @@ def format_memory_for_prompt(instance_path: str | Path | None = None) -> str:
     if not facts:
         return ""
 
-    bullets = "\n".join(f"- {fact.text}" for fact in facts)
+    bullets = "\n".join(f"- {fact.text} (memory_id: {fact.id})" for fact in facts)
     return "\n".join(
         [
             "Things you remember about the user (use this context naturally,",
             "do not recite the list verbatim):",
+            "To forget a fact, copy its exact memory_id into the forget tool; do not speak the ids aloud.",
             bullets,
         ]
     )

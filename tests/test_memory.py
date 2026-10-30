@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from jsonschema import Draft202012Validator
 
 import reachy_mini_conversation_app.prompts as prompts_mod
 from reachy_mini_conversation_app.config import config
@@ -103,3 +104,57 @@ def test_prompt_includes_memory_fragment(tmp_path: Path, monkeypatch: pytest.Mon
     assert instructions.startswith("Things you remember about the user")
     assert "- Prefers concise answers" in instructions
     assert "## IDENTITY" in instructions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", [None, "测试徽章", "test badge"])
+async def test_forget_uses_memory_id_across_query_languages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, query: str | None
+) -> None:
+    """A copied memory id removes only its fact even when the query uses another script."""
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    target = add_memory_fact(tmp_path, "測試徽章是紫色風車")
+    other = add_memory_fact(tmp_path, "測試徽章盒是藍色")
+    assert target is not None and other is not None
+    assert target.id in format_memory_for_prompt(tmp_path)
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock(), instance_path=tmp_path)
+
+    arguments = {"memory_id": target.id}
+    if query is not None:
+        arguments["query"] = query
+    Draft202012Validator(Forget.parameters_schema).validate(arguments)
+    result = await Forget()(deps, **arguments)
+
+    assert result["memory_id"] == target.id
+    assert list_memory_facts(tmp_path) == [other]
+
+
+@pytest.mark.asyncio
+async def test_forget_unknown_memory_id_never_falls_back_to_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale id cannot delete a different fact through a matching query."""
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    target = add_memory_fact(tmp_path, "測試徽章是紫色風車")
+    assert target is not None
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock(), instance_path=tmp_path)
+
+    result = await Forget()(deps, memory_id="missing-id", query="紫色")
+
+    assert "error" in result
+    assert list_memory_facts(tmp_path) == [target]
+
+
+@pytest.mark.asyncio
+async def test_forget_memory_id_respects_global_disable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Id-based deletion cannot bypass the global memory switch."""
+    target = add_memory_fact(tmp_path, "測試徽章是紫色風車")
+    assert target is not None
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock(), instance_path=tmp_path)
+
+    result = await Forget()(deps, memory_id=target.id)
+
+    assert result == {"error": "Memory is disabled"}
+    assert list_memory_facts(tmp_path) == [target]
+    assert format_memory_for_prompt(tmp_path) == ""

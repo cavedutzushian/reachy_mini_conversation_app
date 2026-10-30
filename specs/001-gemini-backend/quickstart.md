@@ -662,3 +662,27 @@ not rerun. SC-010 remains incomplete because successful tool deletion and its fr
 absence checks in both directions were not established. T031/T046 remain unchecked at
 45/47; remaining language, interruption, endurance and runtime switch/reconnect results
 must not be inferred from these memory trials.
+
+## Exact-ID memory deletion remediation (2026-10-30)
+
+The live query mismatch exposed that the model could only request text-based deletion,
+although the existing memory API already accepted fact IDs. Saved-memory instructions
+now include each fact's existing ID and tell the model to copy it into forget. The tool
+accepts memory_id without query, prefers an explicitly supplied ID, and reports an unknown
+ID without falling back to a query that could remove another fact. Query-only calls keep
+their existing substring behavior. No script conversion, new dependency, storage format,
+SDK change or provider-default change was introduced. Root README documents the behavior.
+
+Regression tests failed before implementation (four failures, five passes), covering
+missing prompt IDs and ignored IDs. After the fix, 54 related tests passed; the complete
+suite passed with 690 tests in 37.16 seconds. Strict mypy passed for 55 source files,
+Ruff/format passed for 119 files, uv lock --check resolved 131 packages and git diff --check
+passed. A subsequent test-only assertion checked the tool schema accepts ID-only arguments;
+the nine memory tests and repository lint/format passed again. Tests also cover translated
+queries, preservation of other facts, unknown IDs without query fallback and memory-off
+protection. All checks used Windows/Python 3.12; no live API or robot trial was started.
+
+The remediation enables exact deletion but does not prove either model will choose the
+correct ID in live speech. The previous HF deletion failure remains recorded, and fresh
+cross-provider deletion/absence acceptance must be repeated before SC-010 passes. Camera
+and memory remain disabled in the test instances. T031/T046 remain unchecked at 45/47.

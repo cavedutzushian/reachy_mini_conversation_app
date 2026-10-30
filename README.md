@@ -261,7 +261,7 @@ Every bundled profile enables `head_tracking` by default; users can still disabl
 | `go_to_sleep` | Run Reachy's sleep movement and stop the current app after an explicit user request. | Core install only. |
 | `sweep_look` | Sweep Reachy's head left, right, and back to center. | Shared tool, enabled by default in the default profile. |
 | `remember` | Save one short, stable fact about the user for future sessions. | Core install only. Stored in the app instance data directory. |
-| `forget` | Remove a saved memory fact by matching a short query. | Core install only. |
+| `forget` | Remove a saved memory fact by its memory ID or a short query. | Core install only. |
 | `volume_control` | Read or change Reachy's speaker or microphone volume. | Core install only. Uses the daemon REST API; setting the speaker volume plays a short confirmation sound. |
 | `robot_status` | Read one status topic: `name`, `software` (version, update available), `wifi` (IP address, network), `account` (Hugging Face sign-in), `imu` (which way the head is tilted, motion, temperature), `apps` (installed apps). | Core install only. Uses the daemon REST API. The update check and the Wi-Fi network details are wireless-version only; the IP address is reported on any robot. |
 | `pollen_robotics_reachy_mini_search_tool__search_web` | Search the web and return a short list of results. | Preinstalled MCP Space: `pollen-robotics/reachy-mini-search-tool`. |
@@ -276,7 +276,7 @@ level confirms the setting; an unverified result is reported as uncertain and as
 direction before another attempt. Gemini retains that uncertainty in its action ledger.
 
 > [!NOTE]
-> `remember`/`forget` facts are stored in `memory.v1.json` inside the app's instance data directory (`~/.local/share/reachy_mini_conversation_app/` by default, or the instance path used by the desktop launcher). `forget` only removes facts matched by query. To reset all remembered facts, delete this file.
+> `remember`/`forget` facts are stored in `memory.v1.json` inside the app's instance data directory (`~/.local/share/reachy_mini_conversation_app/` by default, or the instance path used by the desktop launcher). Saved memory context includes IDs so `forget` can select a fact even if a spoken query uses a different language or Chinese script. An unknown ID reports failure without falling back to a text match. Query-only calls still use case-insensitive substring matching without translation. To reset all remembered facts, delete this file.
 
 ## Creating and adding tools
 

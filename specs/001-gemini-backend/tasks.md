@@ -243,6 +243,11 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Deletion remediation (2026-10-30): exposed existing fact IDs in memory context and the
+forget tool, retaining query-only compatibility and rejecting unknown IDs without fallback.
+Offline regressions and the full 690-test gate passed; see quickstart.md. No new live
+trial ran, so SC-010 and T031/T046 remain incomplete, with progress 45/47.
+
 Memory trial update (2026-10-30): cross-provider recall succeeded in both directions in
 fresh sessions. Gemini tool deletion succeeded; Hugging Face tool deletion did not,
 including a simplified/traditional Chinese query mismatch. API cleanup left the isolated
