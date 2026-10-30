@@ -597,3 +597,28 @@ The test exited normally with code 0. The disposable instance was verified resto
 camera_enabled=false and memory_enabled=false. Sanitized counts are retained locally in
 cache/t031-camera-summary.json; the temporary runtime log was removed. No product source
 or dependency changes were made. T031 and T046 remain unchecked, with progress 45/47.
+
+## Camera-failure recovery trial (2026-10-30)
+
+The user authorized a short voice test with no real capture or image transmission and
+memory off. The ignored diagnostic harness replaced only the application camera tool
+instance with a subclass delegating to the original Camera implementation using a fake
+media dependency that returned no frame. Its test-only dependency had camera permission
+enabled to reach the no-frame branch; the real instance stayed camera-disabled and used
+the no-camera flag. SDK internals and product source were unchanged. Image sends were
+prohibited by the diagnostic handler.
+
+One fake frame request and one failed camera result were observed, followed by three
+completed spoken exchanges (including the failure response). The real frame API was not
+called and no image message was sent. The user confirmed the first response correctly
+reported inability to obtain an image. The first follow-up was recognized as another
+language; a repeated request then received a correct Chinese reply. This demonstrates
+continued conversation after the injected tool failure, while retaining the first
+follow-up language-recognition failure rather than claiming uninterrupted Chinese
+recognition. It does not exercise a real camera hardware failure.
+
+The process exited normally with code 0. Camera and memory settings were verified false;
+the sanitized summary is cache/t031-camera-failure-summary.json. The temporary log contained
+no transcript/image payload and was removed. This evidence-only update passed git diff
+--check; the previous 685-test product gate was not rerun. T031 and T046 remain unchecked
+at 45/47, pending remaining memory, interruption, endurance and switch/reconnect acceptance.
