@@ -575,3 +575,24 @@ Progress remains 45/47, with T031 and T046 unchecked. No source or dependency ch
 were made, so the previously recorded 685-test gate was not rerun for this evidence-only
 update. Camera and memory stayed disabled; the test app and local measurement server
 have stopped. No PR was opened.
+
+## Single-photo T031 trial (2026-10-30)
+
+The user explicitly authorized one test-object snapshot only upon a spoken request,
+with long-term memory off. An ignored application-level diagnostic harness temporarily
+enabled camera access in the disposable instance and delegated the first camera call
+and image send to the existing implementation. It limited this trial to one camera call
+and one image transmission; no SDK code was modified. The user was instructed to request
+an object/color description without stating the answer, followed by a Chinese greeting.
+
+Observed counts: one admitted camera call, one successful JPEG result, and one image
+message sent. One additional camera call was blocked by the diagnostic limit, so this
+run does not prove the unrestricted model would request only one snapshot. No image
+payload or transcript text was retained in the trial log. Object/color correctness and
+the subsequent spoken greeting remain awaiting user confirmation; SC-009 is not passed.
+No capture failure was injected, and no memory operations were enabled.
+
+The test exited normally with code 0. The disposable instance was verified restored to
+camera_enabled=false and memory_enabled=false. Sanitized counts are retained locally in
+cache/t031-camera-summary.json; the temporary runtime log was removed. No product source
+or dependency changes were made. T031 and T046 remain unchecked, with progress 45/47.
