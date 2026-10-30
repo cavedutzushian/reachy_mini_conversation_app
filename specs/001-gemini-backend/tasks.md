@@ -243,6 +243,12 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Memory trial update (2026-10-30): cross-provider recall succeeded in both directions in
+fresh sessions. Gemini tool deletion succeeded; Hugging Face tool deletion did not,
+including a simplified/traditional Chinese query mismatch. API cleanup left the isolated
+store empty, and camera/memory were disabled at exit. This does not complete SC-010 or
+runtime-switch acceptance. See quickstart.md; T031/T046 remain unchecked at 45/47.
+
 Additional T046 evidence (2026-10-30): the newly authorized trial was explicitly ended
 through the page after 342.34 seconds including cleanup. Six spoken exchanges, three
 recognized interruptions (1453/1532/1579 ms including observer reaction) and one

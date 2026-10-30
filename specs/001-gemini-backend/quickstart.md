@@ -622,3 +622,43 @@ the sanitized summary is cache/t031-camera-failure-summary.json. The temporary l
 no transcript/image payload and was removed. This evidence-only update passed git diff
 --check; the previous 685-test product gate was not rerun. T031 and T046 remain unchecked
 at 45/47, pending remaining memory, interruption, endurance and switch/reconnect acceptance.
+
+## Cross-provider memory trial (2026-10-30)
+
+The user authorized one nonsensitive fact in a separate disposable instance, with camera
+off, deletion afterward and memory disabled at completion. The ignored harness used
+cache/t031-memory-acceptance, initially empty, and the existing provider handlers, tools
+and memory APIs. Six sequential app launches used explicit saved provider selection;
+these are fresh-session memory tests, not runtime-switch race acceptance. No SDK or
+product source was changed. Offline preflight confirmed the language was zh and the
+Chinese reply instruction was present; this does not guarantee correct ASR.
+
+- Hugging Face saved the designated test-badge fact successfully (one stored fact); the
+  user heard a normal Chinese response. In a fresh Gemini session, the user confirmed
+  the correct badge answer without supplying it. Gemini's forget tool then succeeded,
+  leaving zero facts. A later write was explicitly requested by the user, not a replay;
+  that additional content was cleared through the existing API in this isolated store.
+- A fresh Gemini session saved the same designated fact successfully, although the user
+  reported its spoken reply was unrelated to memory. A fresh Hugging Face session then
+  correctly recalled the badge, as confirmed by the user.
+- Hugging Face initially gave a normal spoken reply to a forget request without an
+  observed delete result. A more explicit request invoked forget but failed: its simplified
+  Chinese query did not match the stored traditional Chinese phrase. The existing
+  case-insensitive substring matching does not convert Chinese scripts. The user later
+  reported inability feedback after the suggested common-script keyword retry; no
+  successful Hugging Face forget call was observed. Do not count this as tool deletion.
+- The test store was cleared using the existing API, then each provider was launched
+  fresh with zero facts. The user reported no relevant badge information from Hugging
+  Face (not an explicit confirmation of an unknown-answer response), and Gemini explicitly
+  reported having no information. These results follow API cleanup, not successful
+  Hugging Face tool deletion.
+
+The process exited normally with code 0. Final verification found zero stored facts and
+camera_enabled=false / memory_enabled=false. No transcript text or fact text was retained
+in the sanitized count summary at cache/t031-memory-summary.json. The temporary runtime
+log was removed; no images or raw audio were saved. Other instances were not changed.
+This documentation-only update passed git diff --check; the existing 685-test gate was
+not rerun. SC-010 remains incomplete because successful tool deletion and its fresh-session
+absence checks in both directions were not established. T031/T046 remain unchecked at
+45/47; remaining language, interruption, endurance and runtime switch/reconnect results
+must not be inferred from these memory trials.
