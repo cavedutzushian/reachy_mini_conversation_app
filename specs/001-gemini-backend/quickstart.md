@@ -686,3 +686,36 @@ The remediation enables exact deletion but does not prove either model will choo
 correct ID in live speech. The previous HF deletion failure remains recorded, and fresh
 cross-provider deletion/absence acceptance must be repeated before SC-010 passes. Camera
 and memory remain disabled in the test instances. T031/T046 remain unchecked at 45/47.
+
+## Exact-ID deletion live revalidation (2026-10-30)
+
+The user continued implementation and completed the previously authorized isolated,
+single-fact memory trial after the ID-based deletion fix. The same diagnostic harness
+delegated to the product tools and additionally recorded only whether a forget invocation
+supplied memory_id; it did not supply IDs or change tool arguments. Camera stayed hard-off.
+Seven sequential app launches created fresh conversations with explicit provider selection;
+these launches do not count toward runtime-switch or reconnection acceptance.
+
+1. Hugging Face stored the designated fact successfully, producing one fact and a normal
+   Chinese reply. Gemini then correctly recalled it without the user supplying the answer.
+   Gemini's forget call supplied memory_id and succeeded, leaving zero facts; the user
+   confirmed the expected response. Fresh Hugging Face and Gemini conversations both
+   reported no badge information, as confirmed by the user.
+2. The user then asked Gemini to store the same designated fact. Its remember call succeeded,
+   producing one fact. A fresh Hugging Face conversation correctly recalled it without an
+   answer hint. Its forget call supplied memory_id and succeeded, leaving zero facts; the
+   user confirmed the reply. Fresh Hugging Face and Gemini conversations both explicitly
+   reported having no badge information.
+
+This completes the real-account save/recall/tool-delete/fresh-session-absence sequence in
+both directions and confirms that both models used the ID deletion path. Earlier failed
+trials remain historical evidence; no manual API cleanup was used between these successful
+delete and absence checks. This run does not establish general ASR accuracy or every
+memory-failure scenario.
+
+Final defensive cleanup found zero facts. The process exited normally with code 0, and
+settings were verified camera_enabled=false and memory_enabled=false. Only metadata was
+retained at cache/t031-memory-summary.json; the temporary runtime log was removed, and no
+image or raw audio was saved. This evidence-only update passed git diff --check; no product
+code changed, so the previous 690-test gate was not rerun. Progress remains 45/47 because
+T031/T046 still require the interruption timing/endurance and remaining acceptance matrix.

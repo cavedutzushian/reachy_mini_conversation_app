@@ -243,6 +243,12 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Successful deletion revalidation (2026-10-30): both providers used memory_id to delete
+the fact stored by the other provider. User-confirmed recall and fresh-session absence
+checks succeeded in each direction; the isolated store ended empty with camera/memory
+disabled. These were sequential app launches, not runtime-switch acceptance. T031/T046
+remain unchecked for interruption/endurance and remaining acceptance; see quickstart.md.
+
 Deletion remediation (2026-10-30): exposed existing fact IDs in memory context and the
 forget tool, retaining query-only compatibility and rejecting unknown IDs without fallback.
 Offline regressions and the full 690-test gate passed; see quickstart.md. No new live
