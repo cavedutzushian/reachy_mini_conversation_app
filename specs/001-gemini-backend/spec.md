@@ -125,6 +125,12 @@ As a robot user, I can change providers and recover from a lost connection while
 - **SC-001**: All existing default-provider acceptance scenarios continue to pass without requiring additional provider setup.
 - **SC-002**: A robot trial completes 15 minutes and at least 10 spoken exchanges using the additional provider, with visible transcripts and the selected personality, without an application crash or unannounced fresh conversation.
 - **SC-003**: In 10 interruption trials, abandoned speech stops within one second of interruption recognition in at least nine trials, with no later playback of the abandoned response in any trial.
+
+  **Personal acceptance decision (2026-10-30)**: The user explicitly waived interruption
+  timing and accepted that item as complete. The quantitative ten-trial timing check is
+  closed by waiver, not by a measured pass; the target above is retained for any future
+  measured validation. Functional interruption and abandoned-output suppression remain
+  required. This decision does not waive SC-002 endurance or other acceptance criteria.
 - **SC-004**: Every essential action in FR-005 succeeds at least once in a robot trial; an injected action failure is followed by a successful spoken exchange without restarting the app.
 - **SC-005**: Ten provider switches, including switches during speech and action execution, produce no overlapping conversations, duplicate robot actions, or transfer of prior-provider live conversation history; shared saved memories remain available as intended.
 - **SC-006**: Missing setup, rejected authentication, quota rejection, invalid model/voice, and forced disconnection each leave retry and manual provider selection usable and expose no credentials. Tests with a silent service verify the combined 15-second connection/setup deadline, 5-second send deadline, and 5-second graceful-close deadline; expired sessions produce no further input/output, and configuration, switching, and shutdown remain usable.

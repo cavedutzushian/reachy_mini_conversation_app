@@ -109,7 +109,7 @@ provider directions. Verify disabled tools/global controls block their respectiv
 - [X] T028 [US2] Adapt the existing camera result in `src/reachy_mini_conversation_app/gemini_realtime.py` to sanitized function metadata plus exactly one image/jpeg realtime input; enforce tool/global/--no-camera controls, omit b64_im from text/log/transcript, send no image on failure, and never recapture or stream continuously after send failure.
 - [X] T029 [US2] Reuse `src/reachy_mini_conversation_app/prompts.py`, existing remember/forget operations and `src/reachy_mini_conversation_app/memory_routes.py` refresh callbacks; deliberately retire the owner state/handle and announce fresh Gemini context on injected-memory/configuration revision changes, without claiming provider pause/resume cannot update settings; preserve shared saved-memory IDs/retention/deletion, global injection versus tool-mutation controls and truthful error reporting.
 - [X] T030 [US2] Carry explicit interrupted-fragment metadata through `src/reachy_mini_conversation_app/conversation_handler.py`, `src/reachy_mini_conversation_app/console.py`, and `src/reachy_mini_conversation_app/static/js/components/conversation-panel.js`; retain existing observer compatibility and transcript retention, and do not label abandoned assistant fragments as completed utterances; preserve the data-model "partial/completed/interrupted" state distinction.
-- [ ] T031 [US2] Run the US2 suites and independent tool/camera/memory/interruption trials in `specs/001-gemini-backend/quickstart.md`, recording sanitized evidence for SC-003/SC-004/SC-009/SC-010/SC-011; test sleep separately and relaunch, verify failures permit the next spoken exchange, and leave hardware-dependent evidence incomplete when hardware is unavailable.
+- [X] T031 [US2] Run the US2 suites and independent tool/camera/memory/interruption trials in `specs/001-gemini-backend/quickstart.md`, recording sanitized evidence for SC-003/SC-004/SC-009/SC-010/SC-011; test sleep separately and relaunch, verify failures permit the next spoken exchange, and leave hardware-dependent evidence incomplete when hardware is unavailable. Closed for personal acceptance on 2026-10-30 using recorded functional/offline/live evidence and the user's explicit interruption-timing waiver; the timing threshold was not measured as passing.
 
 **Checkpoint**: Voice, interruption, essential actions, on-demand vision and shared memories
 work under existing permissions. Recovery during active work remains the focus of US3.
@@ -150,7 +150,7 @@ foundation and earlier integrated increments; none requires unavailable later-st
 - [X] T043 [P] Record the architecture-diagram update requirement for the future human-authored PR in `specs/001-gemini-backend/quickstart.md`, referencing `docs/scheme.mmd` and generated `docs/assets/conversation_app_arch.svg`; do not hand-edit SVG or create Markdown under docs/.
 - [X] T044 Extend redaction/retention tests in `tests/test_gemini_realtime.py` and `tests/test_console.py` to prove failures/status/debug logging cannot expose keys, handles, raw image data or prior-provider live history; review shared-module changes for narrow logged exceptions, typed public signatures, and no new suppressions.
 - [X] T045 Run a clean Python 3.12 locked install and the full Ruff/format/mypy/pytest gate plus `uv lock --check` against `pyproject.toml`, `uv.lock`, `src/` and `tests/`; record actual versions/results and supported-platform evidence in `specs/001-gemini-backend/quickstart.md`, require green checks and metadata/guidance alignment with constitution 2.0.0 before review, and leave unavailable platform evidence incomplete without CI edits.
-- [ ] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, 9/10 sub-second recognized interruptions with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance.
+- [ ] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, functional interruption with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance. The quantitative interruption-timing item is accepted as complete by the user's 2026-10-30 waiver; endurance and the remaining acceptance matrix are not waived.
 - [X] T047 Self-review the focused diff against `specs/001-gemini-backend/spec.md`, `specs/001-gemini-backend/plan.md`, and `AGENTS.md`, ensure no secrets or unrelated changes, and leave human review/PR creation to the developer using the existing `.github/pull_request_template.md` without modifying that template.
 
 ## Dependencies & Execution Order
@@ -242,6 +242,13 @@ criteria are covered by story validations and T046. No generic cleanup or unrela
 is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
+
+Current personal acceptance (2026-10-30): the user explicitly requested skipping
+interruption timing and treating that item as complete. SC-003's quantitative timing
+check is waived, not experimentally passed. Together with the recorded US2 evidence,
+this closes T031. Progress is now 46/47; T046 remains unchecked for endurance and other
+remaining acceptance evidence. Historical 45/47 entries below are superseded by this
+decision, not rewritten as successful measurements.
 
 Reconnect update (2026-10-30): short local-close trials recovered automatically on both
 providers. Gemini resumed and recalled the nonce on a repeated question (first miss

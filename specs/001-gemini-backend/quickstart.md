@@ -90,6 +90,10 @@ reachy-mini-conversation-app --ui
    record resumed/fresh indicators and backoff, not a single-socket guarantee (SC-002, SC-007, SC-008).
 3. Interrupt ten responses. Measure recognition-to-stop time: at least nine within one
    second, no abandoned speech played later in any trial (SC-003).
+   For this personal customization, the user waived interruption timing on 2026-10-30 and
+   accepted that item as complete. The timed protocol above is retained for future optional
+   measurement; it is not a remaining personal acceptance gate. Functional interruption
+   and stale-output suppression still apply; endurance is not waived.
 4. Request each essential action. Validate sleep separately because it ends the app;
    relaunch for remaining trials. Include an ordinary operational failure and subsequent
    successful spoken exchange. Inject exceptional failures in fake-wire tests (SC-004).
@@ -804,3 +808,23 @@ cache/t046-reconnect-summary.json. Handles, transcript text, raw audio and image
 not retained in these summaries; the temporary runtime log was removed. This evidence-only
 update passed git diff --check; the previous 690-test gate was not rerun. T031/T046 remain
 unchecked at 45/47, including the full endurance/measured-interruption and remaining matrix.
+
+## User-accepted interruption-timing waiver (2026-10-30)
+
+The user explicitly instructed: “略過插話計時並視為完成” (skip interruption timing and
+treat it as complete). The quantitative SC-003 timing item is therefore closed by user
+waiver for personal acceptance. No new timing test ran, and no 9/10 sub-second result is
+claimed. Earlier partial timings, failed/unconfirmed observations and measurement limits
+remain unchanged. Functional barge-in/stale-output regressions and recorded live behavior
+remain the evidence for interruption functionality.
+
+T031 is now closed for personal acceptance using that waiver together with the recorded
+essential-tool, sleep/relaunch, camera, failure-recovery, permission and bidirectional
+memory evidence. T046 remains open: the complete fifteen-minute/ten-exchange endurance
+trial and remaining acceptance matrix have not been waived. Previous short local-close
+trials do not become service-limit or prolonged-network-outage evidence by this decision.
+Spec, plan and task wording now distinguish waived measurement from observed success.
+
+Progress is 46/47. No product code, dependency or runtime setting changed; no test app was
+started. Camera and memory remain off. This documentation-only update passed git diff
+--check and retains the previous 690-test gate without rerunning it.

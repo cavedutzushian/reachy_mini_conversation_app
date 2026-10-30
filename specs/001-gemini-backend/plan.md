@@ -37,7 +37,10 @@ streaming audio tests, and robot acceptance. Ordinary automated tests require no
 **Project Type**: Python robot application with local audio and JSON-RPC settings UI.
 
 **Performance Goals**: Spec SC-002 through SC-011: 15 minutes/10 exchanges, interruption within
-one second in 9/10 trials, ten clean switches, and no replayed actions. These are unmeasured targets.
+one second in 9/10 trials, ten clean switches, and no replayed actions. Evidence is recorded
+in quickstart.md. On 2026-10-30, the user waived interruption timing and accepted that item
+as complete for personal customization; no measured timing pass is claimed. The remaining
+goals, including 15-minute/10-exchange endurance, are unchanged.
 
 **Constraints**: One active provider, automatic recovery for both providers with 30-second
 maximum backoff, 15-second setup / 5-second send / 5-second close deadlines, fresh Gemini
