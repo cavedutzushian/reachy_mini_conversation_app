@@ -22,7 +22,7 @@
 
 **Purpose**: 確認個人客製化範圍與可重現基線。
 
-- [ ] T001 在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄本輪範圍與環境：沿用個人客製化、零付費使用、相機與記憶關閉，三項釐清 A／C／B 生效；不更改 `specs/001-gemini-backend/tasks.md` 的既有結案或將舊豁免套用為本功能一致性通過證據。
+- [ ] T001 依 `specs/002-prefer-traditional-chinese/quickstart.md` 的明確隔離步驟準備忽略的 `cache/traditional-chinese-trial.py` 及獨立測試目錄，在任何實際服務連線前驗證傳入 `main.run` 的絕對 instance_path 與關閉的相機／記憶設定；不複製日常 `.env`、記憶、歷史或人格，不執行舊資料遷移，缺少私密行程憑證時保留未完成。記錄個人客製化、零付費範圍與釐清決定；不改既有 Gemini 結案，也不沿用舊豁免。
 - [ ] T002 執行根 `AGENTS.md` 要求的完整基線 gate，包含 Ruff、format、strict mypy、pytest 與 uv lock 檢查，對照 `pyproject.toml`、`uv.lock`，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄實際版本、平台、結果與阻礙；不以歷史 690-test 結果當本輪實作結果，不調降檢查或修改 CI。
 
 ## Phase 2: Foundational
@@ -42,7 +42,7 @@
 
 ### Tests
 
-- [ ] T005 [US1] 在 `tests/test_console.py` 擴充頁面／RPC 行為測試，依 `specs/002-prefer-traditional-chinese/contracts/language-and-display.md` 固定十二組原文案例，檢查部分、完成、歷史文字「不增減或改名」`role`／`text`／`final` 與序列資訊、不新增 converted_text；同時測試自有已知提示可讀、錯誤身份不變、未知錯誤保留原文。不要把每句翻譯複製成快照測試。
+- [ ] T005 [US1] 在 `tests/test_console.py` 擴充頁面／RPC 行為測試，依 `specs/002-prefer-traditional-chinese/contracts/language-and-display.md` 固定十二組原文與預期文字，檢查部分、完成、歷史文字、保留 `role`／`text`／`final` 與序列資訊且不新增 converted_text；使用同一資料提供實際前端可連線的既有測試 app／RPC fixture，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄啟動、事件發送與頁面網址，禁止連雲端或執行工具。另測已知提示、穩定錯誤身份及未知原文，不以逐句譯文快照代替行為測試。
 
 ### Implementation
 
@@ -52,7 +52,7 @@
 - [ ] T009 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-modal.js`、`src/reachy_mini_conversation_app/static/js/components/confirm-dialog.js` 的固定文案與無障礙名稱；自有工具顯示名稱／說明只在畫面層對照，保留人格／聲音名稱、工具 ID、模型工具宣告、參數與第三方描述。
 - [ ] T010 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/api.js` 的既有錯誤顯示映射及自有用戶提示，保留 RPC 方法、參數、原因碼與 timeout 行為；未知第三方錯誤維持原文 fallback，不建通用 i18n 或轉換呼叫層。
 - [ ] T011 [US1] 盤點並翻譯 `src/reachy_mini_conversation_app/console.py`、`src/reachy_mini_conversation_app/language_routes.py`、`src/reachy_mini_conversation_app/personality_routes.py`、`src/reachy_mini_conversation_app/memory_routes.py`、`src/reachy_mini_conversation_app/vision_routes.py`、`src/reachy_mini_conversation_app/tool_space_routes.py`、`src/reachy_mini_conversation_app/profile_tool_routes.py` 中實際供使用者閱讀的固定 `message`／已知錯誤說明，包含 `conversation.context.message`；保留機器原因碼、列舉、錯誤結構與原始服務文字，不翻譯 logger 或為 UI 更動工具行為。
-- [ ] T012 [US1] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄 T005–T011 的離線結果及六類畫面盤點，包含鍵盤確認／取消、tooltip、無障礙名稱、窄畫面與長中文換行；檢查 `src/reachy_mini_conversation_app/static/js/ui.js`、`src/reachy_mini_conversation_app/static/js/constants.js`、`src/reachy_mini_conversation_app/static/js/personality-badge.js`、`src/reachy_mini_conversation_app/static/js/pending-apply.js` 的遺漏文案但不無故改動身份資料。可用時執行既有 Node 的 module 語法檢查，不新增 Node 產品依賴；不能把未執行畫面檢查記為通過。
+- [ ] T012 [US1] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄 T005–T011 的離線結果與六類畫面盤點，並透過 T005 fixture 對全部十二組固定原文逐項比較實際 DOM 的部分／完成／歷史文字；記錄輸入、預期、RPC 結果、畫面實際文字及比對結果，不適用階段註明原因，不以 RPC 通過、截圖或檔案存在代替畫面驗收。另檢查鍵盤確認／取消、tooltip、無障礙名稱、窄畫面、長中文換行，以及 `src/reachy_mini_conversation_app/static/js/ui.js`、`src/reachy_mini_conversation_app/static/js/constants.js`、`src/reachy_mini_conversation_app/static/js/personality-badge.js`、`src/reachy_mini_conversation_app/static/js/pending-apply.js` 的遺漏文案；保留身份資料，可用時做既有 Node 語法檢查，不新增依賴或把未檢查寫成通過。
 
 **Checkpoint**: US1 可獨立交付繁體介面與不改字的逐字稿；尚不宣稱模型繁體一致性已通過。
 
@@ -60,7 +60,7 @@
 
 **Goal**: 在既有共用提示中表達繁體偏好，保留 auto、非中文與設定優先順序。
 
-**Independent Test**: 模擬兩後端設定與替換 handler，驗證相同政策；實際每後端十次中文問答至少九次符合，不使用轉字改善結果。
+**Independent Test**: 模擬兩後端設定與替換 handler，驗證相同政策；準備每後端十次觀察樣本。最終實際觀察在 T020 定稿後由 T021 執行，不設繁體比例門檻，也不使用轉字改善結果。
 
 ### Tests
 
@@ -71,9 +71,9 @@
 ### Implementation
 
 - [ ] T016 [US2] 在 `src/reachy_mini_conversation_app/prompts.py` 的 `get_session_instructions()` 沿用現有解析順序與人格／記憶組裝，將絕對語言命令改為預設語言規則，並加入「中文時優先繁體」的共用指示；保留「與後端、聲音及人格分開理解」及「不是新持久化欄位」的限制。auto 不強制中文，未設定沿用預設；不修改人格檔、設定格式、ASR／TTS 協定，不新增單次轉發包裝或後端專用中文政策。
-- [ ] T017 [US2] 依 `specs/002-prefer-traditional-chinese/quickstart.md` 預先固定每後端十次中文案例與評分方式，在可用帳號及使用者在場、零付費範圍內驗收開場、一般問題、簡體輸入、無副作用工具結果及重選／重連後回覆；各至少 9/10 次一般中文繁體且語音中文。例外另測，不事後排除失敗，不以服務字形轉換改善分數；不可用的實機證據維持未完成。
+- [ ] T017 [US2] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 預先固定每後端十次中文觀察樣本與紀錄欄位，涵蓋開場、一般問題、簡體輸入、無副作用工具結果與重選／重連後回覆；記錄完成助理原文／逐字稿、語音語言、字形效果、無效或無法判斷結果與限制，不設 9/10 門檻。此任務只準備樣本，例外另列，最終觀察必須等 T020 完成並於 T021 執行，不以修改前的結果作結案證據。
 
-**Checkpoint**: US2 的生成偏好獨立可驗證；服務逐字稿仍可能是簡體，不能宣稱固定辨識字形或口音。
+**Checkpoint**: US2 的政策套用可獨立離線驗證；最終服務觀察尚待 T020／T021。服務逐字稿仍可能是簡體，不能宣稱固定辨識字形或口音。
 
 ## Phase 5: User Story 3 — 原文與其他語言例外 (P2)
 
@@ -89,7 +89,7 @@
 ### Implementation
 
 - [ ] T020 [US3] 在 `src/reachy_mini_conversation_app/prompts.py` 補齊當次簡體原文、引用、翻譯及其他語言要求的例外優先順序，並要求保留技術文字與指定名稱；例外只影響當次生成，不寫入設定、不改服務文字或工具參數。依 T018／T019 的結果只修正必要政策，不加字形偵測／轉換、例外儲存、額外模型呼叫或自動重試。
-- [ ] T021 [US3] 於 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄兩後端的原文／其他語言例外及回到預設語言結果；auto 各三組中文與非中文、未設定及明確非中文案例保留原有選擇規則，並記錄辨識／合成服務限制。確認模型未遵守偏好時仍顯示原文、下一回合可繼續，沒有重複工具；不能把服務限制或未執行案例自動列為通過。
+- [ ] T021 [US3] 等 T020 提示與例外規則定稿、相關離線測試通過後，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄當時程式版本／差異摘要，依 T001 隔離啟動流程執行 T017 的每後端十次最終觀察及原文／其他語言例外；auto 各三組中文與非中文、未設定及明確非中文案例保留原規則，記錄服務限制與未遵守偏好情況。無繁體比例門檻，但仍須證明偏好正確套用、原文保留、對話可繼續且無重複工具；未執行項目維持未完成。之後相關提示或語言選擇語意改變時重做受影響觀察。
 
 **Checkpoint**: 三個故事均可驗證，例外處理沒有引入第二套語言狀態或文字處理管線。
 
@@ -97,7 +97,7 @@
 
 - [ ] T022 更新根 `README.md` 的語言與介面行為說明：UI 固定繁體、模型中文繁體偏好、服務回覆／逐字稿不轉換、auto 不變及原文例外；不翻譯整份專案文件，不新增 README、環境變數或 docs/ Markdown。
 - [ ] T023 對 `pyproject.toml`、`uv.lock`、`src/`、`tests/` 執行完整 Ruff／format／strict mypy／pytest／uv lock／diff 檢查，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄本次實際結果及平台；未跑的平台與瀏覽器／Node 檢查明列未完成或不可用，不改 CI，不沿用舊 gate 當新結果。
-- [ ] T024 依 `specs/002-prefer-traditional-chinese/spec.md` 的 SC-001–SC-006，在 `specs/002-prefer-traditional-chinese/quickstart.md` 整理六類介面、每後端 9/10 一致性、十二組原文、設定保留、例外與 auto 的驗收矩陣；分開離線、畫面、實際服務結果及限制，必要條件未達標時保持任務未完成，不自行豁免。
+- [ ] T024 依 `specs/002-prefer-traditional-chinese/spec.md` 的 SC-001–SC-006，在 `specs/002-prefer-traditional-chinese/quickstart.md` 整理六類介面、每後端十次效果觀察、十二組 RPC／實際 DOM 原文比對、設定保留、例外與 auto 矩陣；確認 T021 對應最終交付的提示與語言選擇語意，若之後相關行為改變就重做受影響觀察，純文件／無語意格式變更不要求重跑。分開真實結果與限制，不恢復已取消的比例門檻，也不自行豁免其他必要驗收。
 - [ ] T025 對照 `AGENTS.md`、`.specify/memory/constitution.md`、`specs/002-prefer-traditional-chinese/plan.md` 自審最終差異，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄沒有憑證、原文改寫、依賴／協定新增或無關異動；若架構實際擴大則標記 `docs/scheme.mmd` 的後續更新，不手改生成 SVG，不改受保護文件，不自動建立 PR。
 
 ## Dependencies & Execution Order
@@ -110,13 +110,14 @@ T001 -> T002 -> (T003 || T004)
                     v
 US1: T005 -> (T006 || T007 || T008 || T009 || T010) -> T011 -> T012
 US2: (T013 || T014) -> T015 -> T016 -> T017
-US3: (T018 || T019) -> T020 -> T021
+US3: (T018 || T019) -> T020 -> T021 (包含 T017 的最終服務觀察)
 Polish: T022 -> T023 -> T024 -> T025
 ```
 
 - 所有故事都依賴 T001–T004。預設依 US1、US2、US3 順序執行，最後才進 Polish。
 - US1 與 US2 的功能可獨立測試；若調整執行排程，T015 必須等 T005 完成並避開 T011，因共用 `tests/test_console.py`／`console.py`。T016 的程式修改不依賴 UI 翻譯，但不得跳過自身測試前置。
 - US3 使用 US2 的政策組裝結果：T018 等 T015、T019 等 T013／T014、T020 等 T016 及 T018／T019；T020 與 T016 修改同一檔案，不可平行。
+- T017 僅準備資料；最終觀察明確依賴 T017 與 T020，由 T021 執行。不得在 T020 改提示後沿用先前服務觀察結案；T024 再檢查證據與交付行為版本一致。
 - T017、T021、T012、T024 共享驗收證據檔案且含互動工作，不平行進行。完整結果缺少實機／畫面證據時不得僅因程式完成而勾選。
 - Polish 依三故事完成；T023 在最後程式修改後執行，只有新增變更或失敗才需要重跑已通過檢查。
 
@@ -139,19 +140,19 @@ Polish: T022 -> T023 -> T024 -> T025
 
 ### MVP First
 
-完成 Setup／Foundation 與 US1（T001–T012），即可交付繁體操作介面與原文逐字稿。MVP 不宣稱模型已達繁體一致性分數，也不引入轉換器來暫時補足。
+完成 Setup／Foundation 與 US1（T001–T012），即可交付繁體操作介面與原文逐字稿。MVP 不宣稱已完成最終模型效果觀察，也不引入轉換器來暫時補足。
 
 ### Incremental Delivery
 
-US2 加入共用模型偏好並通過每後端實際問答；US3 補齊原文／其他語言例外與設定不變的驗證。最後完成 README、完整 gate、SC 矩陣與自審。每階段的真實失敗與未驗證限制應保留，不將前一功能的個人結案視為本功能通過。
+US2 加入共用模型偏好並準備觀察樣本；US3 補齊原文／其他語言例外後，才做最終的每後端十次效果觀察與設定不變驗證。最後完成 README、完整 gate、SC 矩陣與自審。保留真實失敗與限制，不將前一功能的個人結案視為本功能通過。
 
 ## Requirement Coverage
 
 | 需求／標準 | 任務 |
 |---|---|
 | FR-001、FR-008、SC-001 | T003、T005–T012 |
-| FR-002、FR-003、SC-002 | T004、T013–T017 |
-| FR-004、FR-005、SC-003 | T005、T008、T019 |
+| FR-002、FR-003、SC-002 | T004、T013–T017、T020–T021、T024 |
+| FR-004、FR-005、SC-003 | T005、T008、T012、T019 |
 | FR-006、FR-009、SC-005 | T018–T021 |
 | FR-007、FR-010、SC-004 | T004、T015、T018、T021 |
 | SC-006 | T004、T013–T016、T021 |
