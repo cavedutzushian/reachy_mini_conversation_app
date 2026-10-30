@@ -243,6 +243,13 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Runtime-switch update (2026-10-30): live testing found old queued dance continued after
+a provider switch. LocalStream now requests shared primary-movement cleanup on provider
+change; its regression and the full 690-test gate pass. A new live run completed ten
+runtime RPC switches, all user-confirmed normal, including both speech and motion
+directions. Interruption timing/endurance and automatic recovery remain unverified live;
+T031/T046 stay unchecked at 45/47. See quickstart.md for evidence and limits.
+
 Successful deletion revalidation (2026-10-30): both providers used memory_id to delete
 the fact stored by the other provider. User-confirmed recall and fresh-session absence
 checks succeeded in each direction; the isolated store ended empty with camera/memory

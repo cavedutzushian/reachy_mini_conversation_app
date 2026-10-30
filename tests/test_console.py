@@ -291,6 +291,7 @@ async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch:
     handlers = []
     started: asyncio.Queue[HuggingFaceRealtimeHandler | GeminiRealtimeHandler] = asyncio.Queue()
     ownership_counts: list[int] = []
+    motion_clears_at_start: list[int] = []
 
     def factory(_voice: str | None):
         handler = (
@@ -307,6 +308,7 @@ async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch:
             ownership_counts.append(
                 sum(active._owns_connection() and active.connection is not None for active in handlers)
             )
+            motion_clears_at_start.append(deps.movement_manager.clear_move_queue.call_count)
             started.put_nowait(handler)
             try:
                 await asyncio.Event().wait()
@@ -316,7 +318,7 @@ async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch:
         monkeypatch.setattr(handler, "start_up", start)
         return handler
 
-    stream = LocalStream(factory(None), MagicMock(), handler_factory=factory)
+    stream = LocalStream(factory(None), MagicMock(), handler_factory=factory, tool_deps=deps)
     monitor = asyncio.create_task(stream._run_handler_startup_loop())
     try:
         current = await asyncio.wait_for(started.get(), 1)
@@ -325,6 +327,7 @@ async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch:
             config.CONVERSATION_BACKEND = "gemini" if index % 2 == 0 else "huggingface"
             await stream.request_backend_restart("provider_selected")
             current = await asyncio.wait_for(started.get(), 1)
+            assert motion_clears_at_start[-1] == index + 1
             assert not previous._owns_connection() and current._owns_connection()
             assert current.session_state is state
             previous._emit_transcript("assistant", "private old-session fragment", True)
@@ -334,6 +337,7 @@ async def test_ten_switches_and_rapid_requests_keep_one_media_owner(monkeypatch:
         config.CONVERSATION_BACKEND = "gemini"
         await asyncio.gather(*(stream.request_backend_restart("rapid_selection") for _request in range(10)))
         await _wait_until(lambda: isinstance(stream.handler, GeminiRealtimeHandler) and stream._backend_connected())
+        assert deps.movement_manager.clear_move_queue.call_count == 11
         assert max(ownership_counts) == 1
         assert all(not handler._owns_connection() for handler in handlers if handler is not stream.handler)
         assert "private old-session fragment" not in str(stream._conversation_history)

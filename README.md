@@ -140,7 +140,8 @@ switch. Connection setup has a 15-second deadline, sends 5 seconds and graceful 
 Gemini can resume an eligible unchanged conversation using an in-memory checkpoint. A rejected
 checkpoint, explicit app interruption, or model/voice/personality/tool/memory change starts
 fresh context, shown in the conversation and settings. Switching providers transfers no live
-history. An uncertain robot action is reported and never automatically repeated. Normal
+history, and stops active and queued primary movements through the shared movement queue.
+An uncertain robot action is reported and never automatically repeated. Normal
 spoken barge-in retains context while discarding interrupted output.
 
 Copy `.env.example` to `.env` when you want to point Hugging Face at your own local endpoint.

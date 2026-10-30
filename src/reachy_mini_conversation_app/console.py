@@ -413,6 +413,7 @@ class LocalStream:
         self._set_backend_connection_state("connecting")
         self._restart_requested.set()
         async with self._transition_lock:
+            provider_changed = self.session_state.provider != config.CONVERSATION_BACKEND
             if reason != "injected_speech":
                 self._pending_say = None
             if self._session_task is not None:
@@ -420,6 +421,8 @@ class LocalStream:
             if self.session_state.mark_uncertain_actions():
                 self._dispatch_activity("uncertain_action")
             self.session_state.fresh(config.CONVERSATION_BACKEND, "")
+            if provider_changed and self._tool_deps is not None:
+                self._tool_deps.movement_manager.clear_move_queue()
             self._dispatch_activity("fresh_context")
             await self._shutdown_active_handler()
 

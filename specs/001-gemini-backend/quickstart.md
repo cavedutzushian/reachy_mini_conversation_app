@@ -719,3 +719,48 @@ retained at cache/t031-memory-summary.json; the temporary runtime log was remove
 image or raw audio was saved. This evidence-only update passed git diff --check; no product
 code changed, so the previous 690-test gate was not rerun. Progress remains 45/47 because
 T031/T046 still require the interruption timing/endurance and remaining acceptance matrix.
+
+## Runtime provider switching and movement cleanup (2026-10-30)
+
+The user authorized ten runtime provider switches, including speech and nod-dance cases,
+with camera and memory off. An ignored loopback-only diagnostic page sent backend.config
+through the product's existing /rpc WebSocket; it did not replace the provider-selection
+logic. The initial page had a JavaScript newline-escaping error introduced in the harness.
+An offline node --check reproduced the syntax failure; corrected escaping passed that
+check before the page was restarted. No switches from that page failure were counted.
+
+The first working run scored four quiet/speech switches as normal, then marked the fifth,
+HF-to-Gemini during queued nod dance, abnormal. The user confirmed movement continued
+after switching. The agent halted the trial through its end endpoint; any unscored further
+connection was not counted as acceptance. The sanitized pre-fix summary is retained locally
+at cache/t046-switch-before-fix-summary.json.
+
+Dance submits completed work to the shared movement queue, so shutting down the old tool
+manager did not remove already-queued motion. LocalStream now checks whether the provider
+changes before discarding old logical state and posts the existing clear_move_queue command
+after invalidation, before yielding to handler shutdown/replacement. The movement worker
+applies that command on its normal tick, stopping active and queued primary moves. This
+does not claim instantaneous physical stopping or cancellation of every external action.
+Same-provider automatic recovery does not enter this new branch. No SDK patch, new
+dependency or provider-default change was made; root README was updated.
+
+The ten-switch ownership regression failed before the fix and passed afterward. It now
+checks that each replacement starts after the movement-clear request and rapid repeated
+selection of the same target does not repeatedly clear movements. Full gate: 690 tests
+passed in 36.35 seconds, strict mypy passed for 55 source files, Ruff/format passed for
+119 files, uv lock --check resolved 131 packages, and git diff --check passed.
+
+The corrected live run recorded ten explicit backend.config switches, five in each
+direction: six quiet, two during speech and two during nod dance. All ten were marked
+normal by the user after a Chinese follow-up and checks for old speech/motion continuing
+or repeating. Both motion-switch directions passed. Eleven connected generations were
+observed, with monotonically increasing generation values. The first sampled context for
+one HF connection was unavailable; the other recorded contexts were new. These samples
+do not establish context resumption or absence of every possible stale-history path.
+
+The page's end command stopped the completed trial, exit 0. The final test settings were
+HF, Gemini voice Kore, language zh, camera=false and memory=false. Transcript text was
+filtered out and the temporary runtime log was removed; the numeric/observer summary is
+cache/t046-switch-summary.json. No raw audio or images were saved. This establishes the
+observed ten-switch behavior, not fifteen-minute endurance, measured interruption latency
+or automatic outage recovery. T031/T046 remain unchecked at 45/47 for the remaining matrix.
