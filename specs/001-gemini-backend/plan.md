@@ -42,6 +42,12 @@ in quickstart.md. On 2026-10-30, the user waived interruption timing and accepte
 as complete for personal customization; no measured timing pass is claimed. The remaining
 goals, including 15-minute/10-exchange endurance, are unchanged.
 
+**Personal closeout (2026-10-30)**: the final real-robot trial completed fifteen minutes
+and fourteen spoken exchanges. The user accepted the recorded live/offline evidence for
+T046 closure with untested service-limit/prolonged-real-network-outage scenarios retained
+as limitations. Interruption timing remains waived, not experimentally passed. See the
+final quickstart.md closeout for SDK communication errors and other validation limits.
+
 **Constraints**: One active provider, automatic recovery for both providers with 30-second
 maximum backoff, 15-second setup / 5-second send / 5-second close deadlines, fresh Gemini
 sessions for app-chosen configuration changes,

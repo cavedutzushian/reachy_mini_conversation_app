@@ -141,6 +141,17 @@ As a robot user, I can change providers and recover from a lost connection while
 - **SC-010**: Memory trials in both switching directions demonstrate saving a fact, recalling it through the other provider, and forgetting it so it is unavailable from saved memory in fresh conversations with either provider. Injected memory failures produce no false success report.
 - **SC-011**: With camera and memory tools disabled, requested captures and memory operations through those tools produce no action in all permission tests.
 
+## Personal acceptance closeout (2026-10-30)
+
+The final SC-002 trial completed fifteen minutes and fourteen spoken exchanges with
+visible user/assistant transcripts; the user confirmed normal observed behavior. The
+user accepted T046 closure using this trial, prior real-account local-close recovery
+tests and offline fault tests, while retaining unobserved service GoAway/time-limit and
+prolonged real-network-outage scenarios as limitations. SC-003 timing is separately
+closed by explicit user waiver. This is personal-customization acceptance, not a claim
+that every target was measured or every platform/service failure was exercised. Logged
+SDK movement communication errors during volume operations remain an environment limit.
+
 ## Assumptions
 
 - This is an optional backend for the existing single-robot application, not a provider marketplace. Additional providers, automatic provider switching, and provider ranking are excluded.

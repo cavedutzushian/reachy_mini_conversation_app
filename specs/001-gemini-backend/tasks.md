@@ -150,7 +150,7 @@ foundation and earlier integrated increments; none requires unavailable later-st
 - [X] T043 [P] Record the architecture-diagram update requirement for the future human-authored PR in `specs/001-gemini-backend/quickstart.md`, referencing `docs/scheme.mmd` and generated `docs/assets/conversation_app_arch.svg`; do not hand-edit SVG or create Markdown under docs/.
 - [X] T044 Extend redaction/retention tests in `tests/test_gemini_realtime.py` and `tests/test_console.py` to prove failures/status/debug logging cannot expose keys, handles, raw image data or prior-provider live history; review shared-module changes for narrow logged exceptions, typed public signatures, and no new suppressions.
 - [X] T045 Run a clean Python 3.12 locked install and the full Ruff/format/mypy/pytest gate plus `uv lock --check` against `pyproject.toml`, `uv.lock`, `src/` and `tests/`; record actual versions/results and supported-platform evidence in `specs/001-gemini-backend/quickstart.md`, require green checks and metadata/guidance alignment with constitution 2.0.0 before review, and leave unavailable platform evidence incomplete without CI edits.
-- [ ] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, functional interruption with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance. The quantitative interruption-timing item is accepted as complete by the user's 2026-10-30 waiver; endurance and the remaining acceptance matrix are not waived.
+- [X] T046 Complete the 15-minute/10-exchange real-robot trial and remaining SC-001 through SC-011 evidence in `specs/001-gemini-backend/quickstart.md`: automatic resumed/fresh reconnects across service limits, functional interruption with no abandoned speech, voice precedence, camera/memory failures and controls, and real device sample rates; retain fake-clock evidence for prolonged outages/deadlines separately rather than substituting it for hardware acceptance. Closed for personal acceptance on 2026-10-30 after the completed fifteen-minute/fourteen-exchange trial and the user's acceptance of prior live/offline recovery evidence with untested service-limit/prolonged-network-outage scenarios retained as limitations. Interruption timing is accepted as complete by the separate user waiver; no measured timing pass or unobserved service event is claimed.
 - [X] T047 Self-review the focused diff against `specs/001-gemini-backend/spec.md`, `specs/001-gemini-backend/plan.md`, and `AGENTS.md`, ensure no secrets or unrelated changes, and leave human review/PR creation to the developer using the existing `.github/pull_request_template.md` without modifying that template.
 
 ## Dependencies & Execution Order
@@ -242,6 +242,14 @@ criteria are covered by story validations and T046. No generic cleanup or unrela
 is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
+
+Final personal closeout (2026-10-30): all 47/47 tasks are closed under the explicitly
+accepted personal scope. The final Gemini trial reached fifteen minutes and fourteen
+spoken exchanges with visible transcripts; the user reported no observed anomaly and
+accepted T046 closure with untested service-limit/prolonged-outage scenarios documented.
+Interruption timing remains waived, not measured as passing. SDK movement communication
+errors during volume operations and other environment limits remain documented. Historical
+progress entries below are preserved; the final quickstart.md closeout is authoritative.
 
 Current personal acceptance (2026-10-30): the user explicitly requested skipping
 interruption timing and treating that item as complete. SC-003's quantitative timing

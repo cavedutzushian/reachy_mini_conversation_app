@@ -828,3 +828,48 @@ Spec, plan and task wording now distinguish waived measurement from observed suc
 Progress is 46/47. No product code, dependency or runtime setting changed; no test app was
 started. Camera and memory remain off. This documentation-only update passed git diff
 --check and retains the previous 690-test gate without rerunning it.
+
+## Final endurance trial and personal closeout (2026-10-30)
+
+The user authorized a new full fifteen-minute trial without interruption timing, with
+camera/memory off. The ignored loopback-only page displayed live user/assistant transcripts
+through the product's existing RPC notifications; transcript text was not written into
+the diagnostic summary. The timer started with connected microphone input. At 900 seconds
+the watchdog requested shutdown; final elapsed time was 901.5 seconds including cleanup.
+The process exited normally with code 0 and reason fifteen_minutes_complete.
+
+The run recorded fourteen completed spoken exchanges, excluding the initial greeting.
+Both transcript roles were displayed on the visible page. Device input/output were 16000 Hz;
+the selected profile was default, provider Gemini, voice Kore and language zh. There was
+one connected generation, no GoAway and no reconnect. The user confirmed normal speech
+and transcripts, with no observed context loss or other anomaly. SC-002's duration and
+exchange targets were met in this single run rather than by adding earlier partial trials.
+
+The log was not error-free: after speaker-volume tool calls requesting 60 and later 55,
+the movement worker logged Lost connection with the server, including suppressed repeats.
+The cloud voice connection stayed up. This resembles the previously recorded daemon/audio
+confirmation-sound limitation, but temporal association does not prove the cause. SDK
+1.12.0 versus daemon 1.13.0, denied startup DSP writes and unavailable non-Windows validation
+also remain documented limits. No SDK internals were modified or version-alignment fix
+claimed. A final read-only volume check found the daemon no longer accepting connections;
+final physical volumes could not be verified. No restoration/write was attempted, preserving
+the user's latest volume choices rather than assuming the earlier speaker-50 baseline.
+
+The user explicitly accepted this endurance result, prior real-account disconnect/resume/
+fresh-session trials and offline fault tests as the personal T046 closeout evidence, with
+unobserved service GoAway/time-limit and prolonged real-network-outage scenarios retained
+as limitations. Those scenarios are not reclassified as observed successes. The separate
+interruption-timing waiver remains in effect; no 9/10 sub-second claim is made.
+
+All 47/47 tasks are now closed for personal customization. This does not claim upstream
+review, cross-platform qualification or unrestricted production readiness. No PR was opened;
+the already recorded architecture-diagram regeneration remains for any future upstream
+contribution. All diagnostic app/server processes have stopped. Camera/memory settings were
+verified false and no long-term memory file was created by the endurance run. The sanitized
+summary remains at cache/t046-endurance-summary.json; the temporary runtime log was removed.
+No raw audio/images were saved. Product transcript-retention behavior is unchanged.
+
+This closeout changes only planning/evidence documents. git diff --check passed; the latest
+product gate remains 690 tests passed in 36.35 seconds, strict mypy for 55 source files,
+Ruff/format for 119 files and uv lock --check for 131 packages. No product code changed
+after that gate, so it was not repeated for this documentation-only update.
