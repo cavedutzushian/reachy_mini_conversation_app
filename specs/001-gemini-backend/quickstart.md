@@ -554,3 +554,24 @@ The isolated volume recheck is complete. Overall progress remains **45/47**: T03
 requires enabled-camera/cross-provider-memory and remaining independent acceptance; T046
 still requires its full endurance/interruption and switch/reconnect matrix. Camera/memory
 remain disabled, all trial processes are stopped, and no PR was opened.
+
+## Second partial T046 trial (2026-10-30)
+
+The user authorized a new fifteen-minute trial with camera and memory disabled, then
+confirmed the local page and opening greeting worked. The page subsequently received its
+explicit early-end command. Shutdown completed normally with exit 0 after 342.34 seconds
+including cleanup; no automatic restart was attempted.
+
+The trial recorded six completed spoken exchanges, three recognized interruption timings
+of 1453, 1532 and 1579 ms, and one unrecognized attempt. These timings include observer
+reaction and loopback request time, using the same server-marker-to-observer-click method
+described above; they do not isolate audible playback-stop latency. None of the three
+upper bounds was below one second. One connection, no GoAway/reconnect, and 16000 Hz
+device input/output were observed. No transcript text or raw audio was retained in the
+sanitized summary. This partial run does not establish fifteen-minute endurance, ten
+exchanges, 9/10 sub-second interruptions, or session resumption.
+
+Progress remains 45/47, with T031 and T046 unchecked. No source or dependency changes
+were made, so the previously recorded 685-test gate was not rerun for this evidence-only
+update. Camera and memory stayed disabled; the test app and local measurement server
+have stopped. No PR was opened.

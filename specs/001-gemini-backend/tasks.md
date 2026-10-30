@@ -243,6 +243,13 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Additional T046 evidence (2026-10-30): the newly authorized trial was explicitly ended
+through the page after 342.34 seconds including cleanup. Six spoken exchanges, three
+recognized interruptions (1453/1532/1579 ms including observer reaction) and one
+unrecognized attempt were recorded. No reconnect occurred. The app exited normally;
+camera/memory remained off. T031/T046 remain unchecked and progress remains 45/47.
+See quickstart.md for measurement limits and remaining acceptance.
+
 Local implementation, simulated acceptance, the local gate and self-review are complete:
 44/47 tasks are checked. T011/T012 cover actual-rate stereo PCM, acknowledgement gates, malformed
 messages, missing credentials, safe errors, completed-exchange backoff reset and virtual
