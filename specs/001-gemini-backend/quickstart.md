@@ -588,9 +588,10 @@ an object/color description without stating the answer, followed by a Chinese gr
 Observed counts: one admitted camera call, one successful JPEG result, and one image
 message sent. One additional camera call was blocked by the diagnostic limit, so this
 run does not prove the unrestricted model would request only one snapshot. No image
-payload or transcript text was retained in the trial log. Object/color correctness and
-the subsequent spoken greeting remain awaiting user confirmation; SC-009 is not passed.
-No capture failure was injected, and no memory operations were enabled.
+payload or transcript text was retained in the trial log. The user subsequently confirmed
+that the robot could read the photo and describe it correctly. The actual object/color
+was not supplied, and the subsequent spoken greeting remains unconfirmed. SC-009 is
+not fully passed: no capture failure was injected. No memory operations were enabled.
 
 The test exited normally with code 0. The disposable instance was verified restored to
 camera_enabled=false and memory_enabled=false. Sanitized counts are retained locally in
