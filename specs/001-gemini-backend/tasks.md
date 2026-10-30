@@ -243,6 +243,13 @@ is authorized by this task list.
 
 ## Resume evidence (2026-10-29)
 
+Reconnect update (2026-10-30): short local-close trials recovered automatically on both
+providers. Gemini resumed and recalled the nonce on a repeated question (first miss
+retained); the user accepted it. HF recovered normal Chinese speech. Gemini with its
+checkpoint deliberately removed started new context without the previous nonce. These
+are not real network-outage, GoAway, endurance or pending-action trials. T031/T046 remain
+unchecked at 45/47; see quickstart.md for evidence and remaining limits.
+
 Runtime-switch update (2026-10-30): live testing found old queued dance continued after
 a provider switch. LocalStream now requests shared primary-movement cleanup on provider
 change; its regression and the full 690-test gate pass. A new live run completed ten

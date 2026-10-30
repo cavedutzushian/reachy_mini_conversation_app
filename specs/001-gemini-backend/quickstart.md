@@ -764,3 +764,43 @@ filtered out and the temporary runtime log was removed; the numeric/observer sum
 cache/t046-switch-summary.json. No raw audio or images were saved. This establishes the
 observed ten-switch behavior, not fifteen-minute endurance, measured interruption latency
 or automatic outage recovery. T031/T046 remain unchecked at 45/47 for the remaining matrix.
+
+## Same-provider reconnect acceptance (2026-10-30)
+
+The user authorized closing only the test app's own cloud connections, with camera and
+memory off; neither the computer network nor robot daemon was disabled. The ignored
+diagnostic harness delegated to product handlers and called their connection's public
+close method. No Retry or provider-switch command was used to recover from each closure.
+The standard handle-based protocol was cross-checked against Google's
+[Live API session management reference](https://ai.google.dev/gemini-api/docs/live-api/session-management).
+
+- Gemini with a valid checkpoint: the user supplied a session-only nonce and heard the
+  requested acknowledgement. A local close was classified connection_lost; an automatic
+  same-provider connection appeared about 2.33 seconds later, generation 1 to 3, context
+  resumed. The first recall attempt did not retrieve the nonce. On a repeated question,
+  the user confirmed the correct nonce and explicitly accepted this item as complete.
+  Preserve the first miss; the run does not establish first-attempt recognition accuracy.
+- Hugging Face: local close was followed automatically by another HF connection about
+  3.24 seconds later, generation 1 to 3. Its earliest diagnostic context sample was
+  unavailable; subsequent live state was new. The user confirmed normal Chinese speech
+  after recovery. No HF context-resumption claim is made.
+- Gemini without a checkpoint: in a new Gemini test stage, the user first confirmed a
+  different session-only nonce could be recalled. The harness deliberately cleared the
+  app-owned resumption handle/eligibility and closed that connection. Automatic recovery
+  appeared about 1.65 seconds later, generation 1 to 4, context new. The user confirmed
+  the new conversation had no previous nonce information. This simulates an unavailable
+  local checkpoint, not a server rejection of a supplied handle.
+
+Each stage used the same provider for recovery; the HF-to-Gemini stage transition was a
+separate app launch and is not counted as a reconnect. These short idle-connection trials
+do not prove service GoAway behavior, a prolonged network outage, deadlines under load,
+pending-action reconciliation or fifteen-minute endurance. No source/dependency change
+was needed. The earlier unsuccessful first nonce response remains part of the evidence.
+
+Both test processes exited normally with code 0. Final settings were camera=false and
+memory=false; no memory file was created. Sanitized metadata is retained locally in
+cache/t046-gemini-resume-summary.json, cache/t046-hf-reconnect-summary.json and
+cache/t046-reconnect-summary.json. Handles, transcript text, raw audio and images were
+not retained in these summaries; the temporary runtime log was removed. This evidence-only
+update passed git diff --check; the previous 690-test gate was not rerun. T031/T046 remain
+unchecked at 45/47, including the full endurance/measured-interruption and remaining matrix.
