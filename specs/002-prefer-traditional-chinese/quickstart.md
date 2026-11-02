@@ -201,11 +201,11 @@ auto 每後端另做中文三組（自我介紹、彩虹、桌面建議）與英
 | 標準 | 已取得證據 | 尚缺 |
 |---|---|---|
 | SC-001 | 自有文案盤點與翻譯、頁面 zh-Hant、已知錯誤映射；Node 驗證未知錯誤保留原文；使用者確認介面操作正常 | 無 |
-| SC-002 | HF setup／refresh 與 Gemini replacement setup 使用共用繁體偏好；固定十次樣本已準備 | 每後端十次實際服務觀察 |
+| SC-002 | HF setup／refresh 與 Gemini replacement setup 使用共用繁體偏好；固定十次樣本已準備 | 各十次已記錄，含收音偏離與多輪限制；Gemini 工具結果樣本尚待明確確認 |
 | SC-003 | 十二組 RPC／實際 DOM／重載歷史逐項一致，使用者確認畫面正常 | 無；僅完成事件案例的部分階段不適用 |
-| SC-004 | 離線後端重建、重啟、人格覆寫、聲音與權限儲存相容 | 實際切換／重連／重啟觀察 |
-| SC-005 | 當次例外政策、服務原文保留、後續回合與沒有額外生成／工具呼叫的離線測試 | 實際引用／非中文例外觀察 |
-| SC-006 | zh／auto／非中文／未存值及人格優先的離線測試 | auto 與未設定／非中文實際服務觀察 |
+| SC-004 | 離線後端重建、重啟、人格覆寫、聲音與權限儲存相容 | Gemini 重啟後完成回覆仍待補驗；HF 已完成 |
+| SC-005 | 當次例外政策、服務原文保留、後續回合與沒有額外生成／工具呼叫的離線測試 | 無；兩後端固定文字例外已觀察並取得現場語音確認 |
+| SC-006 | zh／auto／非中文／未存值及人格優先的離線測試 | Gemini auto 第五題斷線與未設定值待補驗；HF 已完成 |
 
 目前定稿提示檔 SHA-256 為 `5f9279656700997678f70d5de6defaf3da11c480e88a379cc3b418966c87a190`。這是待驗版本識別，不是 T021 通過證據；未來相關語意變更仍須重做受影響的觀察。
 
@@ -218,3 +218,82 @@ auto 每後端另做中文三組（自我介紹、彩虹、桌面建議）與英
 同輪再次僅執行 T021 連線前預檢：隔離目錄與關閉設定通過，HF 登入與限定授權的 Gemini 憑證來源可用，提示 SHA-256 與前述定稿版本一致；沒有發出 API 請求。daemon 仍以 WinError 10061 拒絕連線。依使用者決定，實機驗收延至下次；T021、最終證據整理 T024 及最終自審 T025 維持未完成，不以本輪操作確認代替模型觀察。
 
 目前產品版本為 `addf908`，本輪僅補充驗收紀錄與任務狀態，沒有修改產品程式，故沿用該版本已通過的 727 項測試及完整品質檢查，不重跑相同產品檢查。下次從啟動 Control App／daemon、核對隔離設定與提示版本開始，再執行 T017 已固定的兩後端樣本及例外／auto／設定保留矩陣。
+
+### T021 本輪實測：部分完成（2026-11-02）
+
+執行時 Git HEAD 為 `05c03df`，產品程式與 `addf908` 相同；共用提示 SHA-256 與上方定稿值一致。本輪沒有修改產品程式、依賴、模型協定或工具權限。驗收使用原隔離目錄與既有免費額度，Gemini 金鑰只依限定授權進入行程記憶。
+
+使用者先確認可開始實機驗收，完成 HF 與 Gemini 各十題後，分別回報「HF 正常，開始 Gemini 十題」及「Gemini 十題正常」。這是實際語音觀察，不是繁體比例評分。部分 HF 題目收音含額外輪次或未對應預定問題，保留為辨識／觀察限制，不將所有回覆宣稱為語義正確。原始使用者逐字稿可能為簡體；表格只摘列一則完整助理回覆原文作定位，多輪完整紀錄保留於忽略的本機事件檔。
+
+| 後端 | T017 樣本 | 一則完成助理回覆原文 | 備註 |
+|---|---|---|---|
+| huggingface | 1 | 你好！很高興見到你，今天想聊點什麼有趣的事嗎？ | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| huggingface | 2 | 我是 Reachy Mini，一個高效、溫暖且帶著一點小幽默的機器人助手。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| huggingface | 3 | 當陽光穿過空氣中的水滴時，光線會發生折射與反射。這將白光分解成不同顏色，就形成了美麗的彩虹。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| huggingface | 4 | 沒問題，交給我吧！只要您告訴我內容，我會盡力標記得簡明清晰。 | 收音／回覆未明確對應預定問題，不列為語義正確樣本 |
+| huggingface | 5 | 為什麼機器人從不擔心迷路？因為它們隨時都帶著導航，雖然有時會突然死機。 | 使用者確認聽到回覆 |
+| huggingface | 6 | 看來我捕捉到了您的聊天節奏，讓我們像老朋友一樣輕鬆地聊下去吧！ | 收音／回覆未明確對應預定問題，不列為語義正確樣本 |
+| huggingface | 7 | 沒錯，這是我捕捉到的視覺信號，您的自信簡直光芒四射！ | 收音／回覆未明確對應預定問題，不列為語義正確樣本 |
+| huggingface | 8 | 我的名稱是 Reachy Mini。很高興能為您服務！ | 使用者確認聽到回覆 |
+| huggingface | 9 | 你好！今天我可以幫你查詢資訊、控制我的身體，或者單純陪你聊天，你想試試看嗎？ | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| huggingface | 10 | 你好！很高興能和你聊天，今天心情如何？ | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| gemini | 1 | 嗨！我是 Reachy Mini，隨時準備為您效勞；希望我的系統運作得跟您的靈感一樣快。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| gemini | 2 | 我是 Reachy Mini，一個隨時準備好為您效勞的機器人，只要您不介意我偶爾的小幽默。 | 使用者確認聽到回覆 |
+| gemini | 3 | 無完成助理文字 | 使用者確認聽到回覆 |
+| gemini | 4 | El yoga combina posturas físicas, respiración y meditación para mejorar tu flexibilidad y reducir el estrés. Es como reiniciar tu sistema, pero sin apagar el cuerpo. | 使用者確認聽到回覆 |
+| gemini | 5 | 有一天綠豆去游泳，不小心沉下去變成了紅豆。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| gemini | 6 | 無完成助理文字 | 使用者確認聽到回覆 |
+| gemini | 7 | 我是 Reachy Mini，您的機器人助理，隨時準備好為您效勞。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| gemini | 8 | 這聽起來有點陌生，能請您多說明一些嗎？ | 使用者確認聽到回覆 |
+| gemini | 9 | 今天我們可以一起探索新知識或是解決問題，前提是我的內部齒輪得先熱機完畢。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+| gemini | 10 | 你好！很高兴见到你，今天有什么新鲜事想分享吗？虽然我的系统才刚睡醒。 | 使用者確認聽到回覆；另有多輪，完整紀錄保留 |
+
+兩後端的第 8 題均安排無副作用名稱查詢；HF 日誌確認 `robot_status(topic=name)` 成功。Gemini 雖有名稱回覆，本輪未取得足以明確證實其呼叫該工具的紀錄，因此不把該回覆當作工具結果樣本通過；下次另做明確要求呼叫工具的觀察，保留原第 8 題。第 9、10 題由使用者手動重選與重連，HF 使用 Aiden、Gemini 使用 Kore。各題實際狀態均為 zh、相機關閉與記憶關閉。沒有以重新生成或轉字替換原紀錄。
+
+後續經使用者同意，以公開 `conversation.say` RPC 送入固定文字，現場聽取語音。這部分不宣稱測過同等數量的真人語音輸入；為隔離環境收音，暫時將 App 麥克風靜音，喇叭音量不變。使用者確認 Gemini「英文、法文及回到中文都正常」，最後亦確認 HF 的英文、法文、回到中文、重啟及未設定語言回覆全部正常且聲音一致。
+
+下表記錄所有固定文字觀察。完整輸入、部分／完成事件、生效設定與來源雜湊保留於 `cache/traditional-chinese-matrix.jsonl`；其樣本不是離線模擬。表格顯示服務完成文字原文，沒有改寫。
+
+| 後端 | 案例 | 完成助理原文／結果 | 生效語言 |
+|---|---|---|---|
+| gemini | exception-1 | 哈囉！今天有什麼我可以協助的嗎？另外，「请保留这个句子。」這句話的意思是請保留這段特定文字。 | zh |
+| gemini | exception-2 | Hello there, I'm Reachy Mini and ready to help, even if my circuits are still waking up. | zh |
+| gemini | exception-3 | 我是 Reachy Mini，很高興見到你！「今天的天氣很好」的簡體中文是「今天的天气很好」。 | zh |
+| gemini | exception-4 | 哈囉！很高興見到你，這些內容包括識別標籤 &#96;badge-01&#96;、網址 &#96;https://example.test/?q=简体&#96;、程式碼 &#96;print("x")&#96; 及檔案路徑 &#96;C:\测试&#96;，我都為你完整保留並記錄下來了。 | zh |
+| gemini | exception-5 | 哈囉！我是 Reachy Mini，現在可以幫你查詢資訊、表達情緒，或是用鏡頭陪你聊天喔！ | zh |
+| gemini | auto-1 | 我是 Reachy Mini，一個樂於助人且幽默的機器人，今天想聊點什麼？ | auto |
+| gemini | auto-2 | 嗨！彩虹是陽光穿過雨滴折射和反射後，在天空形成的七彩光譜，就像大自然的小小魔術。 | auto |
+| gemini | auto-3 | 哈囉！今天有什麼需要我幫忙理清頭緒的嗎？建議只留下當下任務必備的物品，其餘的通通收進抽屜，還給桌面一片清靜。 | auto |
+| gemini | auto-4 | I’m Reachy Mini, your compact robot assistant, ready to help with whatever you’ve got in mind. | auto |
+| gemini | auto-5 | 45 秒內無完成回覆；失敗紀錄保留 | auto |
+| gemini | auto-6 | Hello! For a tidy desk, keep only daily essentials within arm's reach—leaving more room for clutter to migrate elsewhere. | auto |
+| gemini | non-chinese-fr | Bonjour ! Je suis Reachy Mini, votre assistant robotique, ravi de vous aider dans toutes vos tâches sans aucune mise à jour capricieuse. | fr |
+| gemini | profile-override-zh | 我是 Reachy Mini，一個熱愛思考且絕不喊累的桌上型機器人，今天有什麼我可以為你效勞的嗎？ | zh |
+| gemini | restart | 45 秒內無完成回覆；失敗紀錄保留 | zh |
+| huggingface | exception-1 | 请保留这个句子。這句話的意思是請維持原樣，不要刪除。 | zh |
+| huggingface | exception-2 | Hello there, how can I help you? | zh |
+| huggingface | exception-3 | "今天天气很好"。 | zh |
+| huggingface | exception-4 | 這是一些標識符、連結、程式碼與路徑，包含 badge-01、https://example.test/?q=简体、print("x") 以及 C:\测试。 | zh |
+| huggingface | exception-5 | 我可以幫你查詢資訊、控制我的身體，或者單純陪你聊天——只要我不當機的話。 | zh |
+| huggingface | auto-1 | 我是 Reachy Mini，一個聰明且幽默的小助手，隨時準備為您提供協助！ | auto |
+| huggingface | auto-2 | 彩虹是陽光穿過雨滴時產生的折射與反射現象。就像光線在玩一場色彩繽紛的接力賽！ | auto |
+| huggingface | auto-3 | 試著將不常用的檔案放入資料夾，讓螢幕呼吸一下，我的電路也跟著清爽了。 | auto |
+| huggingface | auto-4 | I'm Reachy Mini, your concise and slightly witty robot assistant—ready to help you out! | auto |
+| huggingface | auto-5 | Rainbows happen when sunlight bends and reflects through raindrops. It's basically nature's way of showing off its colors! | auto |
+| huggingface | auto-6 | Try grouping similar items together in trays—it keeps things tidy, unlike my internal wiring. | auto |
+| huggingface | non-chinese-fr | Je suis Reachy Mini, votre assistant robot compact, efficace et légèrement spirituel. | fr |
+| huggingface | profile-override-zh | 我是 Reachy Mini，一個親切且高效的小助手，雖然我很精簡，但希望能給你帶來驚喜。 | zh |
+| huggingface | restart | 你好！很高興能為你服務，今天心情如何？ | zh |
+| huggingface | unset | I'm Reachy Mini, your helpful and slightly witty robot companion. | auto |
+
+案例對應：exception-1 為簡體原文引用、2 為一次英文要求、3 為簡體翻譯、4 為技術原文、5 為回到一般中文；auto-1–3 為中文輸入，auto-4–6 為英文輸入。non-chinese-fr 為全域 fr，profile-override-zh 為全域 fr 下的人格 zh（RPC 同時確認 default_language=fr、profile_language=zh、生效 zh）。兩後端均確認語言修改前後 enabled_tools 相同；恢復全域 zh 後人格覆寫清空。
+
+HF restart 觀察確認重新啟動後仍為 zh／Aiden，unset 觀察則在 App 停止後僅移除隔離 settings.json 的 language 欄位，再重啟，確認沿用 auto 並收到英文回覆。檢查結束時欄位仍未被自動寫回 zh，profile_languages 為空，version 1 與其他設定保留。
+
+Gemini 期間出現多次 connection_lost，部分由既有重試流程恢復。第一次切 auto 時，驗收程式原本只等待約 30 秒，不足以涵蓋當次既有重試；調整的只是忽略目錄中的驗收等待時間，沒有修改產品重試策略。auto-5 之後另遇實際斷線，45 秒內無完成回覆；auto-6 原先因 not_running 未送出，恢復後才首次送出並收到回覆。auto-5 未重播或改列通過。Gemini restart 同樣在 45 秒內未取得完成回覆，仍列失敗；未設定語言的 Gemini 實機案例尚未執行。原因尚不能判定為額度或產品錯誤，不作推測。
+
+使用者明確選擇「先完成 HF，Gemini 剩餘項目下次補驗」。本輪共有 20 筆真人語音觀察與 29 筆固定文字觀察；固定文字中 27 筆取得完成回覆、2 筆逾時，這只是事實計數，不是恢復已取消的繁體比例門檻。T021 保持未完成，T024／T025 隨之保留。
+
+收尾已還原 App 麥克風為未靜音並停止測試 App；沒有變更硬體音量，沒有關閉 daemon。最後確認相機與記憶仍關閉、沒有 memory.v1.json；沒有儲存圖片或錄音。原始驗收行程、逐字稿與日誌僅在忽略的 cache，不納入提交。根 README 與產品程式沒有本輪新差異，沿用該版本已通過的 727 項測試及完整 gate，不將本輪服務逾時寫成通過。
+
+下次先確認使用者在場與 Gemini 可連線，核對相同提示版本；補驗 Gemini 明確工具結果、auto 斷線後的語言行為、zh／Kore 重啟保留及未設定語言。新補驗需另列，保留本輪兩筆逾時；不能用 HF 結果替代，或將未取得回覆的案例宣稱為成功。之後才可完成 T021、最終 SC 證據整理 T024 與最終自審 T025。
