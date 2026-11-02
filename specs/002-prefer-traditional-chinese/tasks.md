@@ -89,7 +89,7 @@
 ### Implementation
 
 - [X] T020 [US3] 在 `src/reachy_mini_conversation_app/prompts.py` 補齊當次簡體原文、引用、翻譯及其他語言要求的例外優先順序，並要求保留技術文字與指定名稱；例外只影響當次生成，不寫入設定、不改服務文字或工具參數。依 T018／T019 的結果只修正必要政策，不加字形偵測／轉換、例外儲存、額外模型呼叫或自動重試。
-- [ ] T021 [US3] 等 T020 提示與例外規則定稿、相關離線測試通過後，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄當時程式版本／差異摘要，依 T001 隔離啟動流程執行 T017 的每後端十次最終觀察及原文／其他語言例外；auto 各三組中文與非中文、未設定及明確非中文案例保留原規則，記錄服務限制與未遵守偏好情況。無繁體比例門檻，但仍須證明偏好正確套用、原文保留、對話可繼續且無重複工具；未執行項目維持未完成。之後相關提示或語言選擇語意改變時重做受影響觀察。
+- [X] T021 [US3] 等 T020 提示與例外規則定稿、相關離線測試通過後，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄當時程式版本／差異摘要，依 T001 隔離啟動流程執行 T017 的每後端十次最終觀察及原文／其他語言例外；auto 各三組中文與非中文、未設定及明確非中文案例保留原規則，記錄服務限制與未遵守偏好情況。無繁體比例門檻，但仍須證明偏好正確套用、原文保留、對話可繼續且無重複工具；未執行項目維持未完成。之後相關提示或語言選擇語意改變時重做受影響觀察。
 
 **Checkpoint**: 三個故事均可驗證，例外處理沒有引入第二套語言狀態或文字處理管線。
 
@@ -97,8 +97,8 @@
 
 - [X] T022 更新根 `README.md` 的語言與介面行為說明：UI 固定繁體、模型中文繁體偏好、服務回覆／逐字稿不轉換、auto 不變及原文例外；不翻譯整份專案文件，不新增 README、環境變數或 docs/ Markdown。
 - [X] T023 對 `pyproject.toml`、`uv.lock`、`src/`、`tests/` 執行完整 Ruff／format／strict mypy／pytest／uv lock／diff 檢查，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄本次實際結果及平台；未跑的平台與瀏覽器／Node 檢查明列未完成或不可用，不改 CI，不沿用舊 gate 當新結果。
-- [ ] T024 依 `specs/002-prefer-traditional-chinese/spec.md` 的 SC-001–SC-006，在 `specs/002-prefer-traditional-chinese/quickstart.md` 整理六類介面、每後端十次效果觀察、十二組 RPC／實際 DOM 原文比對、設定保留、例外與 auto 矩陣；確認 T021 對應最終交付的提示與語言選擇語意，若之後相關行為改變就重做受影響觀察，純文件／無語意格式變更不要求重跑。分開真實結果與限制，不恢復已取消的比例門檻，也不自行豁免其他必要驗收。
-- [ ] T025 對照 `AGENTS.md`、`.specify/memory/constitution.md`、`specs/002-prefer-traditional-chinese/plan.md` 自審最終差異，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄沒有憑證、原文改寫、依賴／協定新增或無關異動；若架構實際擴大則標記 `docs/scheme.mmd` 的後續更新，不手改生成 SVG，不改受保護文件，不自動建立 PR。
+- [X] T024 依 `specs/002-prefer-traditional-chinese/spec.md` 的 SC-001–SC-006，在 `specs/002-prefer-traditional-chinese/quickstart.md` 整理六類介面、每後端十次效果觀察、十二組 RPC／實際 DOM 原文比對、設定保留、例外與 auto 矩陣；確認 T021 對應最終交付的提示與語言選擇語意，若之後相關行為改變就重做受影響觀察，純文件／無語意格式變更不要求重跑。分開真實結果與限制，不恢復已取消的比例門檻，也不自行豁免其他必要驗收。
+- [X] T025 對照 `AGENTS.md`、`.specify/memory/constitution.md`、`specs/002-prefer-traditional-chinese/plan.md` 自審最終差異，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄沒有憑證、原文改寫、依賴／協定新增或無關異動；若架構實際擴大則標記 `docs/scheme.mmd` 的後續更新，不手改生成 SVG，不改受保護文件，不自動建立 PR。
 
 ## Dependencies & Execution Order
 
