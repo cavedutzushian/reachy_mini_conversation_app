@@ -1,5 +1,12 @@
 """Tests for persisted instance-local startup settings."""
 
+from pathlib import Path
+
+import pytest
+
+from reachy_mini_conversation_app.config import config
+from reachy_mini_conversation_app.prompts import get_session_instructions
+from reachy_mini_conversation_app.settings_store import AppSettings, update_settings, load_settings_into_runtime
 from reachy_mini_conversation_app.startup_settings import (
     StartupSettings,
     read_startup_settings,
@@ -78,3 +85,31 @@ def test_load_startup_settings_into_runtime_preserves_inherited_env_without_save
 
     assert settings == StartupSettings()
     assert applied_profiles == []
+
+
+@pytest.mark.parametrize("language", [None, "auto", "fr", "zh"])
+def test_restart_rebuilds_policy_without_rewriting_saved_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: str | None
+) -> None:
+    """Restarts preserve unset language, voice and disabled permissions in storage."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "auto")
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    monkeypatch.setattr(config, "CAMERA_ENABLED", True)
+    monkeypatch.setenv("REALTIME_TRANSCRIPTION_LANGUAGE", "auto")
+    write_startup_settings(tmp_path, profile="default", voice="Kore")
+    update_settings(tmp_path, AppSettings(language=language, camera_enabled=False, memory_enabled=False))
+    memory_path = tmp_path / "memory.v1.json"
+    memory_path.write_text('{"test":"这是保留的原文"}', encoding="utf-8")
+    original = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    policies = []
+    for _ in range(2):
+        load_startup_settings_into_runtime(tmp_path)
+        load_settings_into_runtime(tmp_path)
+        policies.append(get_session_instructions(tmp_path))
+    assert policies[0] == policies[1]
+    assert "Traditional Chinese" in policies[0]
+    assert config.REALTIME_TRANSCRIPTION_LANGUAGE == (language or "auto")
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == original
+    assert config.MEMORY_ENABLED is False and config.CAMERA_ENABLED is False

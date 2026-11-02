@@ -39,15 +39,15 @@ def apply_tool_change(
         initialize_tools(instance_path=instance_path, force=True)
     except Exception:
         logger.exception("Failed to reload tools after saving tool settings")
-        return "Saved. Restart the conversation app to apply the tool changes."
+        return "已儲存，請重新啟動對話應用程式以套用工具變更。"
 
     try:
         conversation_loop = get_loop()
     except Exception:
         logger.exception("Failed to inspect the conversation loop after a tool change")
-        return "Saved. Restart the conversation app to apply the tool changes."
+        return "已儲存，請重新啟動對話應用程式以套用工具變更。"
     if conversation_loop is None or not conversation_loop.is_running():
-        return "Tools will apply when the conversation starts or restarts."
+        return "對話啟動或重新啟動時將套用工具設定。"
 
     restart_coroutine: Coroutine[None, None, None] | None = None
     try:
@@ -60,6 +60,6 @@ def apply_tool_change(
         if restart_coroutine is not None:
             restart_coroutine.close()
         logger.exception("Failed to schedule a conversation restart after a tool change")
-        return "Saved. Restart the conversation app to apply the tool changes."
+        return "已儲存，請重新啟動對話應用程式以套用工具變更。"
     restart_future.add_done_callback(_log_restart_completion)
-    return "Reconnecting the conversation to apply the tool changes."
+    return "正在重新連接對話以套用工具變更。"

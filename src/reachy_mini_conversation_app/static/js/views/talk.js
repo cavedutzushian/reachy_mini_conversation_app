@@ -14,13 +14,13 @@ import { setPersonality } from "../personality-badge.js";
 import { h, prettifyProfileName } from "../ui.js";
 
 const CAPTION_BY_STATE = Object.freeze({
-  [ORB_STATES.MUTED]: "Muted",
-  [ORB_STATES.IDLE]: "Ready",
-  [ORB_STATES.CONNECTING]: "Connecting to the backend...",
-  [ORB_STATES.LISTENING]: "Listening",
-  [ORB_STATES.THINKING]: "Thinking",
-  [ORB_STATES.SPEAKING]: "Speaking",
-  [ORB_STATES.ERROR]: "Connection error",
+  [ORB_STATES.MUTED]: "已靜音",
+  [ORB_STATES.IDLE]: "就緒",
+  [ORB_STATES.CONNECTING]: "正在連接後端…",
+  [ORB_STATES.LISTENING]: "聆聽中",
+  [ORB_STATES.THINKING]: "思考中",
+  [ORB_STATES.SPEAKING]: "說話中",
+  [ORB_STATES.ERROR]: "連線錯誤",
 });
 
 export async function mountTalkView({ outlet, signal }) {
@@ -80,13 +80,13 @@ export async function mountTalkView({ outlet, signal }) {
   outlet.replaceChildren(view);
 
   if (pending) {
-    caption.textContent = `Applying "${prettifyProfileName(pending.name)}"…`;
+    caption.textContent = `正在套用「${prettifyProfileName(pending.name)}」…`;
     try {
       await pending.promise;
     } catch (error) {
       if (signal.aborted) return;
       orb.setState(ORB_STATES.ERROR);
-      caption.textContent = `Failed to apply personality: ${error?.message || error}`;
+      caption.textContent = `無法套用人格：${error?.message || error}`;
       return;
     }
     if (signal.aborted) return;
@@ -150,7 +150,7 @@ export async function mountTalkView({ outlet, signal }) {
       muted = Boolean(data?.muted);
     } catch (error) {
       if (!signal.aborted) {
-        caption.textContent = `Failed to toggle the microphone: ${error?.message || error}`;
+        caption.textContent = `無法切換麥克風：${error?.message || error}`;
       }
       return;
     } finally {
@@ -179,15 +179,15 @@ export async function mountTalkView({ outlet, signal }) {
   async function onSetDefault() {
     if (!defaultAction || !activePersonality) return;
     defaultAction.disabled = true;
-    caption.textContent = `Saving "${prettifyProfileName(activePersonality)}" as default...`;
+    caption.textContent = `正在將「${prettifyProfileName(activePersonality)}」儲存為預設…`;
     try {
       await applyPersonality(activePersonality, { persist: true });
       if (signal.aborted) return;
       defaultAction.hidden = true;
-      caption.textContent = `"${prettifyProfileName(activePersonality)}" will be used at startup.`;
+      caption.textContent = `啟動時將使用「${prettifyProfileName(activePersonality)}」。`;
     } catch (error) {
       if (!signal.aborted) {
-        caption.textContent = `Failed to save default: ${error?.message || error}`;
+        caption.textContent = `無法儲存預設人格：${error?.message || error}`;
       }
     } finally {
       defaultAction.disabled = false;
@@ -197,11 +197,11 @@ export async function mountTalkView({ outlet, signal }) {
   function syncMicAria() {
     if (!micReady) {
       orb.root.setAttribute("aria-pressed", "false");
-      orb.root.setAttribute("aria-label", "Loading microphone state");
+      orb.root.setAttribute("aria-label", "正在讀取麥克風狀態");
       return;
     }
     orb.root.setAttribute("aria-pressed", String(!muted));
-    orb.root.setAttribute("aria-label", muted ? "Unmute microphone" : "Mute microphone");
+    orb.root.setAttribute("aria-label", muted ? "取消麥克風靜音" : "將麥克風靜音");
   }
 }
 

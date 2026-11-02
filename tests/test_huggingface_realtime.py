@@ -622,8 +622,8 @@ def test_huggingface_session_uses_configured_transcription_language(
 @pytest.mark.parametrize(
     "profile, expected_language, expected_rule",
     [
-        ("mad_scientist_assistant", "fr", "Speak only French, starting with your first greeting"),
-        ("sorry_bro", "en", "Speak only English, starting with your first greeting"),
+        ("mad_scientist_assistant", "fr", "Default to French"),
+        ("sorry_bro", "en", "Default to English"),
         ("chess_coach", "auto", None),
     ],
 )
@@ -643,6 +643,75 @@ def test_huggingface_session_speaks_the_language_saved_for_its_profile(
         assert "Speak only" not in session["instructions"]
     else:
         assert expected_rule in session["instructions"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language, language_name", [("zh", "Chinese"), ("auto", None), ("fr", "French")])
+async def test_language_policy_reaches_hf_setup_and_refresh(
+    monkeypatch: pytest.MonkeyPatch, language: str, language_name: str | None
+) -> None:
+    """Initial and refreshed sessions share the conditional Chinese preference."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", language)
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    session = handler._get_session_config([])
+    instructions = session["instructions"]
+    assert "When replying in Chinese, prefer Traditional Chinese" in instructions
+    assert "Speak only" not in instructions
+    if language_name is None:
+        assert "Default to " not in instructions
+    else:
+        assert f"Default to {language_name}" in instructions
+    assert session["audio"]["input"]["transcription"]["language"] == language
+    connection = MagicMock()
+    connection.session.update = AsyncMock()
+    handler.connection = connection
+    assert await handler.refresh_instructions()
+    refreshed = connection.session.update.call_args.kwargs["session"]
+    assert refreshed["instructions"] == instructions
+
+
+@pytest.mark.asyncio
+async def test_hf_explicit_language_exceptions_keep_raw_transcripts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exception policy and noncompliant text never cause correction requests or tool replay."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "zh")
+    monkeypatch.setattr(hf_mod, "get_tool_specs", lambda: [])
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    instructions = handler._get_session_config([])["instructions"]
+    assert "explicit request" in instructions and "this response only" in instructions
+    assert "Simplified Chinese" in instructions and "code, URLs, paths, identifiers" in instructions
+    text = '简体原文 https://example.test/?q=简体 `print("x")` C:\\测试 badge-01'
+    observed: list[tuple[str, str, bool]] = []
+    handler.set_transcript_observer(lambda role, value, final: observed.append((role, value, final)))
+    handler.client = _make_fake_realtime_client(
+        events=(
+            _FakeEvent("response.created"),
+            _FakeEvent("response.output_audio_transcript.done", transcript=text),
+            _FakeEvent("response.done"),
+            _FakeEvent("response.created"),
+            _FakeEvent("response.output_audio_transcript.done", transcript="下一回合继续正常。"),
+            _FakeEvent("response.done"),
+        )
+    )
+    generate = AsyncMock()
+    monkeypatch.setattr(handler, "_send_startup_greeting_prompt", generate)
+    correct_text = AsyncMock()
+    monkeypatch.setattr(handler, "_safe_response_create", correct_text)
+    start_tool = AsyncMock()
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start_tool)
+    monkeypatch.setattr(type(handler.tool_manager), "start_up", MagicMock())
+    monkeypatch.setattr(type(handler.tool_manager), "shutdown", AsyncMock())
+    await handler._run_realtime_session()
+    assert ("assistant", text, True) in observed
+    assert ("assistant", "下一回合继续正常。", True) in observed
+    generate.assert_awaited_once()
+    correct_text.assert_not_called()
+    start_tool.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -812,7 +881,7 @@ async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(m
 
     result = await handler.apply_personality("mars_rover")
 
-    assert "restarted realtime session" in result.lower()
+    assert "已重新啟動即時對話" in result
     session = captured_update["session"]
     assert session["instructions"] == "new instructions"
     assert session["audio"]["output"]["voice"] == "Serena"
@@ -838,7 +907,7 @@ async def test_apply_personality_restores_profile_when_tools_fail(monkeypatch: A
 
     result = await handler.apply_personality("broken")
 
-    assert result == "Failed to apply personality: tool reload failed"
+    assert result == "套用人格失敗：tool reload failed"
     assert config.REACHY_MINI_CUSTOM_PROFILE == "default"
     assert selected_profiles == ["broken", "default"]
 
@@ -862,7 +931,7 @@ async def test_change_voice_updates_live_hf_session_without_restart(monkeypatch:
 
     result = await handler.change_voice("Serena")
 
-    assert result == "Voice changed to Serena."
+    assert result == "聲音已變更為 Serena。"
     assert handler.get_current_voice() == "Serena"
     restart.assert_not_awaited()
     session = captured_update["session"]

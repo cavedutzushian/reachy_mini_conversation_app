@@ -45,7 +45,7 @@ def _vision_client(deps: ToolDependencies, persisted: list[bool], forced_off: bo
     return TestClient(app)
 
 
-@pytest.mark.parametrize("language", ["auto", "en"])
+@pytest.mark.parametrize("language", ["auto", "en", "zh"])
 def test_language_get_reports_the_active_language(monkeypatch: pytest.MonkeyPatch, language: str) -> None:
     """The client reads the transcription language it is about to change."""
     monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", language)
@@ -96,7 +96,7 @@ def test_language_set_rejects_an_unknown_scope() -> None:
     assert applied == []
 
 
-@pytest.mark.parametrize("language", ["fr", "EN", "auto", "Auto"])
+@pytest.mark.parametrize("language", ["fr", "EN", "zh", "auto", "Auto"])
 def test_language_set_accepts_client_codes(language: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two-letter codes and "auto", the forms transcription takes, are accepted and normalised."""
     monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "en")
@@ -109,7 +109,7 @@ def test_language_set_accepts_client_codes(language: str, monkeypatch: pytest.Mo
     assert result["language"] == language.lower()
 
 
-@pytest.mark.parametrize("language", ["", "english", "e", 42, "pt-BR", "autodetect"])
+@pytest.mark.parametrize("language", ["", "english", "e", 42, "pt-BR", "zh-TW", "zh-Hant", "autodetect"])
 def test_language_set_rejects_junk(language: object, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bad code must not reach the transcription config."""
     monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "en")

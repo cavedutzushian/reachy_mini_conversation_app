@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from reachy_mini_conversation_app.config import config, refresh_runtime_config_from_env
+from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.settings_store import (
     AppSettings,
     read_settings,
@@ -103,7 +104,7 @@ def test_unusable_file_is_ignored(tmp_path: Path, content: str) -> None:
     assert read_settings(tmp_path) == AppSettings()
 
 
-@pytest.mark.parametrize("language", ["auto", "en", "fr"])
+@pytest.mark.parametrize("language", ["auto", "en", "fr", "zh"])
 def test_load_applies_over_the_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: str) -> None:
     """Stored settings win over the env-derived defaults."""
     monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "auto")
@@ -133,3 +134,53 @@ def test_load_leaves_unset_fields_to_the_environment(
     load_settings_into_runtime(tmp_path)
 
     assert config.REALTIME_TRANSCRIPTION_LANGUAGE == expected_language
+
+
+@pytest.mark.parametrize("language", ["auto", "en", "zh"])
+def test_loading_language_does_not_migrate_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: str
+) -> None:
+    """Loading a language preserves settings bytes and disabled permissions."""
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "auto")
+    monkeypatch.setattr(config, "MEMORY_ENABLED", True)
+    monkeypatch.setattr(config, "CAMERA_ENABLED", True)
+    update_settings(
+        tmp_path,
+        AppSettings(
+            language=language, profile_languages={"default": "fr"}, camera_enabled=False, memory_enabled=False
+        ),
+    )
+    settings_path = tmp_path / "settings.json"
+    original = settings_path.read_bytes()
+
+    load_settings_into_runtime(tmp_path)
+
+    assert settings_path.read_bytes() == original
+    assert config.REALTIME_TRANSCRIPTION_LANGUAGE == language
+    assert config.PROFILE_LANGUAGES == {"default": "fr"}
+    assert config.CAMERA_ENABLED is False
+    assert config.MEMORY_ENABLED is False
+    assert json.loads(original)["version"] == 1
+
+
+@pytest.mark.parametrize("language", ["auto", "fr", "zh"])
+def test_temporary_language_policy_does_not_write_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: str
+) -> None:
+    """Building temporary exception instructions leaves persisted language and content untouched."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", language)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    update_settings(tmp_path, AppSettings(language=language, memory_enabled=False, camera_enabled=False))
+    original = (tmp_path / "settings.json").read_bytes()
+
+    instructions = get_session_instructions(tmp_path)
+
+    assert "this response only" in instructions
+    assert "then return to the default language policy" in instructions
+    assert config.REALTIME_TRANSCRIPTION_LANGUAGE == language
+    assert config.PROFILE_LANGUAGES == {}
+    assert (tmp_path / "settings.json").read_bytes() == original
+    assert list(tmp_path.iterdir()) == [tmp_path / "settings.json"]

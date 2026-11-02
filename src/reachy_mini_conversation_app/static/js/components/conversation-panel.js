@@ -8,18 +8,18 @@ import { SHOW_LATENCIES_KEY } from "../constants.js";
 import { h } from "../ui.js";
 
 const LATENCY_STAGES = Object.freeze([
-  ["vad_decision_ms", "VAD end decision"],
-  ["smart_status", "Smart Turn decision"],
-  ["stt_ms", "Transcription"],
-  ["llm_ms", "Response generation"],
-  ["tts_ttfa_ms", "Voice synthesis to first audio"],
-  ["hold_ms", "Hold time before response"],
+  ["vad_decision_ms", "VAD 結束判定"],
+  ["smart_status", "Smart Turn 判定"],
+  ["stt_ms", "語音辨識"],
+  ["llm_ms", "回覆生成"],
+  ["tts_ttfa_ms", "語音合成至首段音訊"],
+  ["hold_ms", "回覆前等待時間"],
 ]);
 
 const STATUS_LABELS = Object.freeze({
-  cancelled: "Interrupted",
-  failed: "Failed",
-  incomplete: "Incomplete",
+  cancelled: "已中斷",
+  failed: "失敗",
+  incomplete: "未完成",
 });
 
 // Within this distance of the bottom, new rows keep the list scrolled down.
@@ -38,12 +38,12 @@ export function createConversationPanel({ toggle, signal }) {
   const list = h("ol", {
     class: "talk-log__list",
     role: "log",
-    "data-empty": "The conversation will show up here.",
+    "data-empty": "對話內容會顯示在這裡。",
   });
   const root = h(
     "aside",
-    { id: "talk-log", class: "talk-log", "aria-label": "Conversation" },
-    h("h2", { class: "talk-log__title" }, "Conversation"),
+    { id: "talk-log", class: "talk-log", "aria-label": "對話" },
+    h("h2", { class: "talk-log__title" }, "對話"),
     list
   );
   const onToggle = () => setOpen(root.hidden);
@@ -56,7 +56,7 @@ export function createConversationPanel({ toggle, signal }) {
     "conversation.latency": onLatency,
     "conversation.interrupted": () => {
       if (assistantPartial) {
-        assistantPartial.append(" (Interrupted)");
+        assistantPartial.append("（已中斷）");
         assistantPartial.classList.remove("is-partial");
         assistantPartial = null;
       }
@@ -96,7 +96,7 @@ export function createConversationPanel({ toggle, signal }) {
     toggle.classList.toggle("is-active", open);
     toggle.classList.remove("has-unread");
     toggle.setAttribute("aria-expanded", String(open));
-    toggle.setAttribute("aria-label", open ? "Hide conversation" : "Show conversation");
+    toggle.setAttribute("aria-label", open ? "隱藏對話" : "顯示對話");
     if (open) list.scrollTop = list.scrollHeight;
   }
 
@@ -134,7 +134,7 @@ export function createConversationPanel({ toggle, signal }) {
   function onLatency(latency) {
     if (!showLatencies) return;
     const status = STATUS_LABELS[latency.status];
-    const summary = `End-to-end ${formatMs(latency.e2e_ms)}${status ? ` · ${status}` : ""}`;
+    const summary = `端到端 ${formatMs(latency.e2e_ms)}${status ? ` · ${status}` : ""}`;
     keepScrolledDown(() => {
       list.append(
         h(
@@ -170,5 +170,5 @@ export function createConversationPanel({ toggle, signal }) {
 }
 
 function formatMs(ms) {
-  return typeof ms === "number" ? `${ms} ms` : "n/a";
+  return typeof ms === "number" ? `${ms} ms` : "不適用";
 }

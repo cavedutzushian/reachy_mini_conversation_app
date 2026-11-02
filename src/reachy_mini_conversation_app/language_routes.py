@@ -43,13 +43,13 @@ def register_language_methods(
         language = params.get("language")
         if not isinstance(language, str) or not _LANGUAGE_RE.match(language.strip()):
             raise JsonRpcError(
-                "language must be 'auto' or a two-letter code like 'en' or 'fr'",
+                "language 必須為 'auto' 或兩字母代碼，例如 'en' 或 'fr'",
                 reason="invalid_language",
                 code=-32602,
             )
         scope = params.get("scope", "all")
         if scope not in ("profile", "all"):
-            raise JsonRpcError("scope must be 'profile' or 'all'", reason="invalid_params", code=-32602)
+            raise JsonRpcError("scope 必須為 'profile' 或 'all'", reason="invalid_params", code=-32602)
         message = set_language(language.strip().lower(), scope)
         return {**_get(params), "message": message}
 

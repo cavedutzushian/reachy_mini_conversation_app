@@ -7,7 +7,7 @@ const RPC_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.
 
 class RpcError extends Error {
   constructor(message, reason, data = {}) {
-    super(message || reason || "rpc error");
+    super(message || reason || "RPC 錯誤");
     // Views branch on error.body.error (the stable reason); keep that contract.
     this.body = { ...data, error: reason };
     this.reason = reason;
@@ -41,10 +41,10 @@ function connect() {
       connecting = null;
       for (const p of pending.values()) {
         clearTimeout(p.timer);
-        p.reject(new RpcError("connection closed", "disconnected"));
+        p.reject(new RpcError("連線已關閉", "disconnected"));
       }
       pending.clear();
-      if (!opened) reject(new RpcError("cannot reach /rpc", "disconnected"));
+      if (!opened) reject(new RpcError("無法連接 /rpc", "disconnected"));
       // Keep the event stream alive while anyone is listening, across drops and
       // when the page loads before the app has mounted /rpc.
       if (subscribers.size > 0) setTimeout(() => connect().catch(() => {}), 1000);
@@ -79,13 +79,13 @@ function handleMessage(msg) {
 export async function rpcCall(method, params = {}, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   await connect();
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    throw new RpcError("not connected", "disconnected");
+    throw new RpcError("尚未連線", "disconnected");
   }
   const id = `ui-${++rpcCounter}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new RpcError(`timed out: ${method}`, "timeout"));
+      reject(new RpcError(`操作逾時：${method}`, "timeout"));
     }, timeoutMs);
     pending.set(id, { resolve, reject, timer });
     socket.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
@@ -169,25 +169,31 @@ export const resetProfileTools = (profile) =>
 
 /** Backend error codes that need friendlier copy than the raw code. */
 const ERROR_MESSAGES = Object.freeze({
-  invalid_backend: "Unknown backend selected.",
-  empty_key: "An API key is required for this backend.",
-  empty_hf_host: "Enter a Hugging Face host.",
-  invalid_hf_host: "That Hugging Face host doesn't look right.",
-  invalid_hf_port: "That Hugging Face port doesn't look right.",
-  invalid_hf_mode: "Unknown Hugging Face mode.",
-  missing_hf_session_url: "Couldn't reach the Hugging Face Space. Check it's running.",
-  invalid_name: "Enter a valid profile name.",
-  invalid_instructions: "Enter personality instructions.",
-  profile_exists: "A personality with this name already exists.",
-  invalid_tool_space_slug: "Enter a Space in owner/name format.",
-  invalid_tool_selection: "One or more selected tools are no longer available.",
-  unknown_profile: "That personality is no longer available.",
-  missing_voice: "Choose a voice first.",
-  profile_locked: "Profile switching is locked by the administrator.",
-  profile_in_use: "This personality is active or set to load at startup. Switch to another one first.",
-  not_deletable: "This personality can't be deleted.",
-  loop_unavailable: "Reachy is still starting up. Try again in a moment.",
-  tool_space_not_installed: "That Tool Space is no longer installed.",
+  invalid_language: "請選擇自動判斷或既有的兩字母語言代碼。",
+  invalid_params: "輸入參數不正確，請檢查後重試。",
+  camera_forced_off: "相機已透過 --no-camera 停用。",
+  disconnected: "連線已中斷，請確認應用程式正在執行後重試。",
+  timeout: "操作逾時，請檢查連線後重試。",
+  not_running: "對話尚未連線，請先完成連線設定。",
+  invalid_backend: "所選後端不明。",
+  empty_key: "此後端需要 API 金鑰。",
+  empty_hf_host: "請輸入 Hugging Face 主機。",
+  invalid_hf_host: "Hugging Face 主機格式不正確。",
+  invalid_hf_port: "Hugging Face 連接埠格式不正確。",
+  invalid_hf_mode: "Hugging Face 模式不明。",
+  missing_hf_session_url: "無法連接 Hugging Face Space，請確認它正在執行。",
+  invalid_name: "請輸入有效的人格名稱。",
+  invalid_instructions: "請輸入人格指示。",
+  profile_exists: "已存在同名人格。",
+  invalid_tool_space_slug: "請以 owner/name 格式輸入 Space。",
+  invalid_tool_selection: "部分所選工具已無法使用。",
+  unknown_profile: "此人格已無法使用。",
+  missing_voice: "請先選擇聲音。",
+  profile_locked: "管理員已鎖定人格切換。",
+  profile_in_use: "此人格正在使用中或已設為啟動預設，請先切換為其他人格。",
+  not_deletable: "無法刪除此人格。",
+  loop_unavailable: "Reachy 仍在啟動中，請稍後重試。",
+  tool_space_not_installed: "此 Tool Space 已不再安裝。",
 });
 
 /** Map a thrown error to user-facing copy, falling back to its raw message. */

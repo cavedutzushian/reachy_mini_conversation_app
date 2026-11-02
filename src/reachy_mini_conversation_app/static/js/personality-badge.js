@@ -1,5 +1,5 @@
 /**
- * Header personality badge: avatar + "Personality" label + active profile name.
+ * Header personality badge: avatar + "人格" label + active profile name.
  * Lives in the app shell (index.html) so it persists across view changes.
  */
 

@@ -73,7 +73,7 @@ def register_tool_space_methods(
 
     async def _add_tool_space(params: dict[str, Any]) -> dict[str, object]:
         if LOCKED_PROFILE is not None:
-            raise_tool_settings_error("profile_locked", "Tool Space editing is locked.")
+            raise_tool_settings_error("profile_locked", "Tool Space 編輯已鎖定。")
         slug = _required_slug(params)
         try:
             result = await asyncio.to_thread(
@@ -110,15 +110,14 @@ def register_tool_space_methods(
                 "tool_spaces_changed",
             )
             if any(tool_name.startswith(f"{result.resolved_space.alias}__") for tool_name in active_tools)
-            else "The Space is ready to assign to personalities."
+            else "此 Space 已可指派給人格。"
         )
 
-        action = "Refreshed" if result.refreshed else "Installed"
+        action = "已更新" if result.refreshed else "已安裝"
         tool_count = len(result.resolved_space.tools)
-        tool_label = "tool" if tool_count == 1 else "tools"
         message = (
-            f"{action} {result.resolved_space.slug} with {tool_count} {tool_label}. "
-            "Choose which personalities can use them in Tool access. "
+            f"{action} {result.resolved_space.slug}，包含 {tool_count} 個工具。"
+            "請在工具權限中選擇可使用這些工具的人格。"
             f"{apply_detail}"
         )
         return {
@@ -128,7 +127,7 @@ def register_tool_space_methods(
 
     async def _remove_tool_space(params: dict[str, Any]) -> dict[str, object]:
         if LOCKED_PROFILE is not None:
-            raise_tool_settings_error("profile_locked", "Tool Space editing is locked.")
+            raise_tool_settings_error("profile_locked", "Tool Space 編輯已鎖定。")
         slug = _required_slug(params)
         try:
             result = await asyncio.to_thread(remove_tool_space, slug, instance_path)
@@ -159,15 +158,11 @@ def register_tool_space_methods(
                 "tool_spaces_changed",
             )
             if any(profile_name == active_profile for profile_name, _ in disabled_profiles)
-            else "No active conversation restart is needed."
+            else "目前的對話無須重新啟動。"
         )
 
         disabled_tool_count = sum(len(tool_ids) for _, tool_ids in disabled_profiles)
-        tool_label = "tool" if disabled_tool_count == 1 else "tools"
-        message = (
-            f"Removed {result.removed_space.slug}. Disabled {disabled_tool_count} {tool_label} across personalities. "
-            f"{apply_detail}"
-        )
+        message = f"已移除 {result.removed_space.slug}，並在各人格中停用 {disabled_tool_count} 個工具。{apply_detail}"
         return {
             **_space_settings_payload(result.manifest),
             "message": message,

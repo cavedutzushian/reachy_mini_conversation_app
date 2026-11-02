@@ -119,7 +119,7 @@ def test_web_install_adds_global_inventory_without_enabling_a_profile(
     added = response["result"]
     assert added["spaces"] == [{"slug": SPACE_SLUG, "private": False, "tool_count": 1}]
     assert added["editable"] is True
-    assert "ready to assign to personalities" in added["message"]
+    assert "已可指派給人格" in added["message"]
     assert read_profile_tool_override("default", instance_path) is None
     assert (profiles_root / "default" / "profile.md").read_text(encoding="utf-8") == default_profile_text
     initialize_tools.assert_not_called()
@@ -177,7 +177,7 @@ def test_profile_tools_save_and_reset_control_one_profile(
     assert updated["is_active"] is False
     assert updated["overridden"] is True
     assert updated["enabled_tools"] == ["camera", TOOL_NAME]
-    assert "next time this personality is selected" in updated["message"]
+    assert "下次選取此人格" in updated["message"]
     assert read_profile_tool_names("default", instance_path) == ["dance"]
     assert (profiles_root / "guide" / "profile.md").read_text(encoding="utf-8") == guide_profile_text
     initialize_tools.assert_not_called()
@@ -187,7 +187,7 @@ def test_profile_tools_save_and_reset_control_one_profile(
     reset = reset_response["result"]
     assert reset["overridden"] is False
     assert reset["enabled_tools"] == ["camera"]
-    assert "next time this personality is selected" in reset["message"]
+    assert "下次選取此人格" in reset["message"]
     assert read_profile_tool_override("guide", instance_path) is None
     initialize_tools.assert_not_called()
 
@@ -218,7 +218,7 @@ def test_remove_tool_space_disables_its_tools_in_every_profile(
 
     removed = remove_response["result"]
     assert removed["spaces"] == []
-    assert "Disabled 2 tools across personalities" in removed["message"]
+    assert "在各人格中停用 2 個工具" in removed["message"]
     assert read_profile_tool_names("default", instance_path) == ["dance"]
     assert read_profile_tool_names("guide", instance_path) == ["camera"]
     initialize_tools.assert_called_once_with(instance_path=instance_path, force=True)
@@ -306,7 +306,7 @@ def test_active_profile_tool_update_restarts_a_running_conversation(
             {"profile": "default", "enabled_tools": ["dance", TOOL_NAME]},
         )
 
-        assert "Reconnecting the conversation" in response["result"]["message"]
+        assert "正在重新連接對話" in response["result"]["message"]
         assert restart_called.wait(timeout=1.0)
     finally:
         conversation_loop.call_soon_threadsafe(conversation_loop.stop)
@@ -332,5 +332,5 @@ def test_saved_tool_change_reports_success_when_runtime_reload_fails(
         {"profile": "default", "enabled_tools": ["dance"]},
     )
 
-    assert "Restart the conversation app" in response["result"]["message"]
+    assert "請重新啟動對話應用程式" in response["result"]["message"]
     assert read_profile_tool_override("default", instance_path) == ["dance"]

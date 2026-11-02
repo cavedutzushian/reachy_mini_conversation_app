@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 import reachy_mini_conversation_app.console as console_mod
 from reachy_mini_conversation_app.config import HF_AVAILABLE_VOICES, config
 from reachy_mini_conversation_app.console import LocalStream
+from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.settings_store import read_settings
 from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
@@ -31,6 +32,7 @@ from reachy_mini_conversation_app.personality_routes import (
     RouteError,
     build_personality_ops,
 )
+from reachy_mini_conversation_app.conversation_handler import ConversationHandler
 from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, HuggingFaceRealtimeHandler
 
 
@@ -187,7 +189,7 @@ async def test_slow_cleanup_cannot_keep_ownership_or_freeze_switching(monkeypatc
     try:
         await asyncio.wait_for(stream._shutdown_active_handler(), timeout=0.2)
         assert stream.session_state.generation > previous_generation
-        assert any("unknown" in str(event) for event in stream._conversation_history)
+        assert any("結果不明" in str(event) for event in stream._conversation_history)
     finally:
         released.set()
         await asyncio.sleep(0)
@@ -674,7 +676,7 @@ def test_backend_config_requests_in_process_restart_with_handler_factory(
     data = _rpc_call(app, "backend.config", {"hf_mode": "local", "hf_host": "localhost", "hf_port": 8765})["result"]
 
     assert data["ok"] is True
-    assert data["message"] == "Connection saved. Reconnecting backend."
+    assert data["message"] == "連線已儲存，正在重新連接後端。"
     assert data["backend"] == "huggingface"
     assert data["requires_restart"] is False
     assert data["can_proceed"] is True
@@ -878,7 +880,7 @@ def test_status_reports_backend_connection_failure(
     assert data["backend"] == "huggingface"
     assert data["backend_connected"] is False
     assert data["backend_connection_state"] == "disconnected"
-    assert data["backend_error"] == "Backend connection failed. Check configuration and retry."
+    assert data["backend_error"] == "後端連線失敗，請檢查設定後重試。"
     assert data["can_proceed"] is True
     assert data["can_proceed_with_hf"] is True
 
@@ -924,7 +926,7 @@ def test_backend_startup_failure_is_recorded_without_raising(
     data = _rpc_call(app, "conversation.status")["result"]
     assert data["backend_connected"] is False
     assert data["backend_connection_state"] == "disconnected"
-    assert data["backend_error"] == "Backend connection failed. Check configuration and retry."
+    assert data["backend_error"] == "後端連線失敗，請檢查設定後重試。"
 
 
 def test_media_warmup_overlaps_audio_startup_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1302,7 +1304,7 @@ async def test_personality_ops_apply_same_profile_is_noop(monkeypatch: pytest.Mo
 
     result = await ops.apply("sorry_bro")
 
-    assert result["status"] == "Personality unchanged."
+    assert result["status"] == "人格未變更。"
     handler.apply_personality.assert_not_awaited()
     handler.get_current_voice.assert_not_called()
 
@@ -1504,7 +1506,7 @@ async def test_change_voice_reports_handler_failure() -> None:
 
     result = await stream.change_voice("Serena")
 
-    assert "Failed to change voice" in result
+    assert "變更聲音失敗" in result
 
 
 def _audio_robot(**media_attrs: Any) -> SimpleNamespace:
@@ -2126,3 +2128,90 @@ def test_invalid_speech_switch_saves_nothing(
     assert read_settings(tmp_path).local_vad_enabled is None
     assert read_settings(tmp_path).local_barge_in_enabled is None
     assert not stream._restart_requested.is_set()
+
+
+RAW_TRANSCRIPT_CASES = [
+    ("user", ["这是服务返回的简体文字。"]),
+    ("assistant", ["繁體與简体混合。"]),
+    ("user", ["即时", "即时片段", "即时片段完成。"]),
+    ("assistant", ["服务正常更", "服务正常更新文字。"]),
+    ("assistant", ["原文：‘请保留这个句子。’"]),
+    ("user", ["Robot 版本 3.12，数量 42。"]),
+    ("assistant", ["https://example.test/路径?q=简体&count=12"]),
+    ("assistant", ['<script>window.transcriptExecuted = true</script> `print("简体")`']),
+    ("user", [r"C:\测试\文件.txt /tmp/简体.txt"]),
+    ("assistant", ["指定名称：小米；memory_id=badge-紫色-01"]),
+    ("user", ["你好 123 😊🌟"]),
+    ("assistant", ["模型没有遵守偏好，仍返回简体。"]),
+]
+
+
+@pytest.mark.parametrize("role, fragments", RAW_TRANSCRIPT_CASES)
+def test_rpc_transcripts_preserve_service_text(role: str, fragments: list[str]) -> None:
+    """Live fragments and replayed history retain service text and event identity."""
+    app = FastAPI()
+    handler = MagicMock()
+    stream = LocalStream(handler, _rpc_robot(), settings_app=app)
+    stream._init_settings_ui_if_needed()
+    with TestClient(app).websocket_connect("/rpc") as websocket:
+        sequences = []
+        for index, text in enumerate(fragments):
+            final = index == len(fragments) - 1
+            stream._dispatch_transcript(role, text, final)
+            event = websocket.receive_json()
+            assert event["method"] == "conversation.transcript"
+            params = event["params"]
+            if final:
+                sequences.append(params.pop("seq"))
+            else:
+                assert "seq" not in params
+            assert params == {"role": role, "text": text, "final": final}
+        websocket.send_json({"jsonrpc": "2.0", "id": "history", "method": "conversation.history"})
+        history = websocket.receive_json()["result"]["events"]
+    assert sequences == sorted(set(sequences))
+    assert len(history) == 1
+    assert history[0]["params"] == {"role": role, "text": fragments[-1], "final": True, "seq": sequences[-1]}
+    handler.generate_response.assert_not_called()
+
+
+def test_settings_page_declares_traditional_chinese() -> None:
+    """The page language describes the fixed UI independently of reply language."""
+    app = FastAPI()
+    stream = LocalStream(MagicMock(), _rpc_robot(), settings_app=app)
+    stream._init_settings_ui_if_needed()
+    with TestClient(app) as client:
+        response = client.get("/")
+    assert response.status_code == 200
+    assert '<html lang="zh-Hant">' in response.text
+
+
+def test_rebuilt_providers_keep_language_policy_and_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider rebuilds resolve profile language without rewriting text or permissions."""
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "auto")
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {"default": "zh"})
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock(), camera_enabled=False)
+    policies: list[str] = []
+
+    def factory(_voice: str | None) -> ConversationHandler:
+        policies.append(get_session_instructions())
+        if config.CONVERSATION_BACKEND == "gemini":
+            return GeminiRealtimeHandler(deps)
+        return HuggingFaceRealtimeHandler(deps)
+
+    stream = LocalStream(factory(None), deps.reachy_mini, handler_factory=factory, tool_deps=deps)
+    stream._dispatch_transcript("user", "这是未经修改的历史。", True)
+    history = list(stream._conversation_history)
+    for provider in ("huggingface", "gemini", "gemini", "huggingface"):
+        monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+        stream._build_handler_for_current_backend()
+    assert len(set(policies)) == 1
+    assert "Default to Chinese" in policies[0]
+    assert "Traditional Chinese" in policies[0]
+    assert config.REALTIME_TRANSCRIPTION_LANGUAGE == "auto"
+    assert config.PROFILE_LANGUAGES == {"default": "zh"}
+    assert list(stream._conversation_history) == history
+    assert deps.camera_enabled is False and config.MEMORY_ENABLED is False

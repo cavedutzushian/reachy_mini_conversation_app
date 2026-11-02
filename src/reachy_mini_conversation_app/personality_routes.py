@@ -265,7 +265,7 @@ class PersonalityOps:
 
         if selected_name == self._current_choice() and not force:
             _persist_if_requested()
-            return {"ok": True, "status": "Personality unchanged.", "startup": persisted_choice}
+            return {"ok": True, "status": "人格未變更。", "startup": persisted_choice}
 
         async def _apply() -> str:
             profile = None if selected_name == DEFAULT_PROFILE_NAME else selected_name

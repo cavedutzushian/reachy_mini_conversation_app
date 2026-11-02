@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark light" />
-    <title>Reachy Mini · Conversation</title>
+    <title>Reachy Mini · 對話</title>
     <link rel="stylesheet" href="/static/style.css" />
     <script type="module" src="/static/js/main.js"></script>
   </head>
@@ -15,15 +15,15 @@
           type="button"
           class="app-shell__icon-btn app-shell__back"
           data-action="go-back"
-          aria-label="Back to home"
-          title="Back"
+          aria-label="返回首頁"
+          title="返回"
           hidden
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M15 18l-6-6 6-6"/>
           </svg>
         </button>
-        <a href="#/" class="app-shell__brand" data-action="go-home" aria-label="Reachy Mini home">
+        <a href="#/" class="app-shell__brand" data-action="go-home" aria-label="Reachy Mini 首頁">
           <span class="app-shell__brand-mark" aria-hidden="true">
             <img src="/static/avatars/default.svg" alt="" draggable="false" />
           </span>
@@ -35,14 +35,14 @@
           href="#/tools"
           class="app-shell__icon-btn app-shell__tools"
           data-action="open-tools"
-          aria-label="Open tools"
+          aria-label="開啟工具"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 6V4h6v2"/>
             <rect x="3" y="6" width="18" height="14" rx="2"/>
             <path d="M3 11h18M9 11v2h6v-2"/>
           </svg>
-          <span>Tools</span>
+          <span>工具</span>
         </a>
         <button
           type="button"
@@ -50,8 +50,8 @@
           data-component="conversation-toggle"
           aria-controls="talk-log"
           aria-expanded="false"
-          aria-label="Show conversation"
-          title="Conversation"
+          aria-label="顯示對話"
+          title="對話"
           hidden
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -62,8 +62,8 @@
           type="button"
           class="app-shell__icon-btn app-shell__gear"
           data-action="open-settings"
-          aria-label="Open settings"
-          title="Settings"
+          aria-label="開啟設定"
+          title="設定"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"/>
@@ -78,13 +78,13 @@
         class="app-shell__personality"
         data-component="personality-badge"
         data-action="open-personalities"
-        aria-label="Change personality"
+        aria-label="切換人格"
       >
         <span class="app-shell__personality-avatar" aria-hidden="true">
           <img src="/static/avatars/default.svg" alt="" draggable="false" />
         </span>
         <span class="app-shell__personality-text">
-          <span class="app-shell__personality-label">Personality</span>
+          <span class="app-shell__personality-label">人格</span>
           <span class="app-shell__personality-name" aria-live="polite"></span>
         </span>
       </button>
@@ -94,7 +94,7 @@
         data-component="default-personality-action"
         hidden
       >
-        Set as default
+        設為預設
       </button>
       <div class="language-picker" data-component="language-picker" hidden></div>
     </div>

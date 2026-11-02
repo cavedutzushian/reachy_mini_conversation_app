@@ -44,7 +44,7 @@ def _known_profile_names() -> list[str]:
 def _validated_profile(profile: str | None, known_profile_names: list[str]) -> str:
     profile_name = canonical_profile_name(profile)
     if profile_name not in known_profile_names:
-        raise ValueError(f"Unknown personality: {profile_name}")
+        raise ValueError(f"未知的人格：{profile_name}")
     return profile_name
 
 
@@ -120,7 +120,7 @@ def register_profile_tool_methods(
 
     async def _save_profile_tools(params: dict[str, Any]) -> dict[str, object]:
         if LOCKED_PROFILE is not None:
-            raise_tool_settings_error("profile_locked", "Personality tool editing is locked.")
+            raise_tool_settings_error("profile_locked", "人格工具編輯已鎖定。")
         requested_profile = _profile_param(params, required=True)
         requested_tools = params.get("enabled_tools")
         if not isinstance(requested_tools, list) or not all(
@@ -146,7 +146,7 @@ def register_profile_tool_methods(
         if unknown_tools:
             raise_tool_settings_error(
                 "invalid_tool_selection",
-                f"Unknown tools for '{profile_name}': {', '.join(unknown_tools)}",
+                f"人格 '{profile_name}' 含未知工具：{', '.join(unknown_tools)}",
             )
         try:
             await asyncio.to_thread(write_profile_tool_override, profile_name, enabled_tools, instance_path)
@@ -160,7 +160,7 @@ def register_profile_tool_methods(
                     "profile_tools_changed",
                 )
                 if is_active
-                else "The tools will apply next time this personality is selected."
+                else "下次選取此人格時將套用工具設定。"
             )
         except Exception as exc:
             logger.exception("Failed to save profile tools for %r", requested_profile)
@@ -173,12 +173,12 @@ def register_profile_tool_methods(
             enabled_tools,
             overridden=True,
         )
-        response["message"] = f"Saved tools for {profile_name}. {apply_detail}"
+        response["message"] = f"已儲存 {profile_name} 的工具。{apply_detail}"
         return response
 
     async def _reset_profile_tools(params: dict[str, Any]) -> dict[str, object]:
         if LOCKED_PROFILE is not None:
-            raise_tool_settings_error("profile_locked", "Personality tool editing is locked.")
+            raise_tool_settings_error("profile_locked", "人格工具編輯已鎖定。")
         requested_profile = _profile_param(params, required=True)
         try:
             known_profile_names = await asyncio.to_thread(_known_profile_names)
@@ -196,7 +196,7 @@ def register_profile_tool_methods(
                     "profile_tools_changed",
                 )
                 if cleared and is_active
-                else "The tools will apply next time this personality is selected."
+                else "下次選取此人格時將套用工具設定。"
             )
         except ValueError as exc:
             raise_tool_settings_error("unknown_profile", str(exc))
@@ -211,7 +211,7 @@ def register_profile_tool_methods(
             default_tools,
             overridden=False,
         )
-        response["message"] = f"Restored profile defaults for {profile_name}. {apply_detail}"
+        response["message"] = f"已還原 {profile_name} 的人格預設值。{apply_detail}"
         return response
 
     rpc.register("profile_tools.get", _get_profile_tools)

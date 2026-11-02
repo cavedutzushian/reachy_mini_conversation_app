@@ -20,7 +20,7 @@ def _str_param(params: dict[str, Any], name: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip():
-        raise JsonRpcError(f"{name} must be a non-empty string", reason="invalid_params", code=-32602)
+        raise JsonRpcError(f"{name} 必須為非空字串", reason="invalid_params", code=-32602)
     return value.strip()
 
 
@@ -59,7 +59,7 @@ def register_memory_methods(
         fact_id = _str_param(params, "id")
         query = _str_param(params, "query")
         if fact_id is None and query is None:
-            raise JsonRpcError("forget requires 'id' or 'query'", reason="invalid_params", code=-32602)
+            raise JsonRpcError("forget 需要 'id' 或 'query'", reason="invalid_params", code=-32602)
         try:
             result = await asyncio.to_thread(
                 forget_memory_fact,
@@ -88,7 +88,7 @@ def register_memory_methods(
     async def _set_enabled(params: dict[str, Any]) -> dict[str, object]:
         enabled = params.get("enabled")
         if not isinstance(enabled, bool):
-            raise JsonRpcError("enabled must be a boolean", reason="invalid_params", code=-32602)
+            raise JsonRpcError("enabled 必須為布林值", reason="invalid_params", code=-32602)
         set_enabled(enabled)
         return {"enabled": config.MEMORY_ENABLED, "applied_live": await _refresh()}
 

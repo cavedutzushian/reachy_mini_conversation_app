@@ -33,9 +33,9 @@ def register_vision_methods(
     def _set(params: dict[str, Any]) -> dict[str, object]:
         enabled = params.get("enabled")
         if not isinstance(enabled, bool):
-            raise JsonRpcError("enabled must be a boolean", reason="invalid_params", code=-32602)
+            raise JsonRpcError("enabled 必須為布林值", reason="invalid_params", code=-32602)
         if enabled and forced_off:
-            raise JsonRpcError("the camera was disabled with --no-camera", reason="camera_forced_off")
+            raise JsonRpcError("相機已透過 --no-camera 停用", reason="camera_forced_off")
         persist(enabled)
         deps.camera_enabled = enabled
         logger.info("Camera tool %s over /rpc", "enabled" if enabled else "disabled")

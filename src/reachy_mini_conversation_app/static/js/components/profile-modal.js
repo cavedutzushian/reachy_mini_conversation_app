@@ -101,12 +101,12 @@ export function openProfileModal({ mode = "create", initial = {}, signal } = {})
       const greeting = String(formData.get("greeting") || "").trim();
 
       if (!isEdit) {
-        if (!name) return showError(errorBox, "Please pick a name.");
+        if (!name) return showError(errorBox, "請輸入名稱。");
         if (!NAME_PATTERN.test(name)) {
-          return showError(errorBox, "Use only letters, numbers, dashes or underscores.");
+          return showError(errorBox, "名稱只能包含英文字母、數字、連字號或底線。");
         }
       }
-      if (!instructions) return showError(errorBox, "Please write some instructions.");
+      if (!instructions) return showError(errorBox, "請填寫人格指示。");
 
       close({ name, instructions, greeting });
     });
@@ -135,12 +135,12 @@ function buildDialog({ isEdit, initial }) {
       h(
         "h2",
         { id: "custom-profile-title", class: "modal__title" },
-        isEdit ? `Edit ${prettifyProfileName(initial.name || "personality")}` : "Create a custom personality"
+        isEdit ? `編輯 ${prettifyProfileName(initial.name || "personality")}` : "建立自訂人格"
       ),
       h(
         "p",
         { class: "modal__subtitle" },
-        "Define how Reachy should behave and greet people."
+        "設定 Reachy 的行為與問候方式。"
       )
     ),
     h(
@@ -149,7 +149,7 @@ function buildDialog({ isEdit, initial }) {
       h(
         "label",
         { class: "modal__field" },
-        h("span", { class: "modal__label" }, "Name"),
+        h("span", { class: "modal__label" }, "名稱"),
         h("input", {
           type: "text",
           name: "name",
@@ -157,7 +157,7 @@ function buildDialog({ isEdit, initial }) {
           readonly: isEdit ? "readonly" : null,
           autocomplete: "off",
           spellcheck: "false",
-          placeholder: "e.g. zen_master",
+          placeholder: "例如 zen_master",
           pattern: "[a-zA-Z0-9_-]+",
           value: isEdit ? initial.name || "" : null,
           class: ["modal__input", isEdit && "is-readonly"],
@@ -166,7 +166,7 @@ function buildDialog({ isEdit, initial }) {
       h(
         "label",
         { class: "modal__field" },
-        h("span", { class: "modal__label" }, "Instructions"),
+        h("span", { class: "modal__label" }, "人格指示"),
         h(
           "textarea",
           {
@@ -174,7 +174,7 @@ function buildDialog({ isEdit, initial }) {
             required: "required",
             rows: "8",
             placeholder:
-              "You are a calm, slow-speaking zen guide. Pause between sentences. Encourage the user to breathe.",
+              "你是一位平靜、語速緩慢的禪修引導者。句子之間停頓，鼓勵使用者調整呼吸。",
             class: "modal__textarea",
           },
           initial.instructions || ""
@@ -183,13 +183,13 @@ function buildDialog({ isEdit, initial }) {
       h(
         "label",
         { class: "modal__field" },
-        h("span", { class: "modal__label" }, "Startup greeting prompt"),
+        h("span", { class: "modal__label" }, "開場問候提示"),
         h(
           "textarea",
           {
             name: "greeting",
             rows: "3",
-            placeholder: "Start the conversation with a short greeting in character.",
+            placeholder: "以符合人格的簡短問候開始對話。",
             class: "modal__textarea",
           },
           initial.greeting || ""
@@ -199,8 +199,8 @@ function buildDialog({ isEdit, initial }) {
       h(
         "div",
         { class: "modal__actions" },
-        h("button", { type: "button", class: "btn btn--ghost", "data-action": "cancel" }, "Cancel"),
-        h("button", { type: "submit", class: "btn btn--primary" }, isEdit ? "Save changes" : "Create & start")
+        h("button", { type: "button", class: "btn btn--ghost", "data-action": "cancel" }, "取消"),
+        h("button", { type: "submit", class: "btn btn--primary" }, isEdit ? "儲存變更" : "建立並開始")
       )
     )
   );

@@ -565,7 +565,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         """Select a personality and retire the previous Gemini context."""
         set_custom_profile(profile)
         await self.interrupt()
-        return "Personality selected; starting a fresh conversation."
+        return "人格已選取，正在開始新對話。"
 
     async def refresh_instructions(self) -> bool:
         """Retire Gemini context so changed saved memories enter the next setup."""
@@ -578,7 +578,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             raise ValueError("invalid_gemini_voice")
         config.GEMINI_VOICE_OVERRIDE = voice
         await self.interrupt()
-        return "Voice selected; starting a fresh conversation."
+        return "聲音已選取，正在開始新對話。"
 
     async def _close_socket(self) -> None:
         connection, self.connection = self.connection, None

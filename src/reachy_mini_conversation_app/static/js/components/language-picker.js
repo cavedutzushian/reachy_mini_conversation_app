@@ -6,7 +6,7 @@
 import { describeError, getLanguage, setLanguage } from "../api.js";
 import { h, prettifyProfileName } from "../ui.js";
 
-const AUTO_CHOICE = Object.freeze({ code: "auto", name: "Auto-detect", native_name: "Auto-detect", flag: "🌐" });
+const AUTO_CHOICE = Object.freeze({ code: "auto", name: "自動判斷", native_name: "自動判斷", flag: "🌐" });
 
 const VIEWPORT_GUTTER_PX = 16;
 
@@ -51,18 +51,18 @@ export function createLanguagePicker({ root, signal, onStatus }) {
   const scopeFieldset = h(
     "fieldset",
     { class: "language-picker__scope" },
-    h("legend", {}, "Save for"),
+    h("legend", {}, "儲存範圍"),
     h(
       "div",
       { class: "language-picker__scope-options" },
-      h("label", { class: "language-picker__scope-option" }, scopeInputs.profile, h("span", {}, "This personality")),
-      h("label", { class: "language-picker__scope-option" }, scopeInputs.all, h("span", {}, "All personalities"))
+      h("label", { class: "language-picker__scope-option" }, scopeInputs.profile, h("span", {}, "此人格")),
+      h("label", { class: "language-picker__scope-option" }, scopeInputs.all, h("span", {}, "所有人格"))
     )
   );
-  const optionsEl = h("div", { class: "language-picker__options", role: "group", "aria-label": "Language" });
+  const optionsEl = h("div", { class: "language-picker__options", role: "group", "aria-label": "語言" });
   const menu = h(
     "div",
-    { class: "language-picker__menu", role: "dialog", "aria-label": "Conversation language", hidden: true },
+    { class: "language-picker__menu", role: "dialog", "aria-label": "對話語言", hidden: true },
     scopeFieldset,
     optionsEl
   );
@@ -98,6 +98,7 @@ export function createLanguagePicker({ root, signal, onStatus }) {
   function choiceFor(code) {
     if (code === AUTO_CHOICE.code) return AUTO_CHOICE;
     const choice = state.choices.find((candidate) => candidate.code === code);
+    if (choice?.code === "zh") return { ...choice, name: "中文（繁體優先）", native_name: "中文（繁體優先）" };
     return choice || { code, name: code.toUpperCase(), native_name: code.toUpperCase(), flag: "" };
   }
 
@@ -108,17 +109,17 @@ export function createLanguagePicker({ root, signal, onStatus }) {
     nameEl.textContent = current.native_name;
     trigger.setAttribute(
       "aria-label",
-      `Conversation language: ${current.name}, saved for ${state.profile_language ? profileName : "all personalities"}`
+      `對話語言：${current.name}，儲存對象：${state.profile_language ? profileName : "所有人格"}`
     );
-    trigger.title = state.profile_language ? `Saved for ${profileName} only` : "Saved for all personalities";
+    trigger.title = state.profile_language ? `僅為 ${profileName} 儲存` : "已儲存供所有人格使用";
 
     scope = savedScope();
-    scopeInputs.profile.parentElement.title = `Only ${profileName}`;
+    scopeInputs.profile.parentElement.title = `僅限 ${profileName}`;
     scopeInputs.profile.checked = scope === "profile";
     scopeInputs.all.checked = scope === "all";
 
     optionsEl.replaceChildren(
-      ...[AUTO_CHOICE, ...state.choices].map((choice) =>
+      ...[AUTO_CHOICE, ...state.choices.map((choice) => choiceFor(choice.code))].map((choice) =>
         h(
           "button",
           {
@@ -149,7 +150,7 @@ export function createLanguagePicker({ root, signal, onStatus }) {
       setOpen(false);
       onStatus?.(state.message);
     } catch (error) {
-      if (!signal.aborted) onStatus?.(`Failed to change the language: ${describeError(error)}`);
+      if (!signal.aborted) onStatus?.(`無法變更語言：${describeError(error)}`);
     } finally {
       busy = false;
       if (!signal.aborted) render();

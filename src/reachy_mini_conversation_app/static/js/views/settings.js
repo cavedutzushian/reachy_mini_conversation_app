@@ -22,22 +22,22 @@ const HF_CONNECTION_MODES = Object.freeze({
 const DEFAULT_HF_HOST = "localhost";
 const DEFAULT_HF_PORT = 8765;
 const BACKEND_ERRORS = Object.freeze({
-  missing_gemini_key: "Set GEMINI_API_KEY in the private app .env, then restart the app.",
-  invalid_gemini_voice: "Choose a supported Gemini voice in Connection settings.",
-  invalid_gemini_model: "Choose a Live model available to your Gemini Developer API account.",
-  authentication_failed: "Correct the selected service credentials, restart the app, then Retry.",
-  access_unavailable: "Check model access and service eligibility for the selected account.",
-  quota_exceeded: "Check billing and available quota before retrying.",
-  tool_schema_unsupported: "An enabled tool has an unsupported definition. Update its schema or disable it.",
-  connection_lost: "Connection lost. Retrying the selected service automatically.",
-  setup_timeout: "Connection setup timed out. Retrying automatically.",
-  send_timeout: "Audio or message delivery timed out. Reconnecting automatically.",
-  resume_unavailable: "The previous conversation cannot resume. Starting fresh.",
+  missing_gemini_key: "請在私密的應用程式 .env 設定 GEMINI_API_KEY，再重新啟動應用程式。",
+  invalid_gemini_voice: "請在連線設定選擇支援的 Gemini 聲音。",
+  invalid_gemini_model: "請選擇 Gemini Developer API 帳號可使用的 Live 模型。",
+  authentication_failed: "請修正所選服務的憑證，重新啟動應用程式後再重試。",
+  access_unavailable: "請確認所選帳號的模型存取權與服務使用資格。",
+  quota_exceeded: "重試前請確認計費設定與可用額度。",
+  tool_schema_unsupported: "已啟用的工具含有不支援的定義。請更新其結構描述或停用該工具。",
+  connection_lost: "連線中斷，正在自動重試所選服務。",
+  setup_timeout: "連線建立逾時，正在自動重試。",
+  send_timeout: "音訊或訊息傳送逾時，正在自動重新連線。",
+  resume_unavailable: "無法續接先前對話，正在開始新對話。",
 });
 
 const HF_MODE_HINTS = Object.freeze({
-  [HF_CONNECTION_MODES.DEPLOYED]: "Uses the hosted Hugging Face backend. No API key required.",
-  [HF_CONNECTION_MODES.LOCAL]: "Connects directly to the host and port below.",
+  [HF_CONNECTION_MODES.DEPLOYED]: "使用託管的 Hugging Face 後端，無須 API 金鑰。",
+  [HF_CONNECTION_MODES.LOCAL]: "直接連接下方的主機與連接埠。",
 });
 
 export async function mountSettingsView({ outlet, signal }) {
@@ -59,8 +59,8 @@ export async function mountSettingsView({ outlet, signal }) {
     h(
       "header",
       { class: "view-header" },
-      h("h1", { class: "view-title" }, "Settings"),
-      h("p", { class: "view-subtitle" }, "Connection, voice, speech behavior, and runtime state for Reachy Mini.")
+      h("h1", { class: "view-title" }, "設定"),
+      h("p", { class: "view-subtitle" }, "設定 Reachy Mini 的連線、聲音、語音行為與執行狀態。")
     ),
     connectionSection.element,
     voiceSection.element,
@@ -90,14 +90,14 @@ function buildConnectionSection({ onSaved } = {}) {
   const geminiVoice = h("select", { class: "settings-select", name: "gemini_voice" },
     ...["Aoede", "Charon", "Fenrir", "Kore", "Puck"].map(voice => h("option", { value: voice }, voice)));
   const geminiFields = h("div", { class: "settings-form" },
-    h("label", { class: "settings-field" }, "Model", modelInput),
-    h("label", { class: "settings-field" }, "Gemini voice", geminiVoice),
-    h("p", { class: "settings-hint" }, "Set GEMINI_API_KEY in the private app .env and enable Gemini Developer API access. Charges may apply. Audio, requested camera snapshots, and enabled shared saved memories are sent to the selected service. Switching starts a fresh conversation; saved memories remain shared."));
+    h("label", { class: "settings-field" }, "模型", modelInput),
+    h("label", { class: "settings-field" }, "Gemini 聲音", geminiVoice),
+    h("p", { class: "settings-hint" }, "請在私密的應用程式 .env 設定 GEMINI_API_KEY，並啟用 Gemini Developer API 存取權；服務可能收費。音訊、依請求拍攝的照片及已啟用的共用記憶會傳送至所選服務。切換後會開始新對話，已儲存的記憶仍共用。"));
   const hfModeSelect = h(
     "select",
     { class: "settings-select", name: "hf_mode" },
-    h("option", { value: HF_CONNECTION_MODES.DEPLOYED }, "Hosted"),
-    h("option", { value: HF_CONNECTION_MODES.LOCAL }, "Local")
+    h("option", { value: HF_CONNECTION_MODES.DEPLOYED }, "託管"),
+    h("option", { value: HF_CONNECTION_MODES.LOCAL }, "本機")
   );
   const hfHostInput = h("input", {
     type: "text",
@@ -123,29 +123,29 @@ function buildConnectionSection({ onSaved } = {}) {
     h(
       "label",
       { class: "settings-field" },
-      h("span", { class: "settings-label" }, "Host/IP"),
+      h("span", { class: "settings-label" }, "主機／IP"),
       hfHostInput
     ),
     h(
       "label",
       { class: "settings-field" },
-      h("span", { class: "settings-label" }, "Port"),
+      h("span", { class: "settings-label" }, "連接埠"),
       hfPortInput
     )
   );
   const hint = h("p", { class: "settings-hint" }, "");
   const status = h("p", { class: "settings-status", role: "status", "aria-live": "polite" });
-  const submitButton = h("button", { type: "submit", class: "btn btn--primary" }, "Save connection");
+  const submitButton = h("button", { type: "submit", class: "btn btn--primary" }, "儲存連線");
 
   const form = h(
     "form",
     { class: "settings-form" },
-    h("label", { class: "settings-field" }, "Conversation provider", providerSelect),
+    h("label", { class: "settings-field" }, "對話服務供應商", providerSelect),
     geminiFields,
     h(
       "label",
       { class: "settings-field" },
-      h("span", { class: "settings-label" }, "Hugging Face connection"),
+      h("span", { class: "settings-label" }, "Hugging Face 連線"),
       hfModeSelect
     ),
     hfLocalFields,
@@ -157,7 +157,7 @@ function buildConnectionSection({ onSaved } = {}) {
   const element = h(
     "section",
     { class: "settings-section" },
-    h("h2", { class: "settings-section-title" }, "Connection"),
+    h("h2", { class: "settings-section-title" }, "連線"),
     form
   );
 
@@ -171,7 +171,7 @@ function buildConnectionSection({ onSaved } = {}) {
     hfPortInput.disabled = !isLocal;
     hfHostInput.required = isLocal;
     hfPortInput.required = isLocal;
-    hint.textContent = isGemini ? "Use Retry after correcting private environment configuration and restarting the app." : HF_MODE_HINTS[hfModeSelect.value] || "";
+    hint.textContent = isGemini ? "修正私密環境設定並重新啟動應用程式後，請按重試。" : HF_MODE_HINTS[hfModeSelect.value] || "";
   }
 
   providerSelect.addEventListener("change", syncLocalFields);
@@ -186,7 +186,7 @@ function buildConnectionSection({ onSaved } = {}) {
     hfPortInput.disabled = true;
     form.setAttribute("aria-busy", "true");
     status.classList.remove("is-error");
-    status.textContent = "Saving…";
+    status.textContent = "儲存中…";
     try {
       const isGemini = providerSelect.value === "gemini";
       const payload = isGemini
@@ -200,10 +200,10 @@ function buildConnectionSection({ onSaved } = {}) {
       }
       const result = await saveBackendConfig(payload);
       status.textContent =
-        result?.message || (result?.requires_restart ? "Saved. Restart the app to apply." : "Saved.");
+        result?.message || (result?.requires_restart ? "已儲存，請重新啟動應用程式以套用。" : "已儲存。");
       await onSaved?.();
     } catch (error) {
-      status.textContent = `Failed to save: ${describeError(error)}`;
+      status.textContent = `儲存失敗：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       submitButton.disabled = false;
@@ -239,18 +239,18 @@ function buildVoiceSection() {
   const select = h(
     "select",
     { class: "settings-select", name: "voice", disabled: "disabled" },
-    h("option", { value: "" }, "Loading voices…")
+    h("option", { value: "" }, "正在載入聲音…")
   );
   const status = h("p", { class: "settings-status", role: "status", "aria-live": "polite" });
   const submitButton = h(
     "button",
     { type: "submit", class: "btn btn--primary", disabled: "disabled" },
-    "Apply voice"
+    "套用聲音"
   );
   const form = h(
     "form",
     { class: "settings-form" },
-    h("label", { class: "settings-field" }, h("span", { class: "settings-label" }, "Voice"), select),
+    h("label", { class: "settings-field" }, h("span", { class: "settings-label" }, "聲音"), select),
     h("div", { class: "settings-actions" }, submitButton),
     status
   );
@@ -258,7 +258,7 @@ function buildVoiceSection() {
   const element = h(
     "section",
     { class: "settings-section" },
-    h("h2", { class: "settings-section-title" }, "Voice"),
+    h("h2", { class: "settings-section-title" }, "聲音"),
     form
   );
 
@@ -269,12 +269,12 @@ function buildVoiceSection() {
     select.disabled = true;
     form.setAttribute("aria-busy", "true");
     status.classList.remove("is-error");
-    status.textContent = "Applying…";
+    status.textContent = "套用中…";
     try {
       const result = await applyVoice(select.value);
-      status.textContent = result?.status || "Voice applied.";
+      status.textContent = result?.status || "聲音已套用。";
     } catch (error) {
-      status.textContent = `Failed to apply: ${describeError(error)}`;
+      status.textContent = `套用失敗：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       submitButton.disabled = !select.value;
@@ -288,10 +288,10 @@ function buildVoiceSection() {
     setOptions(voices, current) {
       select.replaceChildren();
       if (!voices.length) {
-        select.appendChild(h("option", { value: "" }, "No voices available"));
+        select.appendChild(h("option", { value: "" }, "沒有可用的聲音"));
         select.disabled = true;
         submitButton.disabled = true;
-        status.textContent = "Voices are unavailable right now.";
+        status.textContent = "目前無法取得聲音列表。";
         return;
       }
       for (const v of voices) {
@@ -310,18 +310,18 @@ function buildSpeechSection() {
   const localVad = h("input", { type: "checkbox", name: "local_vad_enabled", disabled: "disabled" });
   const localBargeIn = h("input", { type: "checkbox", name: "local_barge_in_enabled", disabled: "disabled" });
   const status = h("p", { class: "settings-status", role: "status", "aria-live": "polite" });
-  const submitButton = h("button", { type: "submit", class: "btn btn--primary", disabled: "disabled" }, "Save speech settings");
+  const submitButton = h("button", { type: "submit", class: "btn btn--primary", disabled: "disabled" }, "儲存語音設定");
   const form = h("form", { class: "settings-form" },
     h("label", { class: "settings-toggle" }, localVad,
-      h("span", {}, h("strong", {}, "Local speech detection"),
-        h("span", { class: "settings-hint" }, "Detect speech on the robot to pause antenna and idle movement sooner."))),
+      h("span", {}, h("strong", {}, "本機語音偵測"),
+        h("span", { class: "settings-hint" }, "在機器人端偵測語音，以更快暫停天線與待機動作。"))),
     h("label", { class: "settings-toggle" }, localBargeIn,
-      h("span", {}, h("strong", {}, "Local barge-in"),
-        h("span", { class: "settings-hint" }, "Stop the robot's speech sooner when you speak. Requires local speech detection."))),
-    h("p", { class: "settings-hint" }, "Changes are saved and reconnect the conversation to apply."),
+      h("span", {}, h("strong", {}, "本機插話"),
+        h("span", { class: "settings-hint" }, "你說話時更快停止機器人的語音。需要啟用本機語音偵測。"))),
+    h("p", { class: "settings-hint" }, "儲存變更後會重新連接對話以套用。"),
     h("div", { class: "settings-actions" }, submitButton), status);
   const element = h("section", { class: "settings-section" },
-    h("h2", { class: "settings-section-title" }, "Speech behavior"), form);
+    h("h2", { class: "settings-section-title" }, "語音行為"), form);
 
   localVad.addEventListener("change", () => { localBargeIn.disabled = !localVad.checked; });
 
@@ -333,14 +333,14 @@ function buildSpeechSection() {
     localBargeIn.disabled = true;
     form.setAttribute("aria-busy", "true");
     status.classList.remove("is-error");
-    status.textContent = "Saving…";
+    status.textContent = "儲存中…";
     try {
       const result = await saveSpeechConfig({ local_vad_enabled: localVad.checked, local_barge_in_enabled: localBargeIn.checked });
       localVad.checked = result.local_vad_enabled;
       localBargeIn.checked = result.local_barge_in_enabled;
-      status.textContent = result.message || "Saved.";
+      status.textContent = result.message || "已儲存。";
     } catch (error) {
-      status.textContent = `Failed to save: ${describeError(error)}`;
+      status.textContent = `儲存失敗：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       submitButton.disabled = false;
@@ -371,7 +371,7 @@ function buildDeveloperSection() {
   return h(
     "details",
     { class: "settings-section settings-developer" },
-    h("summary", { class: "settings-section-title" }, "Developer options"),
+    h("summary", { class: "settings-section-title" }, "開發者選項"),
     h(
       "div",
       { class: "settings-form" },
@@ -382,8 +382,8 @@ function buildDeveloperSection() {
         h(
           "span",
           {},
-          h("strong", {}, "Show response latencies"),
-          h("span", { class: "settings-hint" }, "Adds the backend's timing breakdown under each reply in the conversation panel.")
+          h("strong", {}, "顯示回覆延遲"),
+          h("span", { class: "settings-hint" }, "在對話面板的各則回覆下顯示後端各階段耗時。")
         )
       )
     )
@@ -391,7 +391,7 @@ function buildDeveloperSection() {
 }
 
 function buildStatusSection() {
-  const retry = h("button", { type: "button", class: "btn" }, "Retry connection");
+  const retry = h("button", { type: "button", class: "btn" }, "重試連線");
   retry.addEventListener("click", async () => {
     retry.disabled = true;
     try { await retryBackend(); }
@@ -400,12 +400,12 @@ function buildStatusSection() {
   const list = h(
     "dl",
     { class: "settings-status-grid" },
-    statusRow("Backend", "Loading…")
+    statusRow("後端", "載入中…")
   );
   const element = h(
     "section",
     { class: "settings-section" },
-    h("h2", { class: "settings-section-title" }, "Current state"),
+    h("h2", { class: "settings-section-title" }, "目前狀態"),
     list,
     retry
   );
@@ -414,10 +414,10 @@ function buildStatusSection() {
     element,
     render(payload) {
       list.replaceChildren();
-      list.appendChild(statusRow("Provider", payload.backend === "gemini" ? "Gemini" : "Hugging Face"));
-      list.appendChild(statusRow("Conversation context", payload.backend_context_state === "resumed" ? "Resumed" : "Fresh conversation"));
+      list.appendChild(statusRow("供應商", payload.backend === "gemini" ? "Gemini" : "Hugging Face"));
+      list.appendChild(statusRow("對話上下文", payload.backend_context_state === "resumed" ? "已續接" : "新對話"));
       if (payload.backend_retry_delay_seconds != null) {
-        list.appendChild(statusRow("Recovery", `Automatic retry ${payload.backend_retry_attempt} in ${payload.backend_retry_delay_seconds}s`));
+        list.appendChild(statusRow("恢復狀態", `${payload.backend_retry_delay_seconds} 秒後進行第 ${payload.backend_retry_attempt} 次自動重試`));
       }
       if (payload.backend === "huggingface") {
       list.appendChild(statusRow("HF connection", formatHfMode(payload.hf_connection_mode)));
@@ -427,8 +427,8 @@ function buildStatusSection() {
       }
       list.appendChild(
         statusRow(
-          "Configuration",
-          payload.can_proceed ? "Ready" : "Missing",
+          "設定",
+          payload.can_proceed ? "就緒" : "尚未設定",
           payload.can_proceed ? "ok" : "warn"
         )
       );
@@ -436,29 +436,29 @@ function buildStatusSection() {
         ? "connected"
         : payload.backend_connection_state || "not_started";
       const backendLabels = {
-        connected: "Connected",
-        connecting: "Connecting…",
-        disconnected: "Disconnected",
-        not_started: "Not started",
-        restart_required: "Restart required",
-        waiting_for_config: "Waiting for configuration",
+        connected: "已連線",
+        connecting: "連線中…",
+        disconnected: "已斷線",
+        not_started: "尚未啟動",
+        restart_required: "需要重新啟動",
+        waiting_for_config: "等待設定",
       };
       list.appendChild(
         statusRow(
-          "Backend",
-          backendLabels[backendState] || "Unavailable",
+          "後端",
+          backendLabels[backendState] || "無法使用",
           backendState === "connected" ? "ok" : backendState === "not_started" ? undefined : "warn"
         )
       );
       if (payload.backend_error) {
-        list.appendChild(statusRow("Backend error", BACKEND_ERRORS[payload.backend_error_reason] || payload.backend_error, "warn"));
+        list.appendChild(statusRow("後端錯誤", BACKEND_ERRORS[payload.backend_error_reason] || payload.backend_error, "warn"));
       }
       if (payload.requires_restart) {
-        list.appendChild(statusRow("Restart", "Required to apply changes", "warn"));
+        list.appendChild(statusRow("重新啟動", "需要重新啟動以套用變更", "warn"));
       }
     },
     renderUnavailable(error) {
-      list.replaceChildren(statusRow("Backend", `Unavailable: ${describeError(error)}`, "warn"));
+      list.replaceChildren(statusRow("後端", `無法使用：${describeError(error)}`, "warn"));
     },
   };
 }
@@ -473,8 +473,8 @@ function statusRow(label, value, tone) {
 }
 
 function formatHfMode(mode) {
-  if (mode === HF_CONNECTION_MODES.LOCAL) return "Local";
-  if (mode === HF_CONNECTION_MODES.DEPLOYED) return "Hosted";
+  if (mode === HF_CONNECTION_MODES.LOCAL) return "本機";
+  if (mode === HF_CONNECTION_MODES.DEPLOYED) return "託管";
   return "-";
 }
 

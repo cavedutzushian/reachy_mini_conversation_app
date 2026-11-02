@@ -14,6 +14,7 @@ import reachy_mini_conversation_app.gemini_realtime as gemini
 import reachy_mini_conversation_app.huggingface_realtime as realtime
 from reachy_mini_conversation_app.tools import core_tools
 from reachy_mini_conversation_app.config import config
+from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, RealtimeSessionState
@@ -58,6 +59,71 @@ class FakeConnect:
     async def __aexit__(self, *_args: object) -> None:
         """Leave the fake connection context."""
         return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language, language_name", [("zh", "Chinese"), ("auto", None), ("fr", "French")])
+async def test_language_policy_reaches_gemini_replacement_setup(
+    monkeypatch: pytest.MonkeyPatch, language: str, language_name: str | None
+) -> None:
+    """Replacement connections rebuild the shared policy without changing voice or model."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "GEMINI_VOICE_OVERRIDE", "Kore")
+    monkeypatch.setattr(config, "LOCAL_VAD_ENABLED", False)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", language)
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    setups = []
+    for _ in range(2):
+        socket = FakeConnection([{"setupComplete": {}}])
+        monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(socket))
+        handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+        try:
+            with pytest.raises(ConnectionError, match="simulated"):
+                await handler.start_up()
+            setup = socket.sent[0]["setup"]
+            instructions = setup["systemInstruction"]["parts"][0]["text"]
+            assert instructions == get_session_instructions()
+            assert "When replying in Chinese, prefer Traditional Chinese" in instructions
+            assert "Speak only" not in instructions
+            if language_name is None:
+                assert "Default to " not in instructions
+            else:
+                assert f"Default to {language_name}" in instructions
+            assert "zh-TW" not in json.dumps(setup) and "zh-Hant" not in json.dumps(setup)
+            setups.append(setup)
+        finally:
+            await handler.shutdown()
+    assert setups[0] == setups[1]
+
+
+@pytest.mark.asyncio
+async def test_gemini_explicit_language_exceptions_keep_raw_transcripts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Service text stays raw across turns without automatic regeneration or tool replay."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", False)
+    monkeypatch.setattr(config, "PROFILE_LANGUAGES", {})
+    monkeypatch.setattr(config, "REALTIME_TRANSCRIPTION_LANGUAGE", "zh")
+    instructions = get_session_instructions()
+    assert "explicit request" in instructions and "this response only" in instructions
+    assert "Simplified Chinese" in instructions and "code, URLs, paths, identifiers" in instructions
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    handler.connection = socket
+    observed: list[tuple[str, str, bool]] = []
+    handler.set_transcript_observer(lambda role, value, final: observed.append((role, value, final)))
+    start_tool = AsyncMock()
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start_tool)
+    text = '简体原文 https://example.test/?q=简体 `print("x")` C:\\测试 badge-01'
+    for answer in (text, "下一回合继续正常。"):
+        await handler._handle_message({"serverContent": {"outputTranscription": {"text": answer}}})
+        await handler._handle_message({"serverContent": {"turnComplete": True}})
+    assert ("assistant", text, True) in observed
+    assert ("assistant", "下一回合继续正常。", True) in observed
+    assert socket.sent == []
+    start_tool.assert_not_called()
 
 
 @pytest.mark.asyncio

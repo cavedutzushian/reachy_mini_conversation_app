@@ -37,11 +37,11 @@ export async function mountToolsView({ outlet, signal, searchParams, setLeaveGua
     h(
       "header",
       { class: "view-header" },
-      h("h1", { class: "view-title" }, "Tools"),
+      h("h1", { class: "view-title" }, "工具"),
       h(
         "p",
         { class: "view-subtitle" },
-        "Choose tool access by personality and manage Tool Spaces."
+        "設定各人格的工具權限，並管理 Tool Spaces。"
       )
     ),
     profileToolsSection.element,
@@ -65,12 +65,12 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
     placeholder: "owner/space-name",
     class: "settings-input",
   });
-  const addButton = h("button", { type: "submit", class: "btn btn--primary" }, "Add Space");
+  const addButton = h("button", { type: "submit", class: "btn btn--primary" }, "新增 Space");
   const status = h("p", { class: "settings-status", role: "status", "aria-live": "polite" });
   const list = h(
     "div",
     { class: "settings-tool-spaces", role: "list", "aria-live": "polite" },
-    h("p", { class: "settings-hint" }, "Loading installed Spaces…")
+    h("p", { class: "settings-hint" }, "正在載入已安裝的 Spaces…")
   );
   const form = h(
     "form",
@@ -80,7 +80,7 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
     h(
       "p",
       { class: "settings-hint" },
-      "Install an MCP-compatible Hugging Face Space, then choose access per personality above."
+      "安裝相容於 MCP 的 Hugging Face Space，再於上方設定各人格的使用權限。"
     ),
     status
   );
@@ -89,19 +89,19 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
     { class: "settings-section" },
     h("h2", { class: "settings-section-title" }, "Tool Spaces"),
     form,
-    h("h3", { class: "settings-list-title" }, "Installed"),
+    h("h3", { class: "settings-list-title" }, "已安裝"),
     list
   );
   let busy = false;
   let editable = true;
 
-  function setBusy(nextBusy, addLabel = "Add Space") {
+  function setBusy(nextBusy, addLabel = "新增 Space") {
     busy = nextBusy;
     form.toggleAttribute("aria-busy", nextBusy);
     list.toggleAttribute("aria-busy", nextBusy);
     slugInput.disabled = nextBusy || !editable;
     addButton.disabled = nextBusy || !editable;
-    addButton.textContent = nextBusy ? addLabel : "Add Space";
+    addButton.textContent = nextBusy ? addLabel : "新增 Space";
     list.querySelectorAll("button").forEach((button) => {
       button.disabled = nextBusy || !editable;
     });
@@ -112,49 +112,49 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
     const spaces = Array.isArray(payload?.spaces) ? payload.spaces : [];
     list.replaceChildren();
     if (!spaces.length) {
-      list.appendChild(h("p", { class: "settings-hint" }, "No Tool Spaces installed."));
+      list.appendChild(h("p", { class: "settings-hint" }, "尚未安裝 Tool Spaces。"));
       setBusy(busy);
-      if (!editable) status.textContent = "Tool Space editing is locked by the administrator.";
+      if (!editable) status.textContent = "管理員已鎖定 Tool Space 編輯。";
       return;
     }
 
     for (const space of spaces) {
       const toolCount = Number(space.tool_count) || 0;
-      const details = [`${toolCount} ${toolCount === 1 ? "tool" : "tools"}`];
-      if (space.private) details.push("Private");
+      const details = [`${toolCount} 個工具`];
+      if (space.private) details.push("私人");
       const removeButton = h(
         "button",
         {
           type: "button",
           class: "btn btn--ghost",
-          "aria-label": `Remove Tool Space ${space.slug}`,
+          "aria-label": `移除 Tool Space ${space.slug}`,
           disabled: busy || !editable ? "disabled" : null,
         },
-        "Remove"
+        "移除"
       );
       removeButton.addEventListener("click", async () => {
         if (onBeforeChange && !(await onBeforeChange())) return;
         const confirmed = await confirmDialog({
-          title: "Remove Tool Space?",
-          message: `Removing “${space.slug}” disables its tools in every personality.`,
-          confirmLabel: "Remove",
+          title: "移除 Tool Space？",
+          message: `移除「${space.slug}」後，所有人格都將停用其工具。`,
+          confirmLabel: "移除",
           danger: true,
           signal,
         });
         if (!confirmed || signal?.aborted) return;
 
         status.classList.remove("is-error");
-        status.textContent = `Removing “${space.slug}”…`;
+        status.textContent = `正在移除「${space.slug}」…`;
         setBusy(true);
         try {
           const result = await removeToolSpace(space.slug);
           if (signal?.aborted) return;
           render(result);
-          status.textContent = result?.message || `Removed “${space.slug}”.`;
+          status.textContent = result?.message || `已移除「${space.slug}」。`;
           await onChanged?.();
         } catch (error) {
           if (signal?.aborted) return;
-          status.textContent = `Failed to remove: ${describeError(error)}`;
+          status.textContent = `移除失敗：${describeError(error)}`;
           status.classList.add("is-error");
         } finally {
           if (!signal?.aborted) setBusy(false);
@@ -175,7 +175,7 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
       );
     }
     setBusy(busy);
-    if (!editable) status.textContent = "Tool Space editing is locked by the administrator.";
+    if (!editable) status.textContent = "管理員已鎖定 Tool Space 編輯。";
   }
 
   form.addEventListener("submit", async (event) => {
@@ -186,18 +186,18 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
     if (onBeforeChange && !(await onBeforeChange())) return;
 
     status.classList.remove("is-error");
-    status.textContent = `Checking “${slug}”…`;
-    setBusy(true, "Checking Space…");
+    status.textContent = `正在檢查「${slug}」…`;
+    setBusy(true, "正在檢查 Space…");
     try {
       const result = await addToolSpace(slug);
       if (signal?.aborted) return;
       slugInput.value = "";
       render(result);
-      status.textContent = result?.message || `Added “${slug}”.`;
+      status.textContent = result?.message || `已新增「${slug}」。`;
       await onChanged?.();
     } catch (error) {
       if (signal?.aborted) return;
-      status.textContent = `Failed to add: ${describeError(error)}`;
+      status.textContent = `新增失敗：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       if (!signal?.aborted) setBusy(false);
@@ -214,7 +214,7 @@ function buildToolSpacesSection({ signal, onBeforeChange, onChanged } = {}) {
       } catch (error) {
         if (signal?.aborted) return;
         list.replaceChildren(
-          h("p", { class: "settings-status is-error" }, `Could not load Tool Spaces: ${describeError(error)}`)
+          h("p", { class: "settings-status is-error" }, `無法載入 Tool Spaces：${describeError(error)}`)
         );
       }
     },

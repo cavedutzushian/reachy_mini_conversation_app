@@ -53,7 +53,6 @@ def get_session_instructions(instance_path: str | Path | None = None) -> str:
     if not instructions:
         raise RuntimeError("Default profile has no usable instructions")
 
-    # The backend forces speech recognition and synthesis to this language, but not the model's replies.
     language = get_session_language()
     if language != "auto":
         language_name = next(
@@ -61,9 +60,15 @@ def get_session_instructions(instance_path: str | Path | None = None) -> str:
             f"the language with ISO 639-1 code {language!r}",
         )
         instructions = (
-            f"{instructions}\n\nSpeak only {language_name}, starting with your first greeting, "
+            f"{instructions}\n\nDefault to {language_name}, starting with your first greeting, "
             "whatever language these instructions are written in."
         )
+    instructions += (
+        "\n\nWhen replying in Chinese, prefer Traditional Chinese characters and wording. "
+        "Follow the user's explicit request for another language, translation, Simplified Chinese, or verbatim "
+        "quotation for this response only, then return to the default language policy. "
+        "Preserve quoted source text, code, URLs, paths, identifiers, and explicitly specified names exactly."
+    )
 
     memory_prompt = format_memory_for_prompt(instance_path)
     if memory_prompt:

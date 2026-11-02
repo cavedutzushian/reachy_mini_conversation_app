@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reachy VAD monitor</title>
+  <title>Reachy VAD 監測</title>
   <style>
     body { font: 16px system-ui, sans-serif; background: #f4f5f7; color: #18212e; margin: 0; padding: 24px; }
     main { max-width: 720px; margin: auto; }
@@ -17,38 +17,38 @@
 </head>
 <body>
 <main>
-  <h1>Live VAD monitor</h1>
-  <p>Read-only diagnostics. The app must be running with <code>--debug</code>.</p>
+  <h1>即時 VAD 監測</h1>
+  <p>唯讀診斷。應用程式須以 <code>--debug</code> 執行。</p>
   <section>
-    <p id="connection">Connecting…</p>
-    <p id="microphone">Checking microphone…</p>
-    <h2>Silero speech probability: <span id="probability">—</span></h2>
+    <p id="connection">連線中…</p>
+    <p id="microphone">正在檢查麥克風…</p>
+    <h2>Silero 語音機率： <span id="probability">—</span></h2>
     <progress id="meter" max="1" value="0"></progress>
-    <p>Listening starts at 0.50. Barge-in starts at 0.60 and confirms after 384 ms of active speech.</p>
+    <p>聆聽門檻為 0.50。插話門檻為 0.60，持續偵測到語音 384 ms 後確認。</p>
     <dl>
-      <dt>Local VAD available</dt><dd id="available">—</dd>
-      <dt>Local speech detected</dt><dd id="local_speech">—</dd>
-      <dt>Server speech detected</dt><dd id="server_speech">—</dd>
-      <dt>Movement listening state</dt><dd id="listening">—</dd>
-      <dt>Possible barge-in</dt><dd id="barge_in_candidate">—</dd>
-      <dt>Playback amplitude</dt><dd id="playback_gain">—</dd>
+      <dt>本機 VAD 可用</dt><dd id="available">—</dd>
+      <dt>偵測到本機語音</dt><dd id="local_speech">—</dd>
+      <dt>偵測到服務端語音</dt><dd id="server_speech">—</dd>
+      <dt>動作聆聽狀態</dt><dd id="listening">—</dd>
+      <dt>可能插話</dt><dd id="barge_in_candidate">—</dd>
+      <dt>播放振幅</dt><dd id="playback_gain">—</dd>
     </dl>
-    <p id="last-update">Waiting for VAD events…</p>
+    <p id="last-update">正在等待 VAD 事件…</p>
   </section>
   <section>
-    <h2>Conversation transcript</h2>
-    <p>Completed user and robot turns appear live. Refreshing clears this view.</p>
-    <pre id="transcript">Waiting for speech…</pre>
+    <h2>對話逐字稿</h2>
+    <p>即時顯示使用者與機器人的完整對話。重新整理會清除此畫面。</p>
+    <pre id="transcript">正在等待語音…</pre>
   </section>
-  <section><h2>State changes</h2><pre id="events">Waiting…</pre></section>
+  <section><h2>狀態變更</h2><pre id="events">等待中…</pre></section>
 </main>
 <script type="module">
   import { subscribe, rpcCall } from "./js/api.js";
 
   const fields = ["available", "local_speech", "server_speech", "listening",
     "barge_in_candidate", "playback_gain"];
-  const labels = ["Local VAD available", "Local speech", "Server speech", "Movement listening",
-    "Possible barge-in", "Playback amplitude"];
+  const labels = ["本機 VAD 可用", "本機語音", "服務端語音", "動作聆聽",
+    "可能插話", "播放振幅"];
   const entries = [];
   let previous = null;
   let receivedAt = 0;
@@ -64,11 +64,11 @@
     document.getElementById("meter").value = probability ?? 0;
     fields.forEach((field, index) => {
       const value = status[field];
-      const label = field === "playback_gain" ? `${Math.round(value * 100)}%` : value ? "Yes" : "No";
+      const label = field === "playback_gain" ? `${Math.round(value * 100)}%` : value ? "是" : "否";
       document.getElementById(field).textContent = label;
       if (previous && previous[field] !== value) writeEvent(`${labels[index]}: ${label}`, status.timestamp * 1000);
     });
-    if (!previous) writeEvent("First local VAD snapshot received", status.timestamp * 1000);
+    if (!previous) writeEvent("已收到第一筆本機 VAD 狀態", status.timestamp * 1000);
     previous = status;
   });
   subscribe("conversation.activity", status => {
@@ -79,7 +79,7 @@
   const transcriptTurns = [];
   subscribe("conversation.transcript", turn => {
     if (!turn.final || !turn.text?.trim()) return;
-    const speaker = turn.role === "assistant" ? "Robot" : "User";
+    const speaker = turn.role === "assistant" ? "機器人" : "使用者";
     transcriptTurns.push(`${new Date().toLocaleTimeString()}  ${speaker}\n${turn.text}`);
     if (transcriptTurns.length > 100) transcriptTurns.shift();
     const transcript = document.getElementById("transcript");
@@ -90,14 +90,14 @@
 
   setInterval(() => {
     document.getElementById("last-update").textContent = receivedAt
-      ? `Last VAD update: ${Math.floor((Date.now() - receivedAt) / 1000)} seconds ago`
-      : "Waiting for VAD events. Check that debug logging is enabled and the microphone is unmuted.";
+      ? `最近 VAD 更新：${Math.floor((Date.now() - receivedAt) / 1000)} 秒前`
+      : "正在等待 VAD 事件。請確認已啟用偵錯日誌，且麥克風未靜音。";
   }, 1000);
   Promise.all([rpcCall("conversation.status"), rpcCall("conversation.mic")]).then(([status, mic]) => {
-    document.getElementById("connection").textContent = status.backend_connected ? "Conversation connected" : "Conversation disconnected";
-    document.getElementById("microphone").textContent = mic.muted ? "Microphone muted — unmute it in the Talk screen." : "Microphone unmuted";
+    document.getElementById("connection").textContent = status.backend_connected ? "對話已連線" : "對話已斷線";
+    document.getElementById("microphone").textContent = mic.muted ? "麥克風已靜音，請在對話畫面取消靜音。" : "麥克風未靜音";
   }).catch(error => {
-    document.getElementById("connection").textContent = `Connection failed: ${error.message}`;
+    document.getElementById("connection").textContent = `連線失敗：${error.message}`;
     console.error("VAD monitor connection failed", error);
   });
 </script>

@@ -14,38 +14,38 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
     class: "settings-select",
     name: "profile_tools_profile",
     disabled: "disabled",
-    "aria-label": "Personality to configure",
+    "aria-label": "選擇要設定的人格",
   });
   const summary = h("div", { class: "settings-toolset-summary", "aria-live": "polite" });
   const toolGroups = h(
     "div",
     { class: "settings-tool-groups", "aria-live": "polite" },
-    h("p", { class: "settings-hint" }, "Loading tool access…")
+    h("p", { class: "settings-hint" }, "正在載入工具權限…")
   );
   const status = h("p", { class: "settings-status", role: "status", "aria-live": "polite" });
   const resetButton = h(
     "button",
     { type: "button", class: "btn btn--ghost", disabled: "disabled" },
-    "Restore defaults"
+    "還原預設值"
   );
   const saveButton = h(
     "button",
     { type: "button", class: "btn btn--primary", disabled: "disabled" },
-    "Save tool access"
+    "儲存工具權限"
   );
   const element = h(
     "section",
     { class: "settings-section" },
-    h("h2", { class: "settings-section-title" }, "Tool access"),
+    h("h2", { class: "settings-section-title" }, "工具權限"),
     h(
       "p",
       { class: "settings-hint settings-section-intro" },
-      "Choose exactly what each personality can use. Installed Tool Spaces stay off until selected."
+      "選擇各人格可使用的工具。已安裝的 Tool Spaces 須選取後才會啟用。"
     ),
     h(
       "label",
       { class: "settings-field" },
-      h("span", { class: "settings-label" }, "Configure for"),
+      h("span", { class: "settings-label" }, "設定對象"),
       profileSelect
     ),
     summary,
@@ -99,7 +99,7 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
   function populateProfiles(payload) {
     profileSelect.replaceChildren();
     for (const profile of payload.profiles || []) {
-      const label = `${prettifyProfileName(profile.id)}${profile.active ? " · Active" : ""}`;
+      const label = `${prettifyProfileName(profile.id)}${profile.active ? " · 使用中" : ""}`;
       profileSelect.appendChild(
         h("option", { value: profile.id, selected: profile.id === payload.profile ? "selected" : null }, label)
       );
@@ -109,17 +109,17 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
   function renderSummary(payload) {
     const enabledCount = payload.enabled_tools?.length || 0;
     const pills = [];
-    if (payload.is_active) pills.push(h("span", { class: "settings-pill is-active" }, "Active"));
-    if (payload.editable === false) pills.push(h("span", { class: "settings-pill" }, "Locked"));
+    if (payload.is_active) pills.push(h("span", { class: "settings-pill is-active" }, "使用中"));
+    if (payload.editable === false) pills.push(h("span", { class: "settings-pill" }, "已鎖定"));
     summary.replaceChildren(
       h(
         "div",
         { class: "settings-toolset-summary-copy" },
-        h("strong", null, `${enabledCount} ${enabledCount === 1 ? "tool" : "tools"} enabled`),
+        h("strong", null, `已啟用 ${enabledCount} 個工具`),
         h(
           "span",
           { class: "settings-toolset-mode" },
-          payload.overridden ? "Customized for this personality" : "Using profile defaults"
+          payload.overridden ? "已為此人格自訂" : "使用人格預設值"
         )
       ),
       ...pills
@@ -134,8 +134,8 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
       if (!groups.has(key)) {
         const sourceName = prettifyProfileName(tool.source.split("/").at(-1));
         let title = `Tool Space · ${sourceName}`;
-        if (tool.kind === "shared") title = "Built-in tools";
-        if (tool.kind === "external") title = "External tools";
+        if (tool.kind === "shared") title = "內建工具";
+        if (tool.kind === "external") title = "外部工具";
         groups.set(key, {
           title,
           tools: [],
@@ -147,19 +147,19 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
     const unavailable = payload.unavailable_enabled_tools || [];
     if (unavailable.length) {
       groups.set("unavailable", {
-        title: "Unavailable selections",
+        title: "無法使用的選項",
         tools: unavailable.map((toolId) => ({
           id: toolId,
           kind: "unavailable",
-          source: "Unavailable",
-          description: "Its source is not installed or the tool is no longer exposed.",
+          source: "無法使用",
+          description: "來源尚未安裝，或已不再提供此工具。",
         })),
       });
     }
 
     toolGroups.replaceChildren();
     if (!groups.size) {
-      toolGroups.appendChild(h("p", { class: "settings-hint" }, "No configurable tools are available."));
+      toolGroups.appendChild(h("p", { class: "settings-hint" }, "目前沒有可設定的工具。"));
       return;
     }
 
@@ -181,7 +181,7 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
       );
       fieldset.addEventListener("change", () => {
         const changed = selectionChanged();
-        status.textContent = changed ? "Unsaved changes" : "";
+        status.textContent = changed ? "有尚未儲存的變更" : "";
         status.classList.remove("is-error");
         setDirty(changed);
       });
@@ -196,14 +196,14 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
     renderSummary(payload);
     renderToolGroups(payload);
     status.classList.remove("is-error");
-    status.textContent = payload.editable === false ? "Tool editing is locked by the administrator." : "";
+    status.textContent = payload.editable === false ? "管理員已鎖定工具編輯。" : "";
     setDirty(false);
   }
 
   async function load(profile = null) {
     setBusy(true);
     status.classList.remove("is-error");
-    status.textContent = "Loading tools…";
+    status.textContent = "正在載入工具…";
     try {
       const payload = await getProfileTools(profile);
       if (signal?.aborted) return;
@@ -211,7 +211,7 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
       onProfileChanged?.(payload.profile);
     } catch (error) {
       if (signal?.aborted) return;
-      status.textContent = `Could not load tool access: ${describeError(error)}`;
+      status.textContent = `無法載入工具權限：${describeError(error)}`;
       status.classList.add("is-error");
       if (currentPayload) {
         profileSelect.value = currentPayload.profile;
@@ -226,9 +226,9 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
   async function confirmDiscard() {
     if (!dirty) return true;
     return confirmDialog({
-      title: "Discard unsaved tool changes?",
-      message: "Your selections for this personality have not been saved.",
-      confirmLabel: "Discard changes",
+      title: "捨棄尚未儲存的工具變更？",
+      message: "此人格的工具選擇尚未儲存。",
+      confirmLabel: "捨棄變更",
       signal,
     });
   }
@@ -247,15 +247,15 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
     const enabledTools = selectedToolIds();
     setBusy(true);
     status.classList.remove("is-error");
-    status.textContent = "Saving tool access…";
+    status.textContent = "正在儲存工具權限…";
     try {
       const payload = await saveProfileTools(currentPayload.profile, enabledTools);
       if (signal?.aborted) return;
       render(payload);
-      status.textContent = payload?.message || "Tool access saved.";
+      status.textContent = payload?.message || "工具權限已儲存。";
     } catch (error) {
       if (signal?.aborted) return;
-      status.textContent = `Could not save tool access: ${describeError(error)}`;
+      status.textContent = `無法儲存工具權限：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       if (!signal?.aborted) setBusy(false);
@@ -265,24 +265,24 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
   resetButton.addEventListener("click", async () => {
     if (resetButton.disabled || !currentPayload) return;
     const confirmed = await confirmDialog({
-      title: "Restore profile defaults?",
-      message: `This replaces the custom tool selection for “${prettifyProfileName(currentPayload.profile)}”.`,
-      confirmLabel: "Restore defaults",
+      title: "還原人格預設值？",
+      message: `這會取代「${prettifyProfileName(currentPayload.profile)}」的自訂工具選擇。`,
+      confirmLabel: "還原預設值",
       signal,
     });
     if (!confirmed || signal?.aborted) return;
 
     setBusy(true);
     status.classList.remove("is-error");
-    status.textContent = "Restoring defaults…";
+    status.textContent = "正在還原預設值…";
     try {
       const payload = await resetProfileTools(currentPayload.profile);
       if (signal?.aborted) return;
       render(payload);
-      status.textContent = payload?.message || "Profile defaults restored.";
+      status.textContent = payload?.message || "已還原人格預設值。";
     } catch (error) {
       if (signal?.aborted) return;
-      status.textContent = `Could not restore defaults: ${describeError(error)}`;
+      status.textContent = `無法還原預設值：${describeError(error)}`;
       status.classList.add("is-error");
     } finally {
       if (!signal?.aborted) setBusy(false);
@@ -301,8 +301,28 @@ export function buildProfileToolsSection({ signal, initialProfile = null, onProf
   };
 }
 
+const BUILT_IN_TOOL_LABELS = Object.freeze({
+  camera: ["拍照查看", "依請求拍攝當下畫面，描述機器人前方的內容。"],
+  dance: ["跳舞", "播放指定或隨機舞步一次，或重複播放；不阻塞對話。"],
+  forget: ["忘記記憶", "依使用者要求刪除已儲存的長期記憶。"],
+  go_to_sleep: ["睡眠並結束", "使用者明確要求時，讓 Reachy 睡眠並結束目前應用程式。"],
+  head_tracking: ["臉部追蹤", "啟用或停用頭部跟隨使用者臉部的功能。"],
+  idle_do_nothing: ["待機保持安靜", "在待機更新時選擇保持不動與安靜。"],
+  move_head: ["轉動頭部", "將頭部轉向左、右、上、下或正前方。"],
+  play_emotion: ["表達情緒", "播放符合所需情緒的機器人動作。"],
+  remember: ["儲存記憶", "儲存一筆使用者明確分享的穩定資訊，供未來對話使用。"],
+  robot_status: ["機器人狀態", "查詢名稱、軟體、網路、帳號、感測器或應用程式狀態。"],
+  stop_dance: ["停止跳舞", "停止目前的舞蹈動作。"],
+  stop_emotion: ["停止情緒動作", "停止目前的情緒動作。"],
+  sweep_look: ["環顧四周", "轉動頭部與身體向左右查看，再回到中央。"],
+  task_cancel: ["取消背景任務", "確認後取消正在執行的背景工具任務。"],
+  task_status: ["背景任務狀態", "查詢背景工具任務的執行狀態。"],
+  volume_control: ["音量控制", "讀取或設定喇叭、麥克風音量；設定喇叭時會播放確認音。"],
+});
+
 function toolChoice(tool, checked) {
   const unavailable = tool.kind === "unavailable";
+  const display = tool.kind === "shared" ? BUILT_IN_TOOL_LABELS[tool.id] : null;
   const input = h("input", {
     type: "checkbox",
     value: tool.id,
@@ -317,9 +337,9 @@ function toolChoice(tool, checked) {
     h(
       "span",
       { class: "settings-tool-choice-copy" },
-      h("strong", { class: "settings-tool-choice-name" }, prettifyToolName(tool.id)),
+      h("strong", { class: "settings-tool-choice-name" }, display?.[0] || prettifyToolName(tool.id)),
       tool.kind === "unavailable" ? h("code", { class: "settings-tool-choice-id" }, tool.id) : null,
-      tool.description ? h("span", { class: "settings-tool-choice-description" }, tool.description) : null
+      tool.description ? h("span", { class: "settings-tool-choice-description" }, display?.[1] || tool.description) : null
     )
   );
 }

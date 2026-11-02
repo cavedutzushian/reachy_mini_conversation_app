@@ -57,7 +57,7 @@ export function createOrb({ initialState = ORB_STATES.IDLE, onStateChange } = {}
       type: "button",
       class: "convo-orb",
       dataset: { state: currentState },
-      "aria-label": "Conversation status",
+      "aria-label": "對話狀態",
       style: { "--glow": GLOW_BY_STATE[currentState] },
     },
     h("span", { class: "convo-orb__glow", "aria-hidden": "true" }),

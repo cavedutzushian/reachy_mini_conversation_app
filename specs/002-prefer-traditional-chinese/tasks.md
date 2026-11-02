@@ -22,15 +22,15 @@
 
 **Purpose**: 確認個人客製化範圍與可重現基線。
 
-- [ ] T001 依 `specs/002-prefer-traditional-chinese/quickstart.md` 的明確隔離步驟準備忽略的 `cache/traditional-chinese-trial.py` 及獨立測試目錄，在任何實際服務連線前驗證傳入 `main.run` 的絕對 instance_path 與關閉的相機／記憶設定；不複製日常 `.env`、記憶、歷史或人格，不執行舊資料遷移，缺少私密行程憑證時保留未完成。記錄個人客製化、零付費範圍與釐清決定；不改既有 Gemini 結案，也不沿用舊豁免。
-- [ ] T002 執行根 `AGENTS.md` 要求的完整基線 gate，包含 Ruff、format、strict mypy、pytest 與 uv lock 檢查，對照 `pyproject.toml`、`uv.lock`，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄實際版本、平台、結果與阻礙；不以歷史 690-test 結果當本輪實作結果，不調降檢查或修改 CI。
+- [X] T001 依 `specs/002-prefer-traditional-chinese/quickstart.md` 的明確隔離步驟準備忽略的 `cache/traditional-chinese-trial.py` 及獨立測試目錄，在任何實際服務連線前驗證傳入 `main.run` 的絕對 instance_path 與關閉的相機／記憶設定；不複製日常 `.env`、記憶、歷史或人格，不執行舊資料遷移，缺少私密行程憑證時保留未完成。記錄個人客製化、零付費範圍與釐清決定；不改既有 Gemini 結案，也不沿用舊豁免。
+- [X] T002 執行根 `AGENTS.md` 要求的完整基線 gate，包含 Ruff、format、strict mypy、pytest 與 uv lock 檢查，對照 `pyproject.toml`、`uv.lock`，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄實際版本、平台、結果與阻礙；不以歷史 690-test 結果當本輪實作結果，不調降檢查或修改 CI。
 
 ## Phase 2: Foundational
 
 **Purpose**: 在翻譯與提示調整前固定文案／資料邊界。
 
-- [ ] T003 [P] 依 `specs/002-prefer-traditional-chinese/research.md` 的完整前端盤點，於 `specs/002-prefer-traditional-chinese/quickstart.md` 建立六類畫面的文案／例外／驗收表；包含固定標題、載入、空狀態、錯誤、確認／取消、tooltip、無障礙標籤及自有診斷頁，區分自有文案、第三方資料與使用者原文。
-- [ ] T004 [P] 在 `tests/test_language_vision_routes.py`、`tests/test_settings_store.py` 補齊既有資料契約保護：全域語言「既有兩字母／auto／未存值」、「未存值沿用環境與既有預設，不改成 zh」、「有效的人格值優先於全域值」；保留 `profile`／`all` 語意、設定 version 1 與全域設定清除人格覆寫行為，不接受新地區代碼，不新增 locale 欄位、環境變數或遷移。
+- [X] T003 [P] 依 `specs/002-prefer-traditional-chinese/research.md` 的完整前端盤點，於 `specs/002-prefer-traditional-chinese/quickstart.md` 建立六類畫面的文案／例外／驗收表；包含固定標題、載入、空狀態、錯誤、確認／取消、tooltip、無障礙標籤及自有診斷頁，區分自有文案、第三方資料與使用者原文。
+- [X] T004 [P] 在 `tests/test_language_vision_routes.py`、`tests/test_settings_store.py` 補齊既有資料契約保護：全域語言「既有兩字母／auto／未存值」、「未存值沿用環境與既有預設，不改成 zh」、「有效的人格值優先於全域值」；保留 `profile`／`all` 語意、設定 version 1 與全域設定清除人格覆寫行為，不接受新地區代碼，不新增 locale 欄位、環境變數或遷移。
 
 **Checkpoint**: T001–T004 完成後才開始故事任務；固定介面可以翻譯，但所有服務文字與機器可讀值仍是受保護資料。
 
@@ -42,16 +42,16 @@
 
 ### Tests
 
-- [ ] T005 [US1] 在 `tests/test_console.py` 擴充頁面／RPC 行為測試，依 `specs/002-prefer-traditional-chinese/contracts/language-and-display.md` 固定十二組原文與預期文字，檢查部分、完成、歷史文字、保留 `role`／`text`／`final` 與序列資訊且不新增 converted_text；使用同一資料提供實際前端可連線的既有測試 app／RPC fixture，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄啟動、事件發送與頁面網址，禁止連雲端或執行工具。另測已知提示、穩定錯誤身份及未知原文，不以逐句譯文快照代替行為測試。
+- [X] T005 [US1] 在 `tests/test_console.py` 擴充頁面／RPC 行為測試，依 `specs/002-prefer-traditional-chinese/contracts/language-and-display.md` 固定十二組原文與預期文字，檢查部分、完成、歷史文字、保留 `role`／`text`／`final` 與序列資訊且不新增 converted_text；使用同一資料提供實際前端可連線的既有測試 app／RPC fixture，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄啟動、事件發送與頁面網址，禁止連雲端或執行工具。另測已知提示、穩定錯誤身份及未知原文，不以逐句譯文快照代替行為測試。
 
 ### Implementation
 
-- [ ] T006 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/index.html`、`src/reachy_mini_conversation_app/static/vad-monitor.html`、`src/reachy_mini_conversation_app/static/js/main.js`、`src/reachy_mini_conversation_app/static/js/router.js`、`src/reachy_mini_conversation_app/static/js/orb.js` 的自有殼層、導覽與狀態文案，頁面語言使用 `zh-Hant`；保留路由、selector、事件值與診斷資料。
-- [ ] T007 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/settings.js`、`src/reachy_mini_conversation_app/static/js/components/language-picker.js` 的設定、後端原因映射與語言範圍文案；zh 可顯示「中文（繁體優先）」、auto 顯示「自動判斷」，保留 `zh`／`auto`／`profile`／`all` 及選擇語意，不把自動模式當成預設中文。
-- [ ] T008 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/home.js`、`src/reachy_mini_conversation_app/static/js/views/talk.js`、`src/reachy_mini_conversation_app/static/js/components/conversation-panel.js` 的固定標題、角色、空狀態、部分／完成／中斷與延遲標籤；保留 `textContent` 的原文字串及既有事件組裝，不能引入繁簡轉換、翻譯、正規化或等整段才顯示的步驟。
-- [ ] T009 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-modal.js`、`src/reachy_mini_conversation_app/static/js/components/confirm-dialog.js` 的固定文案與無障礙名稱；自有工具顯示名稱／說明只在畫面層對照，保留人格／聲音名稱、工具 ID、模型工具宣告、參數與第三方描述。
-- [ ] T010 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/api.js` 的既有錯誤顯示映射及自有用戶提示，保留 RPC 方法、參數、原因碼與 timeout 行為；未知第三方錯誤維持原文 fallback，不建通用 i18n 或轉換呼叫層。
-- [ ] T011 [US1] 盤點並翻譯 `src/reachy_mini_conversation_app/console.py`、`src/reachy_mini_conversation_app/language_routes.py`、`src/reachy_mini_conversation_app/personality_routes.py`、`src/reachy_mini_conversation_app/memory_routes.py`、`src/reachy_mini_conversation_app/vision_routes.py`、`src/reachy_mini_conversation_app/tool_space_routes.py`、`src/reachy_mini_conversation_app/profile_tool_routes.py` 中實際供使用者閱讀的固定 `message`／已知錯誤說明，包含 `conversation.context.message`；保留機器原因碼、列舉、錯誤結構與原始服務文字，不翻譯 logger 或為 UI 更動工具行為。
+- [X] T006 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/index.html`、`src/reachy_mini_conversation_app/static/vad-monitor.html`、`src/reachy_mini_conversation_app/static/js/main.js`、`src/reachy_mini_conversation_app/static/js/router.js`、`src/reachy_mini_conversation_app/static/js/orb.js` 的自有殼層、導覽與狀態文案，頁面語言使用 `zh-Hant`；保留路由、selector、事件值與診斷資料。
+- [X] T007 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/settings.js`、`src/reachy_mini_conversation_app/static/js/components/language-picker.js` 的設定、後端原因映射與語言範圍文案；zh 可顯示「中文（繁體優先）」、auto 顯示「自動判斷」，保留 `zh`／`auto`／`profile`／`all` 及選擇語意，不把自動模式當成預設中文。
+- [X] T008 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/home.js`、`src/reachy_mini_conversation_app/static/js/views/talk.js`、`src/reachy_mini_conversation_app/static/js/components/conversation-panel.js` 的固定標題、角色、空狀態、部分／完成／中斷與延遲標籤；保留 `textContent` 的原文字串及既有事件組裝，不能引入繁簡轉換、翻譯、正規化或等整段才顯示的步驟。
+- [X] T009 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/views/tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-tools.js`、`src/reachy_mini_conversation_app/static/js/components/profile-modal.js`、`src/reachy_mini_conversation_app/static/js/components/confirm-dialog.js` 的固定文案與無障礙名稱；自有工具顯示名稱／說明只在畫面層對照，保留人格／聲音名稱、工具 ID、模型工具宣告、參數與第三方描述。
+- [X] T010 [P] [US1] 翻譯 `src/reachy_mini_conversation_app/static/js/api.js` 的既有錯誤顯示映射及自有用戶提示，保留 RPC 方法、參數、原因碼與 timeout 行為；未知第三方錯誤維持原文 fallback，不建通用 i18n 或轉換呼叫層。
+- [X] T011 [US1] 盤點並翻譯 `src/reachy_mini_conversation_app/console.py`、`src/reachy_mini_conversation_app/language_routes.py`、`src/reachy_mini_conversation_app/personality_routes.py`、`src/reachy_mini_conversation_app/memory_routes.py`、`src/reachy_mini_conversation_app/vision_routes.py`、`src/reachy_mini_conversation_app/tool_space_routes.py`、`src/reachy_mini_conversation_app/profile_tool_routes.py` 中實際供使用者閱讀的固定 `message`／已知錯誤說明，包含 `conversation.context.message`；保留機器原因碼、列舉、錯誤結構與原始服務文字，不翻譯 logger 或為 UI 更動工具行為。
 - [ ] T012 [US1] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄 T005–T011 的離線結果與六類畫面盤點，並透過 T005 fixture 對全部十二組固定原文逐項比較實際 DOM 的部分／完成／歷史文字；記錄輸入、預期、RPC 結果、畫面實際文字及比對結果，不適用階段註明原因，不以 RPC 通過、截圖或檔案存在代替畫面驗收。另檢查鍵盤確認／取消、tooltip、無障礙名稱、窄畫面、長中文換行，以及 `src/reachy_mini_conversation_app/static/js/ui.js`、`src/reachy_mini_conversation_app/static/js/constants.js`、`src/reachy_mini_conversation_app/static/js/personality-badge.js`、`src/reachy_mini_conversation_app/static/js/pending-apply.js` 的遺漏文案；保留身份資料，可用時做既有 Node 語法檢查，不新增依賴或把未檢查寫成通過。
 
 **Checkpoint**: US1 可獨立交付繁體介面與不改字的逐字稿；尚不宣稱模型繁體一致性已通過。
@@ -64,14 +64,14 @@
 
 ### Tests
 
-- [ ] T013 [P] [US2] 在 `tests/test_huggingface_realtime.py` 補上 zh／auto／非中文、人格優先與既有辨識／合成欄位的回歸；以行為檢查取代對舊 `Speak only ...` 句子的依賴，確認 auto 沒有無條件中文要求，原語言與聲音代碼不變。
-- [ ] T014 [P] [US2] 在 `tests/test_gemini_realtime.py` 測試 setup 與後續指示使用相同的共用語言政策，覆蓋中文繁體優先、auto 條件式中文及非中文預設；保留模型、聲音及傳輸設定，不增加地區辨識碼、不為修正字形重連或重新生成。
-- [ ] T015 [US2] 在 `tests/test_console.py`、`tests/test_startup_settings.py` 補上後端切換、同供應商重連、重啟及人格語言覆寫的政策重建案例；驗證未存值與 auto 不被寫成 zh，原始人格、記憶／歷史、聲音、工具權限與相機／記憶開關不因語言偏好而變動。
+- [X] T013 [P] [US2] 在 `tests/test_huggingface_realtime.py` 補上 zh／auto／非中文、人格優先與既有辨識／合成欄位的回歸；以行為檢查取代對舊 `Speak only ...` 句子的依賴，確認 auto 沒有無條件中文要求，原語言與聲音代碼不變。
+- [X] T014 [P] [US2] 在 `tests/test_gemini_realtime.py` 測試 setup 與後續指示使用相同的共用語言政策，覆蓋中文繁體優先、auto 條件式中文及非中文預設；保留模型、聲音及傳輸設定，不增加地區辨識碼、不為修正字形重連或重新生成。
+- [X] T015 [US2] 在 `tests/test_console.py`、`tests/test_startup_settings.py` 補上後端切換、同供應商重連、重啟及人格語言覆寫的政策重建案例；驗證未存值與 auto 不被寫成 zh，原始人格、記憶／歷史、聲音、工具權限與相機／記憶開關不因語言偏好而變動。
 
 ### Implementation
 
-- [ ] T016 [US2] 在 `src/reachy_mini_conversation_app/prompts.py` 的 `get_session_instructions()` 沿用現有解析順序與人格／記憶組裝，將絕對語言命令改為預設語言規則，並加入「中文時優先繁體」的共用指示；保留「與後端、聲音及人格分開理解」及「不是新持久化欄位」的限制。auto 不強制中文，未設定沿用預設；不修改人格檔、設定格式、ASR／TTS 協定，不新增單次轉發包裝或後端專用中文政策。
-- [ ] T017 [US2] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 預先固定每後端十次中文觀察樣本與紀錄欄位，涵蓋開場、一般問題、簡體輸入、無副作用工具結果與重選／重連後回覆；記錄完成助理原文／逐字稿、語音語言、字形效果、無效或無法判斷結果與限制，不設 9/10 門檻。此任務只準備樣本，例外另列，最終觀察必須等 T020 完成並於 T021 執行，不以修改前的結果作結案證據。
+- [X] T016 [US2] 在 `src/reachy_mini_conversation_app/prompts.py` 的 `get_session_instructions()` 沿用現有解析順序與人格／記憶組裝，將絕對語言命令改為預設語言規則，並加入「中文時優先繁體」的共用指示；保留「與後端、聲音及人格分開理解」及「不是新持久化欄位」的限制。auto 不強制中文，未設定沿用預設；不修改人格檔、設定格式、ASR／TTS 協定，不新增單次轉發包裝或後端專用中文政策。
+- [X] T017 [US2] 在 `specs/002-prefer-traditional-chinese/quickstart.md` 預先固定每後端十次中文觀察樣本與紀錄欄位，涵蓋開場、一般問題、簡體輸入、無副作用工具結果與重選／重連後回覆；記錄完成助理原文／逐字稿、語音語言、字形效果、無效或無法判斷結果與限制，不設 9/10 門檻。此任務只準備樣本，例外另列，最終觀察必須等 T020 完成並於 T021 執行，不以修改前的結果作結案證據。
 
 **Checkpoint**: US2 的政策套用可獨立離線驗證；最終服務觀察尚待 T020／T021。服務逐字稿仍可能是簡體，不能宣稱固定辨識字形或口音。
 
@@ -83,20 +83,20 @@
 
 ### Tests
 
-- [ ] T018 [P] [US3] 在 `tests/test_settings_store.py`、`tests/test_startup_settings.py` 擴充當次引用／其他語言要求不永久改設定的回歸，保持「不建立新例外資料庫、不解析後改寫工具參數，也不永久改變回覆語言」；覆蓋 profile／all 範圍、人格原始文字與相機／記憶權限不變。
-- [ ] T019 [P] [US3] 在 `tests/test_huggingface_realtime.py`、`tests/test_gemini_realtime.py` 測試明確原文／其他語言要求可優先於預設生成語言，保留網址、程式碼、路徑、名稱與識別碼；對模型回傳簡體、未知服務錯誤與失敗後下一回合，確認沒有新增生成請求、工具重播或文字替代。
+- [X] T018 [P] [US3] 在 `tests/test_settings_store.py`、`tests/test_startup_settings.py` 擴充當次引用／其他語言要求不永久改設定的回歸，保持「不建立新例外資料庫、不解析後改寫工具參數，也不永久改變回覆語言」；覆蓋 profile／all 範圍、人格原始文字與相機／記憶權限不變。
+- [X] T019 [P] [US3] 在 `tests/test_huggingface_realtime.py`、`tests/test_gemini_realtime.py` 測試明確原文／其他語言要求可優先於預設生成語言，保留網址、程式碼、路徑、名稱與識別碼；對模型回傳簡體、未知服務錯誤與失敗後下一回合，確認沒有新增生成請求、工具重播或文字替代。
 
 ### Implementation
 
-- [ ] T020 [US3] 在 `src/reachy_mini_conversation_app/prompts.py` 補齊當次簡體原文、引用、翻譯及其他語言要求的例外優先順序，並要求保留技術文字與指定名稱；例外只影響當次生成，不寫入設定、不改服務文字或工具參數。依 T018／T019 的結果只修正必要政策，不加字形偵測／轉換、例外儲存、額外模型呼叫或自動重試。
+- [X] T020 [US3] 在 `src/reachy_mini_conversation_app/prompts.py` 補齊當次簡體原文、引用、翻譯及其他語言要求的例外優先順序，並要求保留技術文字與指定名稱；例外只影響當次生成，不寫入設定、不改服務文字或工具參數。依 T018／T019 的結果只修正必要政策，不加字形偵測／轉換、例外儲存、額外模型呼叫或自動重試。
 - [ ] T021 [US3] 等 T020 提示與例外規則定稿、相關離線測試通過後，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄當時程式版本／差異摘要，依 T001 隔離啟動流程執行 T017 的每後端十次最終觀察及原文／其他語言例外；auto 各三組中文與非中文、未設定及明確非中文案例保留原規則，記錄服務限制與未遵守偏好情況。無繁體比例門檻，但仍須證明偏好正確套用、原文保留、對話可繼續且無重複工具；未執行項目維持未完成。之後相關提示或語言選擇語意改變時重做受影響觀察。
 
 **Checkpoint**: 三個故事均可驗證，例外處理沒有引入第二套語言狀態或文字處理管線。
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 更新根 `README.md` 的語言與介面行為說明：UI 固定繁體、模型中文繁體偏好、服務回覆／逐字稿不轉換、auto 不變及原文例外；不翻譯整份專案文件，不新增 README、環境變數或 docs/ Markdown。
-- [ ] T023 對 `pyproject.toml`、`uv.lock`、`src/`、`tests/` 執行完整 Ruff／format／strict mypy／pytest／uv lock／diff 檢查，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄本次實際結果及平台；未跑的平台與瀏覽器／Node 檢查明列未完成或不可用，不改 CI，不沿用舊 gate 當新結果。
+- [X] T022 更新根 `README.md` 的語言與介面行為說明：UI 固定繁體、模型中文繁體偏好、服務回覆／逐字稿不轉換、auto 不變及原文例外；不翻譯整份專案文件，不新增 README、環境變數或 docs/ Markdown。
+- [X] T023 對 `pyproject.toml`、`uv.lock`、`src/`、`tests/` 執行完整 Ruff／format／strict mypy／pytest／uv lock／diff 檢查，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄本次實際結果及平台；未跑的平台與瀏覽器／Node 檢查明列未完成或不可用，不改 CI，不沿用舊 gate 當新結果。
 - [ ] T024 依 `specs/002-prefer-traditional-chinese/spec.md` 的 SC-001–SC-006，在 `specs/002-prefer-traditional-chinese/quickstart.md` 整理六類介面、每後端十次效果觀察、十二組 RPC／實際 DOM 原文比對、設定保留、例外與 auto 矩陣；確認 T021 對應最終交付的提示與語言選擇語意，若之後相關行為改變就重做受影響觀察，純文件／無語意格式變更不要求重跑。分開真實結果與限制，不恢復已取消的比例門檻，也不自行豁免其他必要驗收。
 - [ ] T025 對照 `AGENTS.md`、`.specify/memory/constitution.md`、`specs/002-prefer-traditional-chinese/plan.md` 自審最終差異，在 `specs/002-prefer-traditional-chinese/quickstart.md` 記錄沒有憑證、原文改寫、依賴／協定新增或無關異動；若架構實際擴大則標記 `docs/scheme.mmd` 的後續更新，不手改生成 SVG，不改受保護文件，不自動建立 PR。
 

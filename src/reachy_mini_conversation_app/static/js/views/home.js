@@ -23,14 +23,14 @@ export async function mountHomeView({ outlet, signal, navigate }) {
     h(
       "header",
       { class: "view-header" },
-      h("h1", { class: "view-title" }, "Choose a personality"),
+      h("h1", { class: "view-title" }, "選擇人格"),
       h(
         "p",
         { class: "view-subtitle" },
-        "Pick how Reachy Mini should think and talk. Tap a card to start a conversation."
+        "選擇 Reachy Mini 的思考與說話方式。點選卡片即可開始對話。"
       )
     ),
-    h("div", { class: "personality-grid", role: "list" }, h("p", { class: "muted" }, "Loading…"))
+    h("div", { class: "personality-grid", role: "list" }, h("p", { class: "muted" }, "載入中…"))
   );
   outlet.replaceChildren(view);
 
@@ -42,12 +42,12 @@ export async function mountHomeView({ outlet, signal, navigate }) {
   try {
     personalities = await untilReady(listPersonalities, signal, () => {
       grid.replaceChildren();
-      grid.appendChild(h("p", { class: "muted" }, "Waiting for Reachy to finish starting…"));
+      grid.appendChild(h("p", { class: "muted" }, "正在等待 Reachy 完成啟動…"));
     });
   } catch (error) {
     if (signal.aborted) return;
     grid.replaceChildren();
-    grid.appendChild(renderError("Could not list personalities", error));
+    grid.appendChild(renderError("無法載入人格列表", error));
     return;
   }
   if (signal.aborted) return;
@@ -78,7 +78,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
   if (!lockedTo) grid.appendChild(buildCustomCard({ onClick: handleCustomClick }));
 
   if (lockedTo) {
-    status.textContent = `Personality locked to “${prettifyProfileName(lockedTo)}”; switching is disabled.`;
+    status.textContent = `人格已鎖定為「${prettifyProfileName(lockedTo)}」，無法切換。`;
     status.classList.add("is-warning");
   }
 
@@ -105,7 +105,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
     });
     if (!created || signal.aborted) return;
     status.classList.remove("is-warning", "is-error");
-    status.textContent = `Saving "${created.name}"…`;
+    status.textContent = `正在儲存「${created.name}」…`;
     let newName;
     try {
       const saveResult = await savePersonality({
@@ -118,7 +118,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
       newName = saveResult?.value || created.name;
     } catch (error) {
       if (signal.aborted) return;
-      status.textContent = `Failed to create profile: ${describeError(error)}`;
+      status.textContent = `無法建立人格：${describeError(error)}`;
       status.classList.add("is-error");
       return;
     }
@@ -134,7 +134,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
       data = await loadPersonality(name);
     } catch (error) {
       if (signal.aborted) return;
-      status.textContent = `Could not load "${prettifyProfileName(name)}": ${describeError(error)}`;
+      status.textContent = `無法載入「${prettifyProfileName(name)}」：${describeError(error)}`;
       status.classList.add("is-error");
       return;
     }
@@ -151,7 +151,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
     });
     if (!edited || signal.aborted) return;
 
-    status.textContent = `Saving "${prettifyProfileName(name)}"…`;
+    status.textContent = `正在儲存「${prettifyProfileName(name)}」…`;
     try {
       await savePersonality({
         // Strip the prefix: the save endpoint always writes under user_personalities/<name>.
@@ -163,7 +163,7 @@ export async function mountHomeView({ outlet, signal, navigate }) {
       });
     } catch (error) {
       if (signal.aborted) return;
-      status.textContent = `Failed to save: ${describeError(error)}`;
+      status.textContent = `儲存失敗：${describeError(error)}`;
       status.classList.add("is-error");
       return;
     }
@@ -176,15 +176,15 @@ export async function mountHomeView({ outlet, signal, navigate }) {
       setPendingApply({ name, promise: applyPersonality(name, { persist: false, force: true }) });
       navigate(ROUTES.TALK);
     } else {
-      status.textContent = `Saved "${prettifyProfileName(name)}". It will apply next time you select it.`;
+      status.textContent = `已儲存「${prettifyProfileName(name)}」，下次選取時會套用。`;
     }
   }
 
   async function handleDeleteClick(name, slot) {
     const ok = await confirmDialog({
-      title: "Delete personality?",
-      message: `"${prettifyProfileName(name)}" will be permanently removed.`,
-      confirmLabel: "Delete",
+      title: "刪除人格？",
+      message: `將永久刪除「${prettifyProfileName(name)}」。`,
+      confirmLabel: "刪除",
       danger: true,
       signal,
     });
@@ -194,13 +194,13 @@ export async function mountHomeView({ outlet, signal, navigate }) {
       await deletePersonality(name);
     } catch (error) {
       if (signal.aborted) return;
-      status.textContent = `Failed to delete: ${describeError(error)}`;
+      status.textContent = `刪除失敗：${describeError(error)}`;
       status.classList.add("is-error");
       return;
     }
     if (signal.aborted) return;
     slot.remove();
-    status.textContent = `Deleted "${prettifyProfileName(name)}".`;
+    status.textContent = `已刪除「${prettifyProfileName(name)}」。`;
   }
 }
 
@@ -213,7 +213,7 @@ function buildPersonalityCard({ name, isActive, disabled, onSelect, onManageTool
       class: ["personality-card", isActive && "is-active", disabled && "is-disabled"],
       disabled: disabled ? "disabled" : null,
       "aria-pressed": isActive ? "true" : "false",
-      "aria-label": `Use personality ${prettifyProfileName(name)}`,
+      "aria-label": `使用人格 ${prettifyProfileName(name)}`,
       onClick: disabled ? undefined : onSelect,
     },
     h(
@@ -247,10 +247,10 @@ function buildPersonalityCard({ name, isActive, disabled, onSelect, onManageTool
         {
           type: "button",
           class: "personality-card__tools",
-          "aria-label": `Manage tools for ${prettifyProfileName(name)}`,
+          "aria-label": `管理 ${prettifyProfileName(name)} 的工具`,
           onClick: onManageTools,
         },
-        "Manage tools"
+        "管理工具"
       )
     );
   }
@@ -264,7 +264,7 @@ function buildDeleteButton({ name, onDelete }) {
   return h("button", {
     type: "button",
     class: "personality-card__delete",
-    "aria-label": `Delete personality ${prettifyProfileName(name)}`,
+    "aria-label": `刪除人格 ${prettifyProfileName(name)}`,
     onClick: onDelete,
     html: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -282,7 +282,7 @@ function buildEditButton({ name, onEdit }) {
   return h("button", {
     type: "button",
     class: "personality-card__edit",
-    "aria-label": `Edit personality ${prettifyProfileName(name)}`,
+    "aria-label": `編輯人格 ${prettifyProfileName(name)}`,
     onClick: onEdit,
     html: `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -307,12 +307,12 @@ function buildCustomCard({ onClick }) {
     {
       type: "button",
       class: "personality-card personality-card--custom",
-      "aria-label": "Create a custom personality",
+      "aria-label": "建立自訂人格",
       onClick,
     },
     h("span", { class: "personality-card__plus", "aria-hidden": "true" }, "+"),
-    h("span", { class: "personality-card__name" }, "Custom"),
-    h("span", { class: "personality-card__hint" }, "Write your own prompt")
+    h("span", { class: "personality-card__name" }, "自訂"),
+    h("span", { class: "personality-card__hint" }, "撰寫自己的提示")
   );
   return h("div", { class: "personality-card-slot", role: "listitem" }, card);
 }

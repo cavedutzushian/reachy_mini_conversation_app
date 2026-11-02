@@ -584,11 +584,11 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                         ),
                     )
                 )
-                return f"Voice changed to {resolved_voice}."
+                return f"聲音已變更為 {resolved_voice}。"
             except Exception as e:
                 logger.warning("Failed to update live session for voice change: %s", e)
-                return "Voice change failed. Will take effect on next connection."
-        return "Voice changed. Will take effect on next connection."
+                return "聲音變更失敗，將於下次連線生效。"
+        return "聲音已變更，將於下次連線生效。"
 
     def get_current_voice(self) -> str:
         """Return the voice currently selected for this handler."""
@@ -622,7 +622,7 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
         except Exception as exc:
             set_custom_profile(previous_profile)
             logger.error("Failed to resolve personality %r: %s", profile, exc)
-            return f"Failed to apply personality: {exc}"
+            return f"套用人格失敗：{exc}"
 
         if self.connection is not None:
             try:
@@ -645,16 +645,16 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
 
             try:
                 await self._restart_session()
-                return "Applied personality and restarted realtime session."
+                return "人格已套用，並已重新啟動即時對話。"
             except Exception as exc:
                 logger.warning("Failed to restart session after apply: %s", exc)
-                return "Applied personality. Will take effect on next connection."
+                return "人格已套用，將於下次連線生效。"
 
         logger.info(
             "Applied personality recorded: %s (no live connection; will apply on next session)",
             profile or "default",
         )
-        return "Applied personality. Will take effect on next connection."
+        return "人格已套用，將於下次連線生效。"
 
     async def _emit_debounced_partial(self, transcript: str, item_id: str, sequence_counter: int) -> None:
         """Emit partial transcript after debounce delay."""

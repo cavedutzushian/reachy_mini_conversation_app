@@ -5,10 +5,10 @@
 import { h } from "../ui.js";
 
 export function confirmDialog({
-  title = "Are you sure?",
+  title = "確定要繼續嗎？",
   message = "",
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel = "確認",
+  cancelLabel = "取消",
   danger = false,
   signal,
 } = {}) {

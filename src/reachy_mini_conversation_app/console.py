@@ -310,9 +310,9 @@ class LocalStream:
         """Fan one activity reason out to JSON-RPC clients."""
         if reason in ("fresh_context", "uncertain_action", "reconnecting"):
             message = {
-                "fresh_context": "Starting a fresh conversation.",
-                "uncertain_action": "A previous robot action may have started. Its outcome is unknown; it will not be repeated.",
-                "reconnecting": "Reconnecting to the selected service.",
+                "fresh_context": "正在開始新對話。",
+                "uncertain_action": "先前的機器人動作可能已開始，結果不明，因此不會重複執行。",
+                "reconnecting": "正在重新連接所選服務。",
             }[reason]
             self._publish_conversation_event("conversation.context", {"message": message})
         if self._rpc is not None:
@@ -454,7 +454,7 @@ class LocalStream:
             if "voice" in str(error):
                 return "invalid_gemini_voice"
             return "invalid_params"
-        return "Backend connection failed. Check configuration and retry."
+        return "後端連線失敗，請檢查設定後重試。"
 
     def _set_backend_connection_state(self, state: str, error: BaseException | str | None = None) -> None:
         """Update backend connection status exposed through the settings UI."""
@@ -537,9 +537,9 @@ class LocalStream:
         """Persist one setting and reconnect the backend so it takes effect."""
         self._save_settings(changes)
         if not self._can_rebuild_handler():
-            return "Saved. Restart Reachy Mini Conversation to apply it."
+            return "已儲存，請重新啟動 Reachy Mini Conversation 以套用。"
         self._mark_restart_requested(reason)
-        return "Saved. Reconnecting the conversation to apply it."
+        return "已儲存，正在重新連接對話以套用。"
 
     async def _refresh_instructions(self) -> bool:
         """Push rebuilt instructions to the live session (see memory.clear)."""
@@ -607,7 +607,7 @@ class LocalStream:
             raise
 
         await self.request_backend_restart("personality_changed")
-        return "Applied personality and restarting backend."
+        return "人格已套用，正在重新啟動後端。"
 
     async def get_available_voices(self) -> list[str]:
         """Return voices for the selected provider."""
@@ -634,14 +634,14 @@ class LocalStream:
                 raise ValueError("invalid_gemini_voice")
             self._save_settings(AppSettings(gemini_voice=voice))
             await self.request_backend_restart("voice_changed")
-            return "Voice saved. Starting a fresh conversation."
+            return "聲音已儲存，正在開始新對話。"
         try:
             status = await self.handler.change_voice(voice)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error("Error changing voice to %r: %s", voice, e)
-            return f"Failed to change voice: {e}"
+            return f"變更聲音失敗：{e}"
 
         try:
             current_voice = self.handler.get_current_voice()
@@ -812,7 +812,7 @@ class LocalStream:
                     )
                 )
                 self._mark_restart_requested("backend_config_changed")
-                return {"ok": True, "message": "Selection saved. Starting a fresh conversation.", **_status_payload()}
+                return {"ok": True, "message": "選擇已儲存，正在開始新對話。", **_status_payload()}
             hf_selection = get_hf_connection_selection()
             hf_mode = str(params.get("hf_mode") or hf_selection.mode).strip().lower()
             if hf_mode == HF_LOCAL_CONNECTION_MODE:
@@ -848,22 +848,22 @@ class LocalStream:
             )
             if self._can_rebuild_handler():
                 self._mark_restart_requested("backend_config_changed")
-                message = "Connection saved. Reconnecting backend."
+                message = "連線已儲存，正在重新連接後端。"
             else:
-                message = "Connection saved. Restart Reachy Mini Conversation from the desktop app to apply it."
+                message = "連線已儲存，請從桌面應用程式重新啟動 Reachy Mini Conversation 以套用。"
             return {"ok": True, "message": message, **_status_payload()}
 
         def _rpc_backend_retry(params: dict[str, object]) -> dict[str, object]:
             if params:
                 raise JsonRpcError("Retry takes no parameters", reason="invalid_params", code=-32602)
             if self._backend_connected() or self._backend_connection_state == "connecting":
-                return {"ok": True, "message": "Connection is already active or connecting.", **_status_payload()}
+                return {"ok": True, "message": "連線已啟用或正在連線。", **_status_payload()}
             loop = self._asyncio_loop
             if loop is not None and loop.is_running():
                 loop.call_soon_threadsafe(self._retry_requested.set)
             else:
                 self._retry_requested.set()
-            return {"ok": True, "message": "Retry scheduled.", **_status_payload()}
+            return {"ok": True, "message": "已排定重試。", **_status_payload()}
 
         rpc.register("backend.retry", _rpc_backend_retry)
 

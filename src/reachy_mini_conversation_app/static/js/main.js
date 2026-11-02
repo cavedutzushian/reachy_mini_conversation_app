@@ -129,20 +129,20 @@ function boot() {
     if (gear) {
       const onSettings = routeName === ROUTES.SETTINGS;
       gear.classList.toggle("is-active", onSettings);
-      gear.setAttribute("aria-label", onSettings ? "Close settings" : "Open settings");
+      gear.setAttribute("aria-label", onSettings ? "關閉設定" : "開啟設定");
     }
     if (back) {
       back.hidden = routeName === ROUTES.TALK;
-      let backLabel = "Back to conversation";
+      let backLabel = "返回對話";
       if (routeName === ROUTES.SETTINGS) {
         const returnName = settingsReturn.split("?")[0];
-        if (returnName === ROUTES.PERSONALITIES) backLabel = "Back to personalities";
-        if (returnName === ROUTES.TOOLS) backLabel = "Back to tools";
+        if (returnName === ROUTES.PERSONALITIES) backLabel = "返回人格列表";
+        if (returnName === ROUTES.TOOLS) backLabel = "返回工具";
       } else if (
         routeName === ROUTES.TOOLS &&
         new URLSearchParams(route.split("?")[1] || "").get("from") === "personalities"
       ) {
-        backLabel = "Back to personalities";
+        backLabel = "返回人格列表";
       }
       back.setAttribute("aria-label", backLabel);
     }

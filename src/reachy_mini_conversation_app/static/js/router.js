@@ -18,7 +18,7 @@ export function createRouter(routes, { fallback = "#/", outlet, onRouteChange } 
   function renderRouteError(route, error) {
     const div = document.createElement("div");
     div.className = "route-error";
-    div.textContent = `Failed to render ${route}: ${error?.message || error}`;
+    div.textContent = `無法顯示 ${route}：${error?.message || error}`;
     return div;
   }
 
