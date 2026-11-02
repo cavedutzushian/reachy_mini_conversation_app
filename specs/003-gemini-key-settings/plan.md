@@ -2,11 +2,11 @@
 
 **Branch**: `feat/003-gemini-key-settings` | **Date**: 2026-11-02 | **Spec**: [spec.md](spec.md)
 
-**Input**: `specs/003-gemini-key-settings/spec.md`，含三項已確認的 A 選項。
+**Input**: `specs/003-gemini-key-settings/spec.md`，含原三項 A 選項及本輪 I2 的 A 決定；I1、I3 依既有要求明確化。
 
 ## Summary
 
-在既有 Gemini 設定區提供遮蔽輸入、「驗證並套用」、取消及確認清除。已保存的值永不回填。
+一般 Gemini 設定區保留安全狀態與「開啟本機金鑰設定」按鈕；另開同一 settings_app 的受保護頁面，提供遮蔽輸入、「驗證並套用」、取消及確認清除。已保存的值永不回填。
 設定頁來源優先；成功清除後可回到環境來源，但 Gemini 必須等待手動重連。
 候選值以獨立、無使用者內容的 Live setup 驗證，再透過系統憑證庫保存，最後提交生效指標。
 Hugging Face 維持預設，使用中不受這些操作影響。
@@ -76,12 +76,14 @@ src/reachy_mini_conversation_app/
 ├── gemini_credentials.py          # 新增：受保護儲存、來源解析、交易與安全狀態
 ├── config.py                      # 環境來源與生效來源分離
 ├── main.py                        # 提供穩定 credential scope、初始化及釋放
-├── console.py                     # 專用 HTTP、操作協調及 manual-reconnect gate
+├── console.py                     # 專用頁面／HTTP、操作協調及 manual-reconnect gate
+├── templates/gemini-key.html      # 新增：僅由受保護路由送出的 HTML，非公開 static alias
 ├── gemini_realtime.py             # 候選 setup 驗證、正式 handler 使用憑證快照
 ├── huggingface_realtime.py        # 必要共用 session fencing；不複製語音迴圈
 └── static/js/
     ├── api.js                    # 專用 HTTP transport；不走通用 RPC
-    └── views/settings.js         # 遮蔽輸入、來源及操作結果
+    ├── gemini-key.js             # 新增：獨立頁面的輸入、清除及操作結果
+    └── views/settings.js         # 安全狀態、開啟本機頁面按鈕及遠端提示
  tests/
 ├── test_gemini_credentials.py    # 新增：來源、持久化、復原及隔離
 ├── test_console.py
@@ -99,10 +101,10 @@ src/reachy_mini_conversation_app/
 
 ## Phase 1 — Design and delivery boundaries
 
-1. 先建立非秘密狀態及受保護儲存交易，證明 env-only 不依賴 vault；故障不會偷偷換來源。
+1. 先建立非秘密狀態及受保護儲存交易，來源解析先判斷 blocked/clearing，再考慮舊 active；preparing 無舊 managed 時保留原 env snapshot/none。證明 env-only 不依賴 vault，故障不會偷偷換來源。
 2. 再加入獨立候選驗證及唯一 owner 協調，確保 clear、遲到結果、設定變更不會重啟舊 session。
-3. 加入受限專用 HTTP 契約與 UI；`backend.config` 繼續拒絕 key 參數。
-4. 完成 [quickstart.md](quickstart.md) 的離線、安全及實際儲存驗收；live 驗收另行取得當輪同意。
+3. 加入受限專用 HTTP 契約及 GET /settings/gemini-key 獨立頁面，後者禁止任何 frame 嵌入；不對一般根設定頁新增 frame 限制。HTML 放 templates/ 並確認 wheel 包含，不建立可繞過保護的 static alias。`backend.config` 繼續拒絕 key 參數。
+4. 完成 [quickstart.md](quickstart.md) 的離線、安全及實際儲存驗收；live 驗收另行取得當輪同意。故事後續開發只依賴前置實作與必要自動測試，人工畫面／平台／服務驗收分開追蹤，待驗不阻擋無關本機開發，也不等於結案。
 
 實作同步根 `README.md`：保存範圍、來源優先、清除非撤銷、本機入口、Linux 前提及失敗恢復。
 此功能增加憑證資料流，需更新 `docs/scheme.mmd` 並重新產生 SVG；不可手改 SVG。

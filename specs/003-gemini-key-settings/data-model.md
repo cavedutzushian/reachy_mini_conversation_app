@@ -36,10 +36,17 @@ phase（validating/saving/clearing/done/failed/superseded）、安全 reason。
 
 獨立環境 snapshot 與 managed resolver。優先順序：
 
-1. journal 有 active → 讀此槽；錯誤時 source=blocked，不嘗試 env。
-2. journal 為 preparing → 只使用原 active；pending 不自動升級。
-3. clearing／損壞／無法讀取／其他管理行程持鎖 → blocked。
-4. 沒有 managed 或已完成 cleared → environment（若有），否則 none。
+以下由上而下匹配，第一個適用規則即停止；manual gate 另外控制能否連線，不可藉來源解析解除。
+
+1. journal 損壞／無法讀取、鎖不可用／其他管理行程持鎖、提交結果無法確認 → source=blocked。
+2. state=clearing → blocked，即使 active_revision 仍存在；不得讀舊槽或改用 env 建立連線。
+3. state=preparing 且有舊 active_revision → 只讀舊槽，失敗 blocked、不嘗試 env；pending 不生效。
+4. state=preparing 且 active_revision=null → 保留開始此次操作前的環境 snapshot 來源（若有），否則 none；不讀 pending。已知舊槽缺失不能轉入此規則。
+5. state=active → 必須有合法 active_revision，讀此槽；缺失／讀取失敗 blocked，不嘗試 env。
+6. journal 不存在或 state=cleared 且已確認清除完成 → environment（若有），否則 none；clear gate 仍須手動解除。
+
+preparing 的 null 舊 active 只代表此次操作前沒有 managed 來源；cleared 不得仍有 active/pending/retired 槽。
+其他欄位組合不合法時視為 journal 損壞，套用規則 1。
 
 環境 snapshot 保留既有 dotenv／啟動環境載入規則；不另改兩者內部優先順序。
 一般 refresh 只能更新環境來源，不能讓候選或 managed 值被寫回 os.environ/.env。
@@ -60,7 +67,7 @@ connection: 沿用既有連線狀態；manual_reconnect_required、revision、op
 |---|---|---|
 | 草稿／取消／空白提交 | 不寫任何來源；空白報 invalid_input | 不改連線；取消清空欄位 |
 | 驗證並套用 | 前置來源/鎖檢查；驗證 → journal 記 pending → 新 vault 槽 write/readback → 原子 active commit | active Gemini 先停止；成功且仍選 Gemini 才 fresh session；HF 不動 |
-| 驗證／write/readback／commit 失敗 | 舊 active 保留；pending 只清理不升級 | Gemini 若已停止則待手動重連；顯示真實結果 |
+| 驗證／write/readback／commit 失敗 | 舊 active 保留；原無 managed 時保留原環境 snapshot／none；pending 只清理不升級 | Gemini 若已停止則待手動重連；顯示真實結果 |
 | 成功提交後刪舊槽失敗 | 新 active 有效，保留 retired ID，顯示 cleanup_pending | 不回滾已提交值；下次清理／clear 需包含舊槽 |
 | 確認清除 | 立即 gate/fence；journal clearing → 刪所有已知槽並確認缺失 → cleared commit | 停止 Gemini；成功才允許 env 成為來源，仍等待明確重連 |
 | clear 刪除或 metadata 失敗 | 保留 blocking clearing/error；不得聲稱已刪 | 不重連、不 fallback；可明確重試清除 |

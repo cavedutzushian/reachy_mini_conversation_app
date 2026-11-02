@@ -30,8 +30,8 @@
 - [ ] T004 在 src/reachy_mini_conversation_app/gemini_credentials.py 建立嚴格、有型別且不洩密的 metadata／operation／public status 模型；逐字遵循 data-model.md：version「固定整數 1；未知版本阻擋 managed 使用」、revision「單調非負整數；同實例 lifetime lock 及提交鎖保護」、state「active、preparing、clearing、cleared；清除失敗保留 clearing」、active_revision「opaque 隨機槽 ID 或 null；不是 key hash」、pending_revision「尚未提交槽 ID 或 null」、retired_revisions「待刪除槽 ID 集合；包含已提交更新的舊槽」、manual_reconnect_required「bool；clear／受影響失敗後跨重啟保留，不以 env 存在解除」；operation 使用 opaque ID、expected_revision、model/voice 與 generation 快照，phase「validating/saving/clearing/done/failed/superseded」；候選值不進 repr、序列化、例外或事件。
 - [ ] T005 在 src/reachy_mini_conversation_app/gemini_credentials.py 實作穩定 scope、namespace 與 lifetime OS file lock：SDK instance_path 優先，CLI 採既有 REACHY_MINI_INSTANCE_PATH／platformdirs；正規化路徑雜湊且 label 不含原始路徑／秘密；Windows msvcrt、Linux/macOS fcntl，頂層條件匯入；同 scope 第二行程 fail closed，不把鎖檔存在誤判成持鎖。於 src/reachy_mini_conversation_app/main.py 初始化及釋放此 scope，不搬移 .env 或改變一般 CLI 設定持久化。
 - [ ] T006 在 src/reachy_mini_conversation_app/gemini_credentials.py 實作可注入的受保護儲存：只明確建立 Windows WinVaultKeyring（persist="local machine"）、macOS Keyring、Linux SecretService.Keyring；拒絕自動 discovery／chainer／null／fail／自訂明文 backend，錯誤安全分類，OS 呼叫離開 event loop；service「App 固定前綴 + scope digest + 隨機槽 ID」、account「固定 gemini」，不列出其他實例條目、不收集解鎖密碼。
-- [ ] T007 在 src/reachy_mini_conversation_app/gemini_credentials.py 實作獨立 gemini-credential.json 嚴格讀取／原子寫入及來源 resolver，於 src/reachy_mini_conversation_app/config.py 分離環境 snapshot 與正式生效來源：active 優先、preparing 只讀舊 active、clearing／壞檔／已知槽讀取失敗／持鎖衝突為 blocked；只有無 managed 或完成 cleared 才回環境。保留原 dotenv 優先規則，refresh 不覆寫 managed，不寫候選到 os.environ/.env 或一般 AppSettings。
-- [ ] T008 在 src/reachy_mini_conversation_app/console.py 建立專用 HTTP 存取檢查及安全錯誤回應：實際 loopback peer、精確 Host/port、拒絕轉送標頭、同源 Origin/Fetch Metadata、記憶體 CSRF 與 no-store；無寬鬆 CORS，不把 SDK RPC／本機代理轉送當授權，無法辨別代理來源則該入口拒絕秘密操作；管理頁只允許 self／可確認的本機 Control App parent frame。保留一般 RPC，backend.config 仍拒絕 key。
+- [ ] T007 在 src/reachy_mini_conversation_app/gemini_credentials.py 實作獨立 gemini-credential.json 嚴格讀取／原子寫入及來源 resolver，於 src/reachy_mini_conversation_app/config.py 分離環境 snapshot 與正式生效來源：先判斷 clearing／壞檔／無法確認／持鎖衝突為 blocked，即使 active_revision 存在也不得繞過；其後 preparing 有舊 active 則只讀此槽、失敗 blocked，無舊 managed 則保留原環境 snapshot/none、不讀候選；active 槽缺失不當作 null。只有無 managed 或完成 cleared 才回環境。保留原 dotenv 優先規則，refresh 不覆寫 managed，不寫候選到 os.environ/.env 或一般 AppSettings。
+- [ ] T008 在 src/reachy_mini_conversation_app/console.py 建立專用 HTTP 存取檢查及安全錯誤回應：實際 loopback peer、精確 Host/port、拒絕轉送標頭、同源 Origin/Fetch Metadata、記憶體 CSRF 與 no-store；無寬鬆 CORS，不把 SDK RPC／本機代理轉送當授權，無法辨別代理來源則該入口拒絕秘密操作；獨立 GET /settings/gemini-key 頁限定直接本機頂層導覽，frame-ancestors none／X-Frame-Options DENY，不允許任何 parent；templates/gemini-key.html 不經 static 公開。此頁導覽不要求 API 的 CSRF／same-origin fetch header，頁面內 API 仍嚴格檢查。一般根設定頁保留既有 frame／遠端操作，不新增本機限制。保留一般 RPC，backend.config 仍拒絕 key。
 - [ ] T009 在 src/reachy_mini_conversation_app/console.py 加入唯一 LocalStream owner 的 Gemini manual-reconnect gate 與 operation revision fencing，重用 src/reachy_mini_conversation_app/huggingface_realtime.py 的 session generation／停止音訊與舊工具結果機制；HF 不 restart、不 flush、不換 provider；Gemini 受影響失敗／clear 後待明確 backend.retry 或重新選用，不因 env 有值自動重連；停止失敗回 session_stop_failed，不繼續套用。
 - [ ] T010 在 tests/test_gemini_credentials.py 與 tests/test_console.py 建立 tmp_path、fake vault、假 socket／owner 的隔離測試，覆蓋型別與 journal 壞檔、backend allowlist、env-only 無 vault、兩 scope 隔離／同 scope 真正第二行程鎖、前置 HTTP 拒絕及 HF 不受 gate 影響；確認 fixtures 不讀日常設定／真實憑證且無外連，通過後才進入故事實作。
 
@@ -47,7 +47,7 @@
 
 - [ ] T011 [P] [US1] 在 tests/test_gemini_realtime.py 加入獨立候選驗證行為測試：明確候選／model/voice 快照、x-goog-api-key header、有效 setupComplete、setup/close deadline、auth／model／quota／network 分類；斷言不載入人格／記憶／逐字稿／resumption／tools、不送 user turn、不初始化 robot/audio/VAD、不播放聲音。
 - [ ] T012 [P] [US1] 在 tests/test_console.py 先寫 GET/POST /api/gemini-credential 契約測試：無既存值回填、JSON 宣告欄位、revision、CSRF、16 KiB 上限、空白拒絕、固定錯誤、框架驗證錯誤不帶 input/body，HF active 不換 backend；確認未實作行為會使測試失敗。
-- [ ] T013 [P] [US1] 在 tests/test_gemini_credentials.py 先寫首次保存／readback／active commit、保存各點故障與重啟測試；pending 不升級，vault 或 journal 失敗不套用候選，重啟 validation 回到 unverified，讀取已知槽失敗不 fallback。
+- [ ] T013 [P] [US1] 在 tests/test_gemini_credentials.py 先寫首次保存／readback／active commit、保存各點故障與重啟測試；pending 不升級；clearing 與 active ID 共存時先 blocked，preparing 無舊 managed 時保留原 env snapshot/none；vault 或 journal 失敗不套用候選，重啟 validation 回到 unverified，讀取已知槽失敗不 fallback。
 
 ### Implementation
 
@@ -56,8 +56,8 @@
 - [ ] T016 [US1] 在 src/reachy_mini_conversation_app/console.py 掛載 GET/POST /api/gemini-credential，接上 T008、T009、T014、T015；GET 需 X-Credential-Request:1 與 Sec-Fetch-Site same-origin（有 Origin 時亦同源）；POST 需 JSON、合法 expected_revision 與 X-Credential-CSRF，trim 後空白報 invalid_input，未知欄位／超量請求安全拒絕，不以 key 前綴或長度宣稱有效，瀏覽器斷線不自動重送。
 - [ ] T017 [US1] 在 src/reachy_mini_conversation_app/console.py 與 src/reachy_mini_conversation_app/gemini_realtime.py 接上正式 handler 的生效憑證快照；成功保存且當前仍選 Gemini／model 快照有效才經既有 owner 建 fresh session、清除舊 resumption，失敗如實顯示停止及手動恢復，HF 不動；發布 Public status：configured「bool」、managed_presence「absent/present/unknown」、environment_available「bool」、source「settings/environment/none/blocked」、storage「available/locked/unavailable/error/busy」、validation「unverified/validating/validated/failed」、apply「idle/saving/applied/clearing/failed」，connection 沿用既有狀態，保留 gemini_key_configured 的安全 bool 相容欄位。
 - [ ] T018 [US1] 在 src/reachy_mini_conversation_app/static/js/api.js 增加專用同源 HTTP credential transport，token 僅留頁面記憶體、重啟重新 bootstrap；不走通用 RPC、不在 URL／瀏覽器儲存／錯誤中保留候選，失敗僅重新查詢安全狀態，不自動重送秘密；API 需涵蓋後續 clear 契約但本階段不開放未完成按鈕。
-- [ ] T019 [US1] 在 src/reachy_mini_conversation_app/static/js/views/settings.js 加繁體中文 password 欄位、label、autocomplete=off、spellcheck=false、「驗證並套用」與取消；HF 選中時亦可管理 Gemini；來源／保存／驗證／連線分開顯示，active Gemini 操作前說明新對話與失敗恢復，提交／取消／離開／重載清空、不提供舊 key reveal，Tab/Enter/Esc、aria-live 與焦點可用；unsupported WebView／remote relay 提示 App 所在電腦的直接本機入口。
-- [ ] T020 [US1] 依 specs/003-gemini-key-settings/quickstart.md 建立 cache/003-gemini-key-settings/settings_trial.py 隔離 fake 設定頁入口（確認 fake dependencies、暫存 scope 且阻擋外連），補精確啟動命令並驗證首次提交、取消、空白、失敗、reload/restart、HF active 不變及一次套用操作，記錄結果於同檔；所有 US1 自動測試通過，未經人工確認的畫面項目保持未完成，不以 fixture HTTP 測試替代 UI 驗收。
+- [ ] T019 [US1] 在 src/reachy_mini_conversation_app/static/js/views/settings.js 只加入安全狀態及「開啟本機金鑰設定」按鈕；以 noopener/noreferrer 另開 /settings/gemini-key。在 src/reachy_mini_conversation_app/templates/gemini-key.html 及 src/reachy_mini_conversation_app/static/js/gemini-key.js 新增獨立頁 password、label、autocomplete=off、spellcheck=false、「驗證並套用」與取消；於 console.py 受保護路由送出 HTML，確認 pyproject.toml 的 wheel 包含 template 且不存在公開 static alias。HF 選中亦可管理；來源／保存／驗證／連線分開顯示，事先告知 Gemini 新對話／失敗恢復，提交／取消／離開／重載清空、不 reveal，Tab/Enter/Esc、aria-live 可用；一般 Control App iframe／遠端頁保留原一般操作，remote/relay 只提示在 App 所在電腦操作，不導向另一台 localhost。
+- [ ] T020 [US1] 依 specs/003-gemini-key-settings/quickstart.md 建立 cache/003-gemini-key-settings/settings_trial.py 隔離 fake 設定頁入口（確認 fake dependencies、暫存 scope 且阻擋外連），補精確啟動命令並以自動 fixture 驗證首次提交、取消、空白、失敗、reload/restart、HF active 不變、一般頁不新增 frame 限制、獨立頁的本機／frame 限制與 template 打包，記錄結果於同檔；本任務只以 US1 程式及必要離線自動測試通過為完成條件，人工畫面／操作次數驗收移交 T036/T037，未通過人工驗收不等於已結案，也不阻擋 US2 開發。
 
 **Checkpoint**: 可示範首次設定及跨重啟保存，包含基本授權及不洩密；尚未宣告可交付完整更新／清除功能。
 
@@ -79,9 +79,9 @@
 - [ ] T025 [US2] 在 src/reachy_mini_conversation_app/console.py 完成 DELETE /api/gemini-credential（expected_revision、confirm=true）及 update/clear 協調：clear 意圖立即增加 operation revision、gate/fence 停止 Gemini，再處理短儲存提交區段；後到結果只清理，不 commit／覆蓋狀態／restart。保存／發布／重啟前重檢 provider/model/session 快照，多分頁衝突回 409 並由使用者重試。
 - [ ] T026 [US2] 在 src/reachy_mini_conversation_app/console.py 完成受影響驗證失敗／clear 的持久化 manual gate、backend.retry 與明確重選 Gemini 恢復；成功 update 只在快照仍有效時明確解除 gate 建新 session，不能沿用舊 resumption；雲端關閉逾時仍退休 owner，HF 使用中不改 session、動作或 provider。
 - [ ] T027 [US2] 在 src/reachy_mini_conversation_app/static/js/api.js 完成 DELETE、revision_conflict／superseded／result_unknown 及失去回應後重新查詢；不以 UI cancel 假裝取消伺服器操作，token 只留記憶體、不將候選寫入 retry queue，clear 能在驗證期間送出新意圖。
-- [ ] T028 [US2] 在 src/reachy_mini_conversation_app/static/js/views/settings.js 加明確清除與確認對話框、更新／失敗／cleanup_pending 狀態、環境來源與停止後手動恢復提示；輸入更新前不改生效值，空白不是刪除；clear 不等於 provider 撤銷，失敗不宣稱已刪；清除最多按鈕加確認兩次，pending 禁止重複套用但允許 clear，所有退出路徑清空 draft。
+- [ ] T028 [US2] 在 src/reachy_mini_conversation_app/static/js/gemini-key.js 與 src/reachy_mini_conversation_app/templates/gemini-key.html 加明確清除與確認對話框、更新／失敗／cleanup_pending 狀態、環境來源與停止後手動恢復提示；輸入更新前不改生效值，空白不是刪除；clear 不等於 provider 撤銷，失敗不宣稱已刪；從一般設定頁起計算開啟獨立頁＋清除＋確認共三次，pending 禁止重複套用但允許 clear，所有退出路徑清空 draft。
 - [ ] T029 [US2] 在 tests/test_huggingface_realtime.py 擴充必要 shared session 回歸：舊 generation 的音訊／工具完成在 credential retirement 後不播放／重播；驗證 HF active 的 Gemini 管理不 flush HF，不建立第二個 retry owner；僅對本功能觸及的共用行為增加測試。
-- [ ] T030 [US2] 依 specs/003-gemini-key-settings/quickstart.md 執行隔離更新／clear／fail 矩陣及多分頁、慢驗證競態，核對新對話／原設定保留／待手動重連與 UI 提示、最多三次明確操作；將自動與人工結果分開記錄於同檔，不啟動真實 robot 或服務。
+- [ ] T030 [US2] 依 specs/003-gemini-key-settings/quickstart.md 執行隔離更新／clear／fail 矩陣及多分頁、慢驗證競態，以自動 fixture 核對新對話／原設定保留／待手動重連與安全 UI 狀態 payload；本任務完成條件只含 US2 程式及必要離線自動測試，人工畫面／操作次數驗收移交 T036/T037，live 移交 T041，結果分開追蹤，不阻擋 US3 開發、不宣稱人工已通過。
 
 **Checkpoint**: 首次設定、更新及清除形成完整安全閉環；舊 operation、來源 fallback 與 owner retry 都不得繞過使用者意圖。
 
@@ -94,17 +94,17 @@
 ### Tests first
 
 - [ ] T031 [P] [US3] 在 tests/test_gemini_credentials.py 加完整四種來源 × reload/clear/restart、locked/read failure、第二行程與 env refresh 矩陣，斷言 dotenv 原優先規則不變、已知 managed 失敗不 fallback、成功 clear 才轉環境且 gate 保留，沒有 vault 的 env-only 仍可運作。
-- [ ] T032 [P] [US3] 在 tests/test_console.py 加安全負向與 sentinel 洩漏測試：惡意／缺 Origin、Host rebinding、LAN peer、轉送標頭、缺或過期 token、Fetch Metadata、超量／錯型別／未知欄位、generic RPC key、frame policy；涵蓋 input/update/clear/failure/reload/restart 與 DEBUG logs、request validation repr、狀態／錯誤／逐字稿／歷史，禁止完整或可辨識片段，不只驗 happy path。
+- [ ] T032 [P] [US3] 在 tests/test_console.py 加安全負向與 sentinel 洩漏測試：惡意／缺 Origin、Host rebinding、LAN peer、轉送標頭、缺或過期 token、Fetch Metadata、超量／錯型別／未知欄位、generic RPC key、獨立頁所有 frame 拒絕／直接本機導覽允許／無 static alias，以及一般頁原 frame 行為保留；涵蓋 input/update/clear/failure/reload/restart 與 DEBUG logs、request validation repr、狀態／錯誤／逐字稿／歷史，禁止完整或可辨識片段，不只驗 happy path。
 - [ ] T033 [P] [US3] 在 tests/test_settings_store.py 與 tests/test_main.py 加整合回歸：一般 settings.json／journal 無秘密、候選不改 os.environ/.env，CLI scope 穩定不搬移 legacy 設定；profile/voice/language、記憶原文與 tool permissions 保持，初始化／停止不開相機或記憶、不連真實 daemon。
 
 ### Implementation and verification
 
 - [ ] T034 [US3] 在 src/reachy_mini_conversation_app/config.py、src/reachy_mini_conversation_app/main.py 與 src/reachy_mini_conversation_app/gemini_credentials.py 完成 T031/T033 揭露的來源 refresh／startup/shutdown 邊界整合；確認正式 handler 取明確生效快照，managed 憑證不被一般設定載入覆寫，既有 env-only 部署與正常啟動保持相容，不擴充無關設定範圍。
 - [ ] T035 [US3] 在 src/reachy_mini_conversation_app/console.py 與 src/reachy_mini_conversation_app/gemini_realtime.py 完成 T032 揭露的錯誤／輸出邊界：只傳固定安全 reason 與 operation ID，auth/model/quota/network/storage 分開且有下一步；不得記錄 body/header/token/remote exception 原文，transport debug 不洩密，仍以 logger 記錄安全失敗分類，不吞錯誤。
-- [ ] T036 [US3] 在 specs/003-gemini-key-settings/quickstart.md 補齊並實際驗證 cache/003-gemini-key-settings/settings_trial.py 隔離瀏覽器入口的精確啟動命令（沿用 T020 harness，不新增產品 mock 開關）；以 fake dependencies、暫存 scope、拒絕外連開啟既有 settings_app，記錄六類操作的 Network／URL／History／Local/Session Storage 檢查與跨站拒絕，禁止含秘密 HAR／截圖輸出。
-- [ ] T037 [US3] 在 specs/003-gemini-key-settings/quickstart.md 記錄 Control App 本機 iframe、直接 loopback 瀏覽器、remote/relay-only／不支援 Fetch Metadata 的實際 UI 結果：本機能使用、其他入口明確提示限制，一般設定／RPC 仍可用；無法確認的 parent origin 不加入 frame allowlist，未執行環境保持待驗。
+- [ ] T036 [US3] 在 specs/003-gemini-key-settings/quickstart.md 補齊並實際驗證 cache/003-gemini-key-settings/settings_trial.py 隔離瀏覽器入口的精確啟動命令（沿用 T020 harness，不新增產品 mock 開關）；以 fake dependencies、暫存 scope、拒絕外連開啟既有 settings_app，承接 T020/T030 的人工驗收：確認一般頁按鈕另開獨立本機頁、Tab/Enter/Esc／焦點／aria-live／繁體換行、HF 不變及首次／更新／清除／失敗提示；從一般 Gemini 區計算開頁＋套用兩次、開頁＋清除＋確認三次，記錄六類操作的 Network／URL／History／Local/Session Storage 檢查與跨站拒絕，禁止含秘密 HAR／截圖輸出。
+- [ ] T037 [US3] 在 specs/003-gemini-key-settings/quickstart.md 記錄 Control App 本機 iframe、直接 loopback 瀏覽器、remote/relay-only／不支援 Fetch Metadata 的實際 UI 結果：一般設定在本機 Control App iframe／既有遠端入口仍能使用，本機按鈕另開頂層憑證頁、remote/relay 只提示須在 App 所在電腦操作；獨立頁對所有 frame 與遠端導覽都拒絕，無 parent allowlist／static alias，一般 RPC 不受影響；未執行環境保持待驗，不阻擋 T038/T039/T042。
 
-**Checkpoint**: SC-002、SC-003、SC-005 有可追溯的離線與畫面證據；不能用 UI 顯示「已保存」冒充 vault 或真實服務已通過。
+**Checkpoint**: T035 後可繼續文件及本機 gate；T036/T037 的人工畫面結果獨立追蹤，未完成不宣稱 SC-002、SC-003、SC-005 的人工部分通過。不能用 UI 顯示「已保存」冒充 vault 或真實服務已通過。
 
 ## Phase 6: Polish and cross-cutting validation
 
@@ -127,17 +127,18 @@ T001 → T002 → T003
                                                                                               ↓
               US2: T021 / T022 → T023 → T024 → T025 → T026 → T027 → T028 → T029 → T030
                                                                                               ↓
-              US3: T031 / T032 / T033 → T034 → T035 → T036 → T037
+              US3: T031 / T032 / T033 → T034 → T035（實作／自動測試完成）
                                                                         ↓
-              T038 / T039 → T042 → T043 → T044
+              T035 → T038 / T039 → T042 → T043 → T044
+              T035 → T036 → T037（人工待驗分支，不阻擋文件／gate）
               另行授權後：T040（OS）／T041（live）→ T043 驗收證據；未做則保留待驗
 ```
 
 - Setup 完成後 Foundation 才開始，全部 Foundation 完成才進 US1；安全邊界不得為 MVP 延後。
 - US2 依賴 US1 的 POST、儲存及 UI，US3 依賴前兩故事的完整六類流程。本功能共享同一設定頁／owner／來源，故故事按順序交付，不能假稱互不依賴。
-- 每個故事可透過自己的 fake fixture 獨立驗證，不依賴另一故事的人工結果、真實 key 或 robot。
+- 每個故事的程式與必要離線自動測試可透過自己的 fake fixture 驗證；T020/T030 不含人工完成條件，因此後續開發不依賴前一故事的人工結果、真實 key 或 robot。T036/T037/T040/T041 分開追蹤人工／平台／live 待驗，完整結案仍須完成或取得明確範圍決定。
 - T011/T012/T013 皆在 T010 後；T021/T022 在 T020 後；T031/T032/T033 在 T030 後。同組各檔案不同，無組內依賴。
-- T038/T039 可在 T037 後平行，但 T039 完成圖形寫入後才把結果合併進 quickstart，避免同檔並寫。
+- T038/T039 可在 T035 後平行，不等待 T036/T037 人工驗收，但 T039 完成圖形寫入後才把結果合併進 quickstart，避免同檔並寫。
 - T040 OS 實測及 T041 live 需要當輪同意，不阻擋先完成可獨立執行的 T042 本機 gate。T043/T044 必須誠實列出尚未完成的驗收，不靠等待時間推定授權。
 - 編輯同檔的任務依序執行；只有 [P] 組可以同時工作。新測試預期失敗屬開發中 checkpoint，最終 gate 必須綠燈。
 

@@ -23,7 +23,8 @@ pytest tests/test_gemini_credentials.py tests/test_console.py tests/test_gemini_
 | env-only/UI-only/both/neither，加 reload/restart/clear | 來源遵循優先順序；env-only 不需 vault；不修改 .env |
 | 空白、取消、invalid auth、model eligibility、quota、timeout | 舊設定保留；錯誤分類正確；無暗中重試或 source fallback |
 | vault locked/write/readback/delete 失敗、journal 損壞或 commit 不明 | 不假裝缺失、不錯報成功；blocked 或原 active；停止狀態誠實 |
-| 每個 journal/vault 操作點模擬 crash 後重開 | pending 不升級；clearing 不 fallback；舊槽 cleanup 可追蹤 |
+| 每個 journal/vault 操作點模擬 crash 後重開 | pending 不升級；clearing 即使仍有 active ID 也先 blocked；舊槽 cleanup 可追蹤 |
+| preparing 有舊 active／無舊 managed | 前者只讀舊 active、失敗 blocked；後者保留原 env snapshot/none，不讀候選 |
 | 慢驗證後 clear、多分頁舊 revision、驗證中換 model/provider | 舊結果不能保存、覆蓋狀態或重啟；clear 不等雲端 timeout |
 | 兩 scope、同 scope 第二行程 | namespace 隔離；第二行程不取得管理權或偷換 env |
 | HF active／Gemini active／disconnected × update/clear/failure | HF session 不變；Gemini 新 session 或待手動重連；無舊音訊/工具重播 |
@@ -41,14 +42,15 @@ pytest tests/test_gemini_credentials.py tests/test_console.py tests/test_gemini_
 入口由實作提供，啟動前必須 fail closed 確認 fake 模式且阻擋外連，不能把假 key 交給日常 App。
 測試入口只保留於既有測試／ignored cache，不新增產品 mock 開關。
 
-1. 開啟該次入口顯示的 loopback URL，檢查 Gemini 區 password、來源與非連線混淆的狀態。
+1. 開啟該次入口顯示的 loopback 一般設定頁，確認 Gemini 區只有安全狀態與按鈕；按「開啟本機金鑰設定」另開 /settings/gemini-key，檢查空白 password、來源與非連線混淆的狀態。
 2. 完成新增、更新、取消、空白、確認清除，計數明確操作；reload/restart 仍不回填秘密。
-3. Tab/Enter/Esc、焦點、aria-live、窄視窗繁體換行正常；Control App 本機 iframe 可用。
-4. 遠端／relay-only 顯示本機限制；跨源頁面不能取得 token、改值或清除；一般 RPC 不受影響。
+3. 獨立頁 Tab/Enter/Esc、焦點、aria-live、窄視窗繁體換行正常；Control App 本機 iframe 內的一般設定仍可用，按鈕開啟頂層本機頁。
+4. 遠端／relay-only 一般設定仍可用且顯示本機金鑰管理限制；獨立頁拒絕所有 frame 與遠端導覽，沒有公開 static HTML alias；跨源頁面不能取得 token、改值或清除，一般 RPC 不受影響。
 5. 檢查開發工具 Network：只有專用 mutation request body 持有候選，無 key 回應/URL/cache；
    Local/Session Storage、歷史與逐字稿無秘密。不要將含秘密 request 的 HAR 匯出。
 
 這是人工驗收，未做前保持未完成。自動 HTTP fixture 不取代真實 WebView／browser 來源檢查。
+後續本機實作只依賴前置程式與必要離線自動測試，不依賴這些人工結果；未驗證的 UI／OS／live 項目分開追蹤，完整結案前仍須完成或取得明確範圍決定。
 
 ## 3. 各平台受保護保存（明確 opt-in）
 

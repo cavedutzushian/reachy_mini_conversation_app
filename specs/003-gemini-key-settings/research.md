@@ -32,7 +32,7 @@ CLI 多實例沿用既有 instance path override。scope 不可寫或無法確�
 候選值先驗證，寫新槽並讀回確認，最後原子 replace active 指標；舊槽在提交後清理。
 中途失敗不升級 pending。清除以持久化 clearing 意圖開始，所有已知槽確認刪除後才提交 cleared。
 損壞、已知槽缺失、locked、寫入或刪除結果不明均 fail closed，不假裝沒有 managed 來源。
-環境 key 保留獨立快照，refresh 不覆寫 managed 選擇，候選值永不寫入 global config。
+來源判斷先檢查 blocked/clearing，即使舊 active ID 還在也不讀取；preparing 無舊 managed 時保留原環境 snapshot/none，不能把已知槽讀取失敗當作 null。環境 key 保留獨立快照，refresh 不覆寫 managed 選擇，候選值永不寫入 global config。
 
 **Rationale**: vault API 與檔案系統沒有共同交易；直接覆寫會破壞「失敗保留原設定」。
 一般 settings_store 的錯誤 fallback 不適用秘密來源。versioned 槽須追蹤清理，不能留下不可見歷史。
@@ -54,8 +54,10 @@ Origin、Fetch Metadata、JSON 與記憶體 CSRF token 規則見契約。所有 
 此界線授權同一電腦的本機使用者，不新增帳號或遠端秘密傳輸。
 
 **Alternatives considered**: 通用 RPC mutation 缺來源保證；新增第二個服務或登入系統超出範圍。
-Control App iframe 若直接載入本機 HTTP 入口可使用；遠端 robot/relay-only 只顯示限制及實際本機入口，
-不得誤導使用者把筆電 localhost 當遠端 robot localhost。後者須在 App 所在電腦操作。
+本輪使用者選 A：一般設定頁在 Control App iframe／既有遠端入口維持可用，只顯示安全狀態與本機頁面入口。
+輸入一律另開 GET /settings/gemini-key 頂層頁，拒絕所有 frame，不對一般頁施加此限制；同一 settings_app，不新增服務。
+遠端 robot/relay-only 提示須在 App 所在電腦開啟，不得誤導使用者把筆電 localhost 當遠端 robot localhost。
+保留一般頁並將受保護 HTML 放非公開 templates/，避免 static alias 繞過頁面存取／frame 保護。
 
 本機證據：`console.py` 的 `_init_settings_ui_if_needed`、`backend.config` allowlist；
 安裝 SDK `reachy_mini/apps/jsonrpc_server.py` 的公開 handler/mount；不修改 SDK。
