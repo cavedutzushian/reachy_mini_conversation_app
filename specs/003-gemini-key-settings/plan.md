@@ -2,141 +2,74 @@
 
 **Branch**: `feat/003-gemini-key-settings` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
 
-**Input**: `specs/003-gemini-key-settings/spec.md`，2026-11-03 使用者改為原設定頁直接管理金鑰、不額外開頁。本輪只規劃；既有任務與驗收結果屬獨立頁基線，不代表同頁方案完成。
-
 ## Summary
 
-一般 Gemini 設定區直接提供遮蔽輸入、「驗證並套用」、取消、確認清除及安全狀態，不另開頁面。金鑰操作不隨一般設定表單儲存，已保存的值永不回填。
-設定頁來源優先；成功清除後可回到環境來源，但 Gemini 必須等待手動重連。
-候選值以獨立、無使用者內容的 Live setup 驗證，再透過系統憑證庫保存，最後提交生效指標。
-Hugging Face 維持預設，使用中不受這些操作影響。
-
-## 同頁修訂與實作閘門
-
-**狀態：設計草案，尚未通過安全設計閘門。** 同頁 UI 流程已明確；原生 Control App 的可信內嵌來源／能力尚無實測證據，不能宣稱 Phase 0 已全部解決或開始放行內嵌秘密操作。
-
-1. 先觀察 Control App 實際載入的父層／祖先來源、WebView 的 Origin／Fetch Metadata 與同源 HTTP 行為，不讀金鑰。確認能否在不修改 SDK 內部的前提下，可靠區分可信本機內嵌與不受信任 frame。
-2. 直接本機頂層設定頁可使用同頁控制；可信 Control App frame 必須有明確且可測試的放行機制。未知、opaque/null、缺失或不支援的來源維持只讀；localhost、自稱可信的前端布林或通用 nonce 均不能單獨作證。
-3. 通過閘門後，在 `views/settings.js` Gemini 區掛載控制，整理 `gemini-key.js` 為可掛載／卸載的控制邏輯，沿用 `api.js` 專用 HTTP transport。切頁、離開、提交、清除及取消均清空草稿；卸載時取消狀態輪詢及清除記憶體 token，後端已提交操作不能被前端卸載假稱取消。
-4. 保留現有 vault、journal、revision、候選驗證及唯一 session owner。專用 API 維持 loopback、精確 Host/port、拒絕轉送、同源 Origin／Fetch Metadata、CSRF、16 KiB、no-store，不改走 RPC/relay，不新增依賴或登入服務。
-5. 在移除獨立頁的路由、template 與打包項目之前，先確認同頁替代邊界及回歸通過。最終舊 `/settings/gemini-key` 不再提供輸入介面或另一個秘密入口；無需憑證 schema／既有金鑰搬移。更新 README 與架構來源，必要時重生 SVG。
-6. 下一輪先補足來源證據並完成安全契約，再以 `$speckit-tasks` 產生同頁差異任務、`$speckit-analyze` 檢查一致性後實作。若公開 SDK／WebView 無法提供所需能力，列明限制並回到範圍決策，不放寬未知內嵌或遠端管理。
-
-本次不產生 UI 成功驗收，不重跑已豁免的 macOS／Linux 實測。以下原始分期與檔案清單保留為基線設計；涉及「獨立頁」部分由本節取代，其餘後端政策沿用。
+在原設定頁 Gemini 區直接提供遮蔽欄位、驗證並套用、取消、確認清除與安全狀態，不另開頁面。金鑰操作不隨一般設定儲存，不回填已存金鑰。
+沿用已實作的專用 HTTP、受保護憑證庫、來源 resolver、revision 與唯一 session owner；HF 維持預設，更新／清除的對話政策不變。
 
 ## Technical Context
 
-**Language/Version**: Python 3.12；既有原生 JavaScript ES modules、HTML/CSS。
+**Language/Version**: Python 3.12、既有 JavaScript ES modules／HTML／CSS。
+**Dependencies**: 沿用 Reachy Mini SDK 公開 API、FastAPI、websockets、platformdirs、已鎖定的 keyring 25.7.0；本修訂無新依賴、環境變數、登入服務或 SDK 修改。
+**Storage**: 既有 OS vault 與非秘密 journal 不變；無憑證搬移、schema 升級或明文 fallback，保留 .env 相容來源。
+**Target Platform**: 本機瀏覽器及具備所需能力的 Windows Control App 內嵌。其他平台保留相同直接本機設定頁及環境來源；不能驗證的 frame 只讀，不以 UA 或平台名稱放行。macOS／Linux 剩餘實測依使用者決定豁免。
+**Testing**: 現有 pytest 故障／來源／對話矩陣；隔離瀏覽器測試 UI 及祖先鏈，原生 Control App 驗收獨立追蹤。不新增前端測試框架。
+**Performance/Scope**: 每次掛載一份 controller 與輪詢，不中斷 HF；既有候選驗證時限及 Gemini fresh session／manual reconnect 政策不變。
 
-**Primary Dependencies**: 沿用 Reachy Mini SDK 公開 API、FastAPI/Starlette、websockets、platformdirs。
-計畫新增唯一直接依賴 `keyring>=25.7,<26`；已於規劃時告知使用者，實作時執行 `uv lock`。
-不加入 Google SDK、前端框架、登入系統或其他 provider。
+## Phase 0 — Evidence and authority decision
 
-**Storage**: 金鑰只進允許的 OS 憑證 backend；獨立 `gemini-credential.json` 僅存非秘密交易 metadata。
-沿用 `.env`／啟動環境作相容來源，不修改它們。不同 App 實例及 OS 使用者分開保存。
+研究詳見 [research.md](research.md)。本機執行檔版本 0.9.32；官方對應 commit 的 iframe 與 Tauri 設定支持 Windows release 父層預期來源 `http://tauri.localhost`。這是源碼推論，不是本機 WebView 執行結果。
 
-**Testing**: pytest 注入 fake vault、假 Gemini WebSocket、暫存實例；現有 console、settings、Gemini、session 測試擴充。
-前端沿用既有測試方式及人工瀏覽器檢查，不新增 DOM 測試依賴。
+**設計閘門：通過，可進入差異任務拆解。** 採瀏覽器提供的完整祖先來源鏈作 UI 反 clickjacking 邊界，配合既有 HTTP 防護；不聲稱伺服器驗證祖先或辨識具名／簽章程序。實際 WebView 的值及能力屬實作驗收條件；不符時有確定的只讀行為，不是待決的授權方案。
 
-**Target Platform**: Windows Credential Manager、macOS Keychain、Linux Secret Service；
-未提供可用受保護儲存的部署拒絕 UI 保存，env-only 仍可運作。
+### UI eligibility
 
-**Project Type**: Reachy Mini SDK 上的本機語音應用，既有設定頁加專用 HTTP 路由。
+1. 預設只顯示非秘密狀態；不建立 password／mutation 控制，不取得管理 token。
+2. 自身必須是直接本機 HTTP 設定頁：hostname 精確為 localhost、127.0.0.1 或 [::1]，pathname 精確為 / 或 /static/index.html。API 的精確 Host／port 檢查仍是必要條件。embedded、theme、referrer、UA、查詢參數均不是授權。
+3. `window.top === window` 才視為頂層。若內嵌，讀取瀏覽器原生 `location.ancestorOrigins`，要求可用、非空，且每一項完整序列化 origin 精確屬於 `{location.origin, "http://tauri.localhost"}`；不做 hostname、suffix、正規表示式或任意 loopback port 放行。
+4. 任一 null、空值、未知來源、讀取錯誤、能力缺失或內嵌時空列表均只讀。完整鏈避免可信直接 parent 外還有惡意 grandparent；被 referrer policy 遮蔽的來源也拒絕。不增加 devUrl localhost:1420、https 變體或 tauri:// 變體，未來需有證據及獨立測試才擴充。
+5. 掛載、bootstrap、每次 mutation 前重新判定。eligibility 通過且專用 API bootstrap 成功才建立可輸入控制；bootstrap 失敗不保留欄位或 token。不得使用 postMessage／RPC／父頁宣稱的布林或 X-Ancestor-Trusted header 替代判斷。
 
-**Performance Goals**: 非阻塞既有 HF 音訊迴圈；驗證沿用既有 setup/close 時限，沒有隱藏重試。
-新 clear 意圖立即退休舊驗證並停止 Gemini，不等待雲端驗證逾時。OS 儲存呼叫移出事件迴圈，不能假設取消執行緒即取消寫入。
+`http://tauri.localhost` 為 Tauri 容器來源，非 Reachy 專屬程序身分。本方案依賴瀏覽器 SOP／原生來源資料；與既有邊界一致，不承諾防同源 XSS、同 OS 帳號惡意程式、擴充套件或 dump。一般頁維持原內嵌／遠端操作，只有金鑰 controller 受上述條件限制，不對整頁新增全面 frame 禁止。
 
-**Constraints**: 無明文 fallback、無秘密查詢、無自動 provider/source fallback、無工具或媒體驗證。
-本機受信任 OS 使用者是信任邊界；不承諾防止同帳號惡意程式、瀏覽器擴充或 OS dump 取密。
+### Server authority
 
-**Scale/Scope**: 每實例一個生效 Gemini 憑證、多個設定分頁、單一憑證管理行程；不新增跨裝置管理。
+專用 API 繼續要求實際 loopback peer、精確 Host/port、拒絕 Forwarded/X-Forwarded-*、同源 Origin／Fetch Metadata、JSON、記憶體 CSRF、16 KiB 及 no-store。無 CORS、SDK RPC 或 relay 秘密入口。UI eligibility 是可信 App 程式的瀏覽器防線，不是新 server 認證；不送祖先宣稱作授權。無法區分的轉送部署不得暴露秘密路由。
+
+## Phase 1 — Controller and delivery design
+
+### Files and ownership
+
+- `static/js/views/settings.js`：原 Gemini 區掛載安全狀態與 controller，移除外開按鈕，不將 key 加入一般設定表單。
+- `static/js/gemini-key.js`：由 document 全域初始化改為有生命週期的掛載函式，持有 draft、CSRF、operation 顯示、監聽及輪詢；沿用既有錯誤訊息與確認對話框。
+- `static/js/api.js`：沿用專用 HTTP transport；必要時接收 AbortSignal，取消前端等待不表示後端操作已取消，也不自動重送。
+- `console.py`：保留 API 的授權／交易／安全狀態；移除舊獨立頁 handler，舊 GET /settings/gemini-key 回 404，不 redirect、不保留另一輸入介面。一般根頁及 RPC 不新增限制。
+- `templates/gemini-key.html`：controller 整合完成及回歸通過後刪除；確認 wheel 不再含舊 template／static alias。新控制重用 style.css 與現有 modal，不新增 UI 框架。
+- 根 README、docs/scheme.mmd：同步同頁操作與來源限制，必要時重新產生 SVG，不能手改生成圖。
+
+### Lifecycle and races
+
+掛載時先判定 eligibility，再 bootstrap；成功後顯示同頁控制。每次掛載有本地 generation，忽略上一掛載的遲到回覆；仍沿用 server owner_epoch／revision 的新舊判定。
+提交、取消、清除、切換設定子頁、卸載及 pagehide 清空 draft；卸載移除監聽、停止輪詢、釋放 CSRF 與候選引用。pageshow（包含 BFCache）重新判定與 bootstrap，不恢復草稿或重送。短暫 UI 取消／離開不取消伺服器已開始的驗證或保存，返回時只重新查狀態。
+一般設定儲存不提交金鑰；按一次驗證並套用才變更候選，清除加確認兩步；明確 retry 仍沿用既有對話 API。eligibility 在操作前不再通過時立即卸載秘密控制、清 token，不送 mutation。
+
+### Backend invariants
+
+既有受保護保存／來源優先／清理與結果不明政策全部保留。HF 不重啟；active Gemini 更新成功為 fresh session，失敗保留原設定並如實顯示連線，clear 後等待手動恢復。單獨驗證不送媒體／人格／記憶／工具，key 不進一般設定、RPC、日誌、逐字稿或 browser storage。
 
 ## Constitution Check
 
-下表為原獨立頁基線的設計檢查；本次同頁修訂尚未通過上方可信內嵌安全閘門，不能沿用其 Phase 1「通過」狀態宣告新方案可實作。SDK 相容、無新增依賴、非秘密資料與後端交易等既有原則繼續適用。
-
-| 閘門 | Phase 0 前 | Phase 1 後 |
-|---|---|---|
-| SDK 公開 API；共享 realtime 行為留在 huggingface_realtime.py | 通過：讀取現有模組及 CONTRIBUTING | 通過：SDK 不修改，LocalStream 繼續單獨擁有重試；共用 session fencing 重用既有路徑 |
-| 單一功能、型別及最小改動 | 通過 | 通過：一個憑證儲存模組，不引入一般 secrets framework；無新 Any/cast/ignore |
-| 安全錯誤與日誌 | 通過 | 通過：固定錯誤碼，禁止原始 request/header/exception body；失敗仍記錄安全分類 |
-| 必要測試及完整 gate | 通過：計畫不改產品 | 通過：離線故障矩陣、前端與各 OS opt-in 驗收、完整 gate 已列入 quickstart |
-| 個人客製化與人工審查 | 通過：使用者已授權個人客製化 | 通過：不建立上游 PR；若日後投稿仍需 Issue、維護者同意及人工審查 |
-| Python 3.12、跨平台及依賴 | 通過 | 通過：keyring 已標示；各 OS 不可用時有明確降級，實作同步 uv.lock |
-| 文件及受保護檔案 | 通過 | 通過：實作更新根 README；標記架構圖需更新；不修改 CI／貢獻文件／PR 範本 |
-
-本輪只完成設計與文件檢查，未執行產品 gate、實際憑證庫或雲端驗收，不沿用舊功能結果宣稱通過。
-
-## Project Structure
-
-### Documentation (this feature)
-
-```text
-specs/003-gemini-key-settings/
-├── spec.md
-├── checklists/requirements.md
-├── plan.md
-├── research.md
-├── data-model.md
-├── quickstart.md
-└── contracts/credential-settings.md
-```
-
-`tasks.md` 由下一步 `$speckit-tasks` 產生。
-
-### Source Code (repository root; planned changes)
-
-```text
-src/reachy_mini_conversation_app/
-├── gemini_credentials.py          # 新增：受保護儲存、來源解析、交易與安全狀態
-├── config.py                      # 環境來源與生效來源分離
-├── main.py                        # 提供穩定 credential scope、初始化及釋放
-├── console.py                     # 專用頁面／HTTP、操作協調及 manual-reconnect gate
-├── templates/gemini-key.html      # 新增：僅由受保護路由送出的 HTML，非公開 static alias
-├── gemini_realtime.py             # 候選 setup 驗證、正式 handler 使用憑證快照
-├── huggingface_realtime.py        # 必要共用 session fencing；不複製語音迴圈
-└── static/js/
-    ├── api.js                    # 專用 HTTP transport；不走通用 RPC
-    ├── gemini-key.js             # 新增：獨立頁面的輸入、清除及操作結果
-    └── views/settings.js         # 安全狀態、開啟本機頁面按鈕及遠端提示
- tests/
-├── test_gemini_credentials.py    # 新增：來源、持久化、復原及隔離
-├── test_console.py
-├── test_gemini_realtime.py
-└── test_settings_store.py
-```
-
-**Structure Decision**: 沿用既有應用與 tests 鏡像，不建立第二個服務。
-`settings_store.py` 的一般設定不保存秘密，亦不借用其「讀取錯誤視為空設定」行為。
-
-## Phase 0 — Research decisions
-
-見 [research.md](research.md)：基線的 Linux 無 vault、CLI scope、本機 HTTP、候選驗證、交易 crash windows 與多行程排他已決定；同頁 Control App 可信內嵌機制仍待研究閘門，不沿用基線的「全部已解決」判定。
-
-## Phase 1 — Design and delivery boundaries
-
-1. 先建立非秘密狀態及受保護儲存交易，來源解析先判斷 blocked/clearing，再考慮舊 active；preparing 無舊 managed 時保留原 env snapshot/none。證明 env-only 不依賴 vault，故障不會偷偷換來源。
-2. 再加入獨立候選驗證及唯一 owner 協調，確保 clear、遲到結果、設定變更不會重啟舊 session。
-3. 加入受限專用 HTTP 契約及 GET /settings/gemini-key 獨立頁面，後者禁止任何 frame 嵌入；不對一般根設定頁新增 frame 限制。HTML 放 templates/ 並確認 wheel 包含，不建立可繞過保護的 static alias。`backend.config` 繼續拒絕 key 參數。
-4. 完成 [quickstart.md](quickstart.md) 的離線、安全及實際儲存驗收；live 驗收另行取得當輪同意。故事後續開發只依賴前置實作與必要自動測試，人工畫面／平台／服務驗收分開追蹤，待驗不阻擋無關本機開發，也不等於結案。
-
-實作同步根 `README.md`：保存範圍、來源優先、清除非撤銷、本機入口、Linux 前提及失敗恢復。
-此功能增加憑證資料流，需更新 `docs/scheme.mmd` 並重新產生 SVG；不可手改 SVG。
-不新增環境變數，沿用 `GEMINI_API_KEY` 及 `REACHY_MINI_INSTANCE_PATH`；若實作確需新變數，須同步 `.env.example` 並先檢視範圍。
-
-## Requirement coverage
-
-| 規格 | 設計與驗收 |
+| 原則 | 設計結果 |
 |---|---|
-| FR-001、FR-002、FR-007；SC-001 | 契約 UI、三次操作限制、空白與取消、鍵盤及欄位清空 |
-| FR-003；SC-002 | 分離 presence/source/validation/connection，revision 衝突與無秘密快照 |
-| FR-004、FR-012；SC-002 | 專用 HTTP、本機限制、CSRF、無回填、固定錯誤及洩漏測試 |
-| FR-005、FR-006；SC-003 | OS allowlist、metadata journal、四種來源、重啟及讀取失敗測試 |
-| FR-008、FR-009、FR-011；SC-004 | HF 不動、Gemini gate、fresh session、clear 錯誤及手動重連 |
-| FR-010；SC-005 | auth／eligibility／quota／network／storage 分類及原設定保留 |
-| FR-013、FR-014 | 最小 setup、不載入使用者內容、不建立 robot/audio/tool 依賴的驗證測試 |
+| SDK 相容與既有架構 | 通過：不修改 SDK、共享 realtime 留原處，重用現有 API／session owner |
+| 最小改動、型別與重用 | 通過：整理既有 controller、刪舊頁，無新 framework／secrets 系統 |
+| 錯誤與機密邊界 | 通過：保留固定安全錯誤，未知來源只讀，無祖先宣稱型認證 |
+| 必要驗證 | 通過：quickstart 已列離線、攻擊與原生驗收；設計通過不等於產品實測通過 |
+| Python／跨平台／依賴 | 通過：Python 3.12、無新依賴，能力缺失有只讀行為，非 Windows 可用直接本機設定頁 |
+| 文件與人工審查 | 通過：同步根文件／架構來源；不改 CI／CONTRIBUTING／PR template，不自動開 PR |
 
-## Complexity Tracking
+## Validation and handoff
 
-沒有未豁免的憲章違反。版本化 vault 槽與非秘密 journal 是為了避免直接覆寫舊秘密造成無法回復；
-本機專用 HTTP 是既有 RPC 缺少 Request 授權來源資訊所需的最小邊界。
+[contracts/credential-settings.md](contracts/credential-settings.md) 為現行同頁契約；[data-model.md](data-model.md) 定義 runtime eligibility／生命週期與既有交易。[quickstart.md](quickstart.md) 定義驗收與歷史證據。
+Phase 0 的五項 Chrome 來源鏈研究測試通過；原生 Control App、正式 controller 與舊頁移除尚未實作／驗收。本輪不讀 key、不啟動對話、不重跑產品 gate。
+下一步 `$speckit-tasks` 產生同頁差異任務，再 `$speckit-analyze`。原 tasks.md 41／44 是獨立頁基線，不可直接沿用為同頁完成狀態；重新規劃的工作須保持未完成，既有平台豁免與歷史證據保留。

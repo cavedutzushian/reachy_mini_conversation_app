@@ -1,100 +1,73 @@
-# Quickstart: Gemini 設定頁憑證驗收
+# Quickstart: 同頁 Gemini 憑證設定驗收
 
-## 2026-11-03 同頁方案待驗清單
+本指南前半為同頁實作後的目標驗收，尚未宣稱產品已完成；後半保留原獨立頁基線證據。採 Python 3.12、假 key、fake vault／假 Gemini endpoint、隔離 scope，不讀日常 .env／憑證、不連 robot／雲端。設計細節見 plan.md 與 contracts/credential-settings.md。
 
-使用者改要求整合回原設定頁、不額外開頁。本節為新方案目標；以下原獨立頁步驟與結果保留為基線，不代表同頁輸入通過。
+## 1. 研究結果與可重現 spike
 
-1. 不輸入真實金鑰，先取得直接本機頂層頁與 Control App 內嵌的祖先來源、Origin／Fetch Metadata 能力證據；未通過 plan.md 的可信內嵌研究閘門，不放行 frame 秘密操作。
-2. 在通過授權的同頁 Gemini 區完成輸入、取消、空白、驗證失敗、成功更新及清除確認；確認沒有 popup／新頁，未改一般設定或 HF session。
-3. 模擬切換子頁、返回、reload、操作中離開與重新進入；欄位空白、token 重新取得、無重複輪詢／自動重送或舊結果覆蓋。以假值檢查日誌、錯誤、歷史、URL 及 browser storage 無洩漏。
-4. 對遠端、relay、未知／opaque frame、惡意跨站及缺失祖先資訊，確認金鑰區只讀、沒有 token 或 mutation，一般設定仍可操作。不能用「API 同源」代替可信嵌入證據。
-5. 複驗同頁鍵盤、焦點、Esc、繁體中文與窄視窗；移除舊獨立頁後確認沒有 static alias／第二秘密入口，再跑完整 gate。macOS／Linux 剩餘實測沿用已確認豁免，真實服務／語音測試仍需另外授權。
+本機 Control App 執行檔版本 0.9.32；官方對應源碼與 Tauri 設定支持 Windows release parent 預期 http://tauri.localhost，仍待原生 runtime 驗收。以下研究測試已執行，不代表正式 controller 通過：
 
-本指南含實作驗證方式與本輪證據；程式已完成本機驗證，尚待跨環境及實際對話驗收。未執行項目不能由命令預期結果推定通過。
-Python 3.12，依根 README 建立開發環境。預設所有測試使用 fake vault 與假 Gemini endpoint，
-不讀日常 `.env`、OS 使用者憑證庫或真實登入快取，不連 robot，不啟用相機／記憶。
-
-## 1. 離線自動驗證
-
-實作需提供 `tests/test_gemini_credentials.py`；測試以 tmp_path 與 dependency injection 隔離檔案、
-環境來源、OS lock/vault 及 Live socket，並拒絕未預期外連。不要靠 `keyring.get_keyring()` 選測試 backend。
-
-venv 啟用後執行（PowerShell／POSIX shell 均可逐行）：
-
-```text
-python --version
-pytest tests/test_gemini_credentials.py tests/test_console.py tests/test_gemini_realtime.py tests/test_settings_store.py -v
+```powershell
+node cache/003-gemini-key-settings/ancestor_research.mjs
 ```
 
-必要結果：
+此 ignored harness 只啟動短暫 loopback 假頁及獨立 headless Chrome，結束關閉 browser／server；五項 PASS：頂層、可信 parent、惡意 parent、惡意 grandparent、opaque parent。Chrome／Puppeteer 是既有工具 cache，不是新產品依賴，cache 可能不隨 checkout 存在。正式回歸須由實作任務保存可重現測試，不把此研究 harness 當交付測試套件。
 
-| 情境 | 預期 |
+## 2. 離線自動驗證（實作後）
+
+```powershell
+$env:REACHY_MINI_SKIP_DOTENV = '1'
+$env:PYTHONUTF8 = '1'
+cache/verify-python312/Scripts/python.exe -m pytest tests/test_gemini_credentials.py tests/test_console.py tests/test_gemini_realtime.py tests/test_settings_store.py -v
+```
+
+依 spec.md 測四種來源 × reload／clear／restart、vault 與 journal 故障、更新／清除競態、HF 不動、Gemini fresh session／manual gate。上述既有回歸保留；新 UI 還須檢查：
+
+| 情境 | 同頁預期 |
 |---|---|
-| env-only/UI-only/both/neither，加 reload/restart/clear | 來源遵循優先順序；env-only 不需 vault；不修改 .env |
-| 空白、取消、invalid auth、model eligibility、quota、timeout | 舊設定保留；錯誤分類正確；無暗中重試或 source fallback |
-| vault locked/write/readback/delete 失敗、journal 損壞或 commit 不明 | 不假裝缺失、不錯報成功；blocked 或原 active；停止狀態誠實 |
-| 每個 journal/vault 操作點模擬 crash 後重開 | pending 不升級；clearing 即使仍有 active ID 也先 blocked；舊槽 cleanup 可追蹤 |
-| preparing 有舊 active／無舊 managed | 前者只讀舊 active、失敗 blocked；後者保留原 env snapshot/none，不讀候選 |
-| 慢驗證後 clear、多分頁舊 revision、驗證中換 model/provider | 舊結果不能保存、覆蓋狀態或重啟；clear 不等雲端 timeout |
-| 兩 scope、同 scope 第二行程 | namespace 隔離；第二行程不取得管理權或偷換 env |
-| HF active／Gemini active／disconnected × update/clear/failure | HF session 不變；Gemini 新 session 或待手動重連；無舊音訊/工具重播 |
-| silent setup | 僅 model/必要 speech config；無 user turn、personality/memory/tool/resumption/media |
-| 惡意 Origin/Host、LAN peer、forwarded headers、缺 token、SDK RPC key | 拒絕；舊正常設定仍可運作；無 key echo |
+| 直接本機頂層、可信完整內嵌鏈 | bootstrap 成功才建立空白遮蔽欄位；提交一次、清除加確認兩次，不開新頁 |
+| 惡意 parent／grandparent、null／未知來源、嵌入時空鏈、API 缺失／讀取錯誤 | 無 password DOM、token fetch 或秘密 mutation；一般設定與安全狀態可用 |
+| no-referrer、opaque sandbox、遠端／relay、非 loopback 自身網址、dev origin | 不以缺失資訊或自報參數放行；若來源被遮蔽為 null 則只讀 |
+| 切頁、取消、pagehide、返回／pageshow／BFCache、bootstrap 中離開 | draft／token 清空，監聽與輪詢釋放，新 generation 不受舊回覆污染；不重送候選 |
+| 一般設定儲存、RPC／postMessage 自稱可信 | 一般設定不帶 key；無 RPC／parent token 通道；既有 HTTP 拒絕不減少 |
+| 舊路由／打包 | GET /settings/gemini-key 404、無 redirect、無 template/static alias；根設定頁仍 200 可內嵌 |
 
-用假的可辨識 sentinel 作候選（不用真 key），擷取 request validation error、狀態查詢、所有 log level、
-逐字稿、settings.json、journal、URL 與瀏覽器持久儲存；六類操作 input/update/clear/failure/reload/restart
-均不得出現 sentinel 或可辨識片段。fake vault 的 secret 欄位及必要 transport/body 記憶體不算洩漏。
-檢查 redacted request/error repr、websockets DEBUG 與不合法欄位驗證路徑；不是只測正常結果。
+用假 sentinel 擷取六類操作的 log、狀態／錯誤、逐字稿、一般設定、journal、URL 及 browser storage，不得有 key 或片段。fake vault 與必要 request body 記憶體不算洩漏；不匯出含候選的 HAR。
 
-## 2. 本機瀏覽器（先模擬）
+## 3. 同頁畫面與原生 Control App
 
-使用 console 測試相同的 fake backend/vault 與臨時 scope，另以隔離測試入口啟動既有 settings_app；
-入口由實作提供，啟動前必須 fail closed 確認 fake 模式且阻擋外連，不能把假 key 交給日常 App。
-測試入口只保留於既有測試／ignored cache，不新增產品 mock 開關。
+實作時更新既有 cache/003-gemini-key-settings/settings_trial.py 為同頁 fake fixture，保留 fake 依賴、隔離 scope 及阻擋外連；目前舊 harness 仍是獨立頁基線，不能拿它宣告同頁通過。
 
-1. 開啟該次入口顯示的 loopback 一般設定頁，確認 Gemini 區只有安全狀態與按鈕；按「開啟本機金鑰設定」另開 /settings/gemini-key，檢查空白 password、來源與非連線混淆的狀態。
-2. 完成新增、更新、取消、空白、確認清除，計數明確操作；reload/restart 仍不回填秘密。
-3. 獨立頁 Tab/Enter/Esc、焦點、aria-live、窄視窗繁體換行正常；Control App 本機 iframe 內的一般設定仍可用，按鈕開啟頂層本機頁。
-4. 遠端／relay-only 一般設定仍可用且顯示本機金鑰管理限制；獨立頁拒絕所有 frame 與遠端導覽，沒有公開 static HTML alias；跨源頁面不能取得 token、改值或清除，一般 RPC 不受影響。
-5. 檢查開發工具 Network：只有專用 mutation request body 持有候選，無 key 回應/URL/cache；
-   Local/Session Storage、歷史與逐字稿無秘密。不要將含秘密 request 的 HAR 匯出。
+```powershell
+$env:PYTHONUTF8 = '1'
+cache/verify-python312/Scripts/python.exe cache/003-gemini-key-settings/settings_trial.py
+```
 
-這是人工驗收，未做前保持未完成。自動 HTTP fixture 不取代真實 WebView／browser 來源檢查。
-後續本機實作只依賴前置程式與必要離線自動測試，不依賴這些人工結果；未驗證的 UI／OS／live 項目分開追蹤，完整結案前仍須完成或取得明確範圍決定。
+1. 在 fixture 印出的根設定頁 Gemini 區，只用 offline-first／offline-second／offline-invalid 完成新增、更新、失敗、取消、空白、確認清除、reload；全程不開 popup／另一頁，不回填值。
+2. Tab／Enter／Esc、焦點、aria-live、繁體換行與窄視窗正常；一般設定儲存不提交 key。驗證中離開再返回，只查結果、不重送。
+3. 模擬可信及惡意全祖先鏈、缺能力與 null；確認拒絕時連 token bootstrap 都不送，不僅是按鈕停用；跨站直接 HTTP mutation 仍遭後端拒絕。
+4. 原生 Control App 必須另外取得當輪啟動／實機同意，相機及記憶維持關閉。使用者確認原頁直接出現空白遮蔽欄位、操作不用開窗。檢查實際祖先鏈、Origin／Fetch Metadata 與能力；符合精確 allowlist 才啟用，不符只讀並保留未通過結果。
+5. 不靠「版本 0.9.32」或「是 WebView2」放行；未知 Runtime／來源不得放寬設定。Chrome 模擬及源碼推論不等於原生驗收。
 
-## 3. 各平台受保護保存（明確 opt-in）
+## 4. 平台與真實服務範圍
 
-取得使用者當輪同意後，使用獨立 scope 及唯一測試 namespace，僅操作該 namespace：
-Windows 本機 Credential Manager、macOS 已解鎖 Keychain、Linux 有 D-Bus/Secret Service 的使用者 session。
-先用非真實 sentinel 做跨行程保存/讀回/刪除，再檢查 locked/unavailable 情境；不列出或讀取日常條目。
-預期重啟仍保存、不同 scope 不互讀、clear 後所有已知測試槽皆刪除。
-完成後刪除 fixture、恢復原設定並記錄平台；未執行的 OS 不可宣稱通過。
-無 Secret Service 的 Linux 必須清楚拒絕保存，但 env-only fixture 仍能解析來源。
+保留已完成 Windows vault 與既有 Linux 不可用證據；使用者已明確豁免 macOS／Linux 剩餘實測，不重新要求或記為通過。原生驗收、真實 key／免費額度、HF/Gemini 語音矩陣仍須另外授權；沒有授權先用假值與無音訊模擬。真實 key 只由使用者在已允許的同頁輸入，不貼聊天或命令列，完成後清理隔離測試槽。
+更新／清除／驗證失敗的三種連線狀態矩陣與既有後端政策不變。未做範圍分開記錄，不沿用上一頁型態或前兩個功能的結果宣告通過。
 
-## 4. 真實 Gemini／對話驗收（另行授權）
-
-不沿用舊功能的真實金鑰／機器人測試授權。需要當輪同意、可用額度與測試範圍。
-先在獨立 scope 透過 UI 輸入使用者持有的 key；不得請使用者貼進聊天或 shell 命令。
-驗證只做最小 setup；確認無問候／工具／音訊／照片／使用者內容送出。
-之後如同意對話測試，依契約做 active Gemini update/clear/fail 與 active HF 管理；
-核對新對話、手動重連、無雙重回覆及設定未變，最後清除該 scope 的測試 key。
-保留不含秘密的時間、錯誤分類與現場回報；不能把真實服務失敗改報通過。
-
-## 5. 完整 gate 與文件
+## 5. 完整 gate（實作後）
 
 ```text
 ruff check . --fix
 ruff format .
 mypy --pretty --show-error-codes
 pytest tests/ -v
-uv lock --check
+uv lock --check --offline
 ```
 
-實作加入依賴時先 `uv lock`，不要在本輪規劃修改 lock。
-自審根 README、架構來源與重新產生的 SVG、無秘密 diff；不修改 CONTRIBUTING/CI/PR 範本。
-記錄自動 gate、UI、OS vault、雲端／實機結果的實際範圍；人工驗收未完成要明列，不以舊功能結果補足。
+更新根 README、必要架構來源與 wheel 檢查；驗收證據區分源碼研究、離線模擬、原生、vault 與 live，不把預期結果當實測。本輪只更新設計，沒有執行產品 gate 或金鑰操作。
 
-## Implementation evidence — 2026-11-03
+## 原獨立頁基線證據（歷史記錄）— 2026-11-03
+
+以下依當時實作與決策保留，包含曾未解決的研究閘門；最新同頁設計以 plan.md、research.md 及本指南前五節為準，不將歷史 UI 成功或研究限制當成現行結論。
 
 T001：分支 feat/003-gemini-key-settings、Python 3.12.12、初始工作目錄乾淨。
 Ruff check／format check 通過（119 files），strict mypy 通過（55 source files），uv lock --check --offline 通過（131 packages）。

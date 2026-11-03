@@ -1,12 +1,19 @@
 # Data Model: Gemini 憑證設定
 
-## 2026-11-03 同頁生命週期修訂
+## 同頁 controller runtime（不持久化）
 
+| 欄位／狀態 | 規則 |
+|---|---|
+| eligibility | readonly / eligible；依 plan.md 的自身位置與原生完整祖先鏈，每次掛載／bootstrap／mutation 重算，非可寫設定或 server 認證 |
+| phase | readonly / bootstrapping / ready / pending / error / disposed；只有 eligible 且 bootstrap 成功才建立輸入控制 |
+| mount_generation | 每次掛載或恢復增加，用於丟棄已卸載控制的遲到回覆，不取代 server revision／owner_epoch |
+| draft | 僅當次輸入記憶體；不回填、不序列化或記錄，提交／取消／清除／離開／卸載清空 |
+| csrf_token | 同頁 bootstrap 取得，僅留本次 controller；卸載／pagehide 釋放，不傳 parent／RPC／browser storage |
+| listeners / poll / request wait | controller 唯一擁有；卸載全部停止或解除，前端停止等待不代表 server 操作取消 |
+
+頂層判定用 top===window，不以空鏈推定。frame 的祖先鏈須可用、非空且每項精確符合當前 App origin 或 http://tauri.localhost；null／未知／缺失只讀。只在短暫判定時讀取鏈，不寫入設定、公開狀態或日誌。
+readonly 不建立 password DOM 或取得 token；eligible → bootstrap 成功 → ready。失去 eligibility 或卸載 → 清引用並 disposed；pageshow／返回以新 generation 再判定、bootstrap，只查既有結果，不重送候選。
 既有 persisted metadata、vault namespace、source resolver 及 operation 不變，不搬移已保存金鑰。
-同頁控制掛載於設定頁；draft、CSRF token、輪詢及當次 operation 狀態只存在該次掛載的記憶體。
-提交、取消、清除、切換設定子頁、卸載及離開頁面均清空 draft；卸載釋放 token、監聽與輪詢。
-卸載不代表後端操作被取消，重新掛載須重新 bootstrap 安全狀態，不重送候選。
-金鑰區能否管理取決於待定的可驗證本機入口機制；不是可寫入 settings.json 的可信布林，也不把 token 經一般 RPC 發送。
 
 ## Persisted credential metadata（非秘密）
 

@@ -1,16 +1,24 @@
 # Research: 設定頁 Gemini 憑證
 
-## 2026-11-03 同頁修訂研究
+## 2026-11-03 同頁修訂研究（設計已決定）
 
-**Decision**: 遵循使用者新要求，在原 Gemini 設定區管理金鑰，不依賴 popup；保留專用 HTTP 與既有儲存／交易，不走一般 RPC 或 relay。下方原第 3 節的獨立頁選擇為已被取代的基線。
+**Decision**: 原 Gemini 設定區直接管理金鑰；以瀏覽器完整祖先來源鏈限制 controller，保留專用 HTTP 與既有儲存／交易，不依賴 popup，不經 RPC／relay 傳密。不新增依賴或 SDK patch。
 
-**Rationale**: 使用者實測 Control App 的另開連結無反應。一般設定頁允許內嵌，將秘密欄位移入後不能直接沿用獨立頁全面禁止 frame 的邊界；Origin／Fetch Metadata 描述 API 請求來源，不單獨證明外層嵌入者可信。
+**Native evidence**: 本機執行檔 ProductVersion／FileVersion 為 0.9.32。官方 v0.9.32 對應 commit `d6d97cd5d6514d222764088d8f85f29ade3a5c10`：
 
-**Evidence**: 本機 `settings.js` 的 localCredentialPage 只看自身 hostname/path；`console.py` 已有 loopback/Host/Origin/Fetch Metadata/CSRF 檢查；SDK JsonRpcServer handler 僅有 params，沒有 request peer／Origin context。這些證據不足以放行未知原生 frame。參考 [Fetch Metadata 規格](https://www.w3.org/TR/fetch-metadata/) 與 [Chrome origin 驗證指引](https://developer.chrome.com/docs/modern-web-guidance/guides/security/validate-origins)；不得以 `null` 字串辨識可信來源。
+- [EmbeddedAppView.tsx](https://github.com/pollen-robotics/reachy-mini-desktop-app/blob/d6d97cd5d6514d222764088d8f85f29ade3a5c10/src/views/active-robot/right-panel/EmbeddedAppView.tsx#L278) 的 iframe 無 sandbox／referrerPolicy；URL 中 embedded、主題與時間參數只作顯示，不是授權。
+- [tauri.conf.json](https://github.com/pollen-robotics/reachy-mini-desktop-app/blob/d6d97cd5d6514d222764088d8f85f29ade3a5c10/src-tauri/tauri.conf.json) 與 [Windows overlay](https://github.com/pollen-robotics/reachy-mini-desktop-app/blob/d6d97cd5d6514d222764088d8f85f29ade3a5c10/src-tauri/tauri.windows.conf.json) 未覆寫正式主視窗來源或 useHttpsScheme；依 [Tauri 配置](https://v2.tauri.app/reference/config/#usehttpsscheme) 推論 Windows 正式版來源為 `http://tauri.localhost`。這不是原生 runtime 觀察，也不是 Reachy 獨有程序身分；devUrl 不加入 allowlist。
+- [daemon.ts](https://github.com/pollen-robotics/reachy-mini-desktop-app/blob/d6d97cd5d6514d222764088d8f85f29ade3a5c10/src/config/daemon.ts#L414) 區分本機與遠端連線，因此即使外殼可信，設定頁自身也須為直接 loopback。
 
-**Alternatives considered**: 外開頁面及複製網址未符合最新同頁要求；全面允許 frame／經一般 RPC 傳密會擴大邊界；改 SDK 內部或另建登入服務超出本功能範圍。
+**Browser boundary**: [WHATWG ancestor origins](https://html.spec.whatwg.org/multipage/dom.html#ancestor-origins) 與 [getter](https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-location-ancestororigins) 定義瀏覽器提供的完整鏈；被隱藏／opaque 的來源可序列化為 null，必須拒絕。以 top===window 判頂層；內嵌時 ancestorOrigins 必須可用、非空且每項精確屬於 `{location.origin, "http://tauri.localhost"}`。不信任自身 hostname、parent 宣稱、query、referrer、UA 或任意 loopback origin；讀取失敗、API 缺失或未知值一律只讀。
 
-**Open gate**: 尚未取得原生 Control App 祖先來源／WebView 能力證據，也尚未決定可驗證的放行機制。未知、opaque/null、缺失或不支援的內嵌來源只讀；安全契約定案前不實作內嵌秘密管理，不宣稱研究全部完成。
+**Server boundary**: [Fetch Metadata](https://w3c.github.io/webappsec-fetch-metadata/#sec-fetch-site-header) 描述請求發起者與目標，不是祖先認證。既有 loopback／Host／Origin／Fetch Metadata／CSRF 全部保留。此方案以 SOP 與可信 App 腳本的 UI 檢查防 clickjacking，不新增偽 server 祖先認證 header；同源 XSS、同帳號惡意程式及其他可用相同 Tauri origin 的本機程式不在原有防護承諾內。
+
+**Research spike**: 隔離 Chrome、短暫 loopback 假頁及無秘密資料，`cache/003-gemini-key-settings/ancestor_research.mjs` 五例通過：頂層、可信 parent 可通過；惡意 parent、可信 parent 外的惡意 grandparent、鏈中 null 均拒絕。兩層惡意鏈實際有兩項，opaque 案實際含 null。未使用 Control App 或產品 API，也未連雲端／robot；只證明候選瀏覽器機制，未宣稱正式 controller 或原生 WebView 已通過。
+
+**Alternatives considered**: 外開／複製網址不符合最新需求；只查 parent 不能阻擋惡意 grandparent；全放 frame、把嵌入查詢參數或 RPC 當認證會擴大邊界；對整頁加 frame-ancestors none 破壞既有一般內嵌功能。
+
+**Outcome**: 授權設計未知已解決，可拆解任務。實作須在原生 0.9.32 WebView 複驗完整鏈、能力與 API headers；不符時保持只讀，不靠服務端沒有祖先 header 或平台 UA 改為放行。查閱日 2026-11-03。
 
 日期：2026-11-02。只讀研究；未讀取實際金鑰、存取 OS 憑證庫、安裝套件或呼叫 Gemini。
 
@@ -57,22 +65,11 @@ HF 仍可用。程序退出釋放鎖，鎖檔存在本身不算鎖定。鎖不�
 
 ## 3. 設定頁 transport 與操作人員邊界
 
-**Decision**: 在既有 settings_app 加專用 HTTP 路由；秘密不走 `/rpc` 或 SDK relay。
-實際 socket peer 必須 loopback、Host 必須精確本機允許值且符合綁定 port；不信任轉送標頭。
-Origin、Fetch Metadata、JSON 與記憶體 CSRF token 規則見契約。所有 credential routes 禁止跨源 CORS。
+**Decision**: 同頁 controller 使用既有 settings_app 的專用 HTTP，不走 SDK RPC／relay。來源判定採上方新研究的 browser UI eligibility，API 保留實際 socket／Host／同源及 CSRF 檢查；無寬鬆 CORS 或公開 nonce 認證。
 
-**Rationale**: 本機已安裝 SDK JsonRpcServer 的 handler 只有 params，沒有 Request/peer context；
-普通設定頁可從 LAN/relay 存取，不代表已通過憑證管理授權。不能把公開 nonce 當遠端登入認證。
-此界線授權同一電腦的本機使用者，不新增帳號或遠端秘密傳輸。
+**Rationale**: SDK JsonRpcServer handler 只有 params，沒有 Request/peer context。一般設定可以內嵌或從遠端使用，不代表金鑰管理有權限；只對金鑰控制作來源限制，保留一般頁功能。
 
-**Alternatives considered**: 通用 RPC mutation 缺來源保證；新增第二個服務或登入系統超出範圍。
-本輪使用者選 A：一般設定頁在 Control App iframe／既有遠端入口維持可用，只顯示安全狀態與本機頁面入口。
-輸入一律另開 GET /settings/gemini-key 頂層頁，拒絕所有 frame，不對一般頁施加此限制；同一 settings_app，不新增服務。
-遠端 robot/relay-only 提示須在 App 所在電腦開啟，不得誤導使用者把筆電 localhost 當遠端 robot localhost。
-保留一般頁並將受保護 HTML 放非公開 templates/，避免 static alias 繞過頁面存取／frame 保護。
-
-本機證據：`console.py` 的 `_init_settings_ui_if_needed`、`backend.config` allowlist；
-安裝 SDK `reachy_mini/apps/jsonrpc_server.py` 的公開 handler/mount；不修改 SDK。
+**Alternatives considered**: 原獨立頁被使用者同頁要求取代。無新登入系統或第二服務；移除舊秘密入口後，GET /settings/gemini-key 為 404，不 redirect 或留下 static alias。
 
 ## 4. 候選驗證
 
