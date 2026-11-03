@@ -1,5 +1,13 @@
 # Data Model: Gemini 憑證設定
 
+## 2026-11-03 同頁生命週期修訂
+
+既有 persisted metadata、vault namespace、source resolver 及 operation 不變，不搬移已保存金鑰。
+同頁控制掛載於設定頁；draft、CSRF token、輪詢及當次 operation 狀態只存在該次掛載的記憶體。
+提交、取消、清除、切換設定子頁、卸載及離開頁面均清空 draft；卸載釋放 token、監聽與輪詢。
+卸載不代表後端操作被取消，重新掛載須重新 bootstrap 安全狀態，不重送候選。
+金鑰區能否管理取決於待定的可驗證本機入口機制；不是可寫入 settings.json 的可信布林，也不把 token 經一般 RPC 發送。
+
 ## Persisted credential metadata（非秘密）
 
 獨立 `gemini-credential.json`，version=1；嚴格解析，不能將壞檔當成空設定。

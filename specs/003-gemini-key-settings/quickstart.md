@@ -1,5 +1,15 @@
 # Quickstart: Gemini 設定頁憑證驗收
 
+## 2026-11-03 同頁方案待驗清單
+
+使用者改要求整合回原設定頁、不額外開頁。本節為新方案目標；以下原獨立頁步驟與結果保留為基線，不代表同頁輸入通過。
+
+1. 不輸入真實金鑰，先取得直接本機頂層頁與 Control App 內嵌的祖先來源、Origin／Fetch Metadata 能力證據；未通過 plan.md 的可信內嵌研究閘門，不放行 frame 秘密操作。
+2. 在通過授權的同頁 Gemini 區完成輸入、取消、空白、驗證失敗、成功更新及清除確認；確認沒有 popup／新頁，未改一般設定或 HF session。
+3. 模擬切換子頁、返回、reload、操作中離開與重新進入；欄位空白、token 重新取得、無重複輪詢／自動重送或舊結果覆蓋。以假值檢查日誌、錯誤、歷史、URL 及 browser storage 無洩漏。
+4. 對遠端、relay、未知／opaque frame、惡意跨站及缺失祖先資訊，確認金鑰區只讀、沒有 token 或 mutation，一般設定仍可操作。不能用「API 同源」代替可信嵌入證據。
+5. 複驗同頁鍵盤、焦點、Esc、繁體中文與窄視窗；移除舊獨立頁後確認沒有 static alias／第二秘密入口，再跑完整 gate。macOS／Linux 剩餘實測沿用已確認豁免，真實服務／語音測試仍需另外授權。
+
 本指南含實作驗證方式與本輪證據；程式已完成本機驗證，尚待跨環境及實際對話驗收。未執行項目不能由命令預期結果推定通過。
 Python 3.12，依根 README 建立開發環境。預設所有測試使用 fake vault 與假 Gemini endpoint，
 不讀日常 `.env`、OS 使用者憑證庫或真實登入快取，不連 robot，不啟用相機／記憶。
@@ -160,3 +170,11 @@ fixture URL：`http://127.0.0.1:7864/#/settings`；獨立頁為 `/settings/gemin
 - 使用者明確要求「略過macOS與Linux測試」，本次個人客製化的 macOS／Linux 剩餘實測列為已豁免，不再作為 T040 結案前提；T040 據此結束追蹤。
 - Windows 原生驗收及 Linux 服務不可用的既有結果保留。macOS 未實測、Linux 成功保存／跨行程讀回／刪除、鎖定及 scope 隔離未實測，均不記為通過。
 - 此決定只調整本功能人工平台驗收範圍，保留跨平台產品實作、依賴與 CI；T037、T041 及 T044 仍未完成。本輪沒有執行新的平台測試或修改產品程式。
+
+### 2026-11-03 Control App 入口與方向調整
+
+- Control App 原先只安裝 testbench；工作區 venv 的 App 不會自動出現在其獨立 apps_venv。使用者明確同意後，以 editable 模式安裝本機客製版 1.1.1，只補缺少的 soxr 1.1.0、keyring 25.7.0 及必要依賴；未覆蓋 SDK 1.13.0。daemon 已安裝清單辨識 App，`uv pip check` 檢查 122 packages 相容。安裝保留供後續本機使用。
+- 使用者授權啟動 T037；安全狀態確認 Hugging Face、相機與記憶關閉，設定頁提供本機版本。使用者回報按「開啟本機金鑰設定」無反應，原生入口不記為通過。未輸入真實金鑰，未進行 T041。
+- 曾以離線 sandbox iframe 重現 popup 被阻擋，測試加入可手動開啟的網址提示。該回歸先失敗後通過；Ruff、format、mypy 通過，pytest 785 passed，wheel 因沙箱阻擋 PyPI 下載失敗，開放該次公開下載後單獨複驗 1 passed。原始失敗保留 cache；不冒稱原整套首次全過。
+- 使用者在複驗時改要求規劃同頁整合；上述網址提示及 README 產品改動已撤回，本輪最後只保留規劃文件。Conversation App 與離線 fixture 已停止，未變更的暫時設定已依 guard 移除、還原原先不存在狀態。fixture 關閉曾輸出 Windows Proactor shutdown 的 WinError 10022，未將它當作同頁產品修正或成功證據。
+- 同頁安全研究與計畫見 research.md、plan.md；可信 Control App 內嵌機制尚未驗證。T037、T041、T044 保持未完成，同頁差異任務尚待產生。

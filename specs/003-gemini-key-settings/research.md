@@ -1,5 +1,17 @@
 # Research: 設定頁 Gemini 憑證
 
+## 2026-11-03 同頁修訂研究
+
+**Decision**: 遵循使用者新要求，在原 Gemini 設定區管理金鑰，不依賴 popup；保留專用 HTTP 與既有儲存／交易，不走一般 RPC 或 relay。下方原第 3 節的獨立頁選擇為已被取代的基線。
+
+**Rationale**: 使用者實測 Control App 的另開連結無反應。一般設定頁允許內嵌，將秘密欄位移入後不能直接沿用獨立頁全面禁止 frame 的邊界；Origin／Fetch Metadata 描述 API 請求來源，不單獨證明外層嵌入者可信。
+
+**Evidence**: 本機 `settings.js` 的 localCredentialPage 只看自身 hostname/path；`console.py` 已有 loopback/Host/Origin/Fetch Metadata/CSRF 檢查；SDK JsonRpcServer handler 僅有 params，沒有 request peer／Origin context。這些證據不足以放行未知原生 frame。參考 [Fetch Metadata 規格](https://www.w3.org/TR/fetch-metadata/) 與 [Chrome origin 驗證指引](https://developer.chrome.com/docs/modern-web-guidance/guides/security/validate-origins)；不得以 `null` 字串辨識可信來源。
+
+**Alternatives considered**: 外開頁面及複製網址未符合最新同頁要求；全面允許 frame／經一般 RPC 傳密會擴大邊界；改 SDK 內部或另建登入服務超出本功能範圍。
+
+**Open gate**: 尚未取得原生 Control App 祖先來源／WebView 能力證據，也尚未決定可驗證的放行機制。未知、opaque/null、缺失或不支援的內嵌來源只讀；安全契約定案前不實作內嵌秘密管理，不宣稱研究全部完成。
+
 日期：2026-11-02。只讀研究；未讀取實際金鑰、存取 OS 憑證庫、安裝套件或呼叫 Gemini。
 
 ## 1. 受保護儲存

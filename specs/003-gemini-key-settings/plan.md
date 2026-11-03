@@ -1,15 +1,28 @@
 # Implementation Plan: 設定頁管理 Gemini API key
 
-**Branch**: `feat/003-gemini-key-settings` | **Date**: 2026-11-02 | **Spec**: [spec.md](spec.md)
+**Branch**: `feat/003-gemini-key-settings` | **Date**: 2026-11-03 | **Spec**: [spec.md](spec.md)
 
-**Input**: `specs/003-gemini-key-settings/spec.md`，含原三項 A 選項及本輪 I2 的 A 決定；I1、I3 依既有要求明確化。
+**Input**: `specs/003-gemini-key-settings/spec.md`，2026-11-03 使用者改為原設定頁直接管理金鑰、不額外開頁。本輪只規劃；既有任務與驗收結果屬獨立頁基線，不代表同頁方案完成。
 
 ## Summary
 
-一般 Gemini 設定區保留安全狀態與「開啟本機金鑰設定」按鈕；另開同一 settings_app 的受保護頁面，提供遮蔽輸入、「驗證並套用」、取消及確認清除。已保存的值永不回填。
+一般 Gemini 設定區直接提供遮蔽輸入、「驗證並套用」、取消、確認清除及安全狀態，不另開頁面。金鑰操作不隨一般設定表單儲存，已保存的值永不回填。
 設定頁來源優先；成功清除後可回到環境來源，但 Gemini 必須等待手動重連。
 候選值以獨立、無使用者內容的 Live setup 驗證，再透過系統憑證庫保存，最後提交生效指標。
 Hugging Face 維持預設，使用中不受這些操作影響。
+
+## 同頁修訂與實作閘門
+
+**狀態：設計草案，尚未通過安全設計閘門。** 同頁 UI 流程已明確；原生 Control App 的可信內嵌來源／能力尚無實測證據，不能宣稱 Phase 0 已全部解決或開始放行內嵌秘密操作。
+
+1. 先觀察 Control App 實際載入的父層／祖先來源、WebView 的 Origin／Fetch Metadata 與同源 HTTP 行為，不讀金鑰。確認能否在不修改 SDK 內部的前提下，可靠區分可信本機內嵌與不受信任 frame。
+2. 直接本機頂層設定頁可使用同頁控制；可信 Control App frame 必須有明確且可測試的放行機制。未知、opaque/null、缺失或不支援的來源維持只讀；localhost、自稱可信的前端布林或通用 nonce 均不能單獨作證。
+3. 通過閘門後，在 `views/settings.js` Gemini 區掛載控制，整理 `gemini-key.js` 為可掛載／卸載的控制邏輯，沿用 `api.js` 專用 HTTP transport。切頁、離開、提交、清除及取消均清空草稿；卸載時取消狀態輪詢及清除記憶體 token，後端已提交操作不能被前端卸載假稱取消。
+4. 保留現有 vault、journal、revision、候選驗證及唯一 session owner。專用 API 維持 loopback、精確 Host/port、拒絕轉送、同源 Origin／Fetch Metadata、CSRF、16 KiB、no-store，不改走 RPC/relay，不新增依賴或登入服務。
+5. 在移除獨立頁的路由、template 與打包項目之前，先確認同頁替代邊界及回歸通過。最終舊 `/settings/gemini-key` 不再提供輸入介面或另一個秘密入口；無需憑證 schema／既有金鑰搬移。更新 README 與架構來源，必要時重生 SVG。
+6. 下一輪先補足來源證據並完成安全契約，再以 `$speckit-tasks` 產生同頁差異任務、`$speckit-analyze` 檢查一致性後實作。若公開 SDK／WebView 無法提供所需能力，列明限制並回到範圍決策，不放寬未知內嵌或遠端管理。
+
+本次不產生 UI 成功驗收，不重跑已豁免的 macOS／Linux 實測。以下原始分期與檔案清單保留為基線設計；涉及「獨立頁」部分由本節取代，其餘後端政策沿用。
 
 ## Technical Context
 
@@ -39,6 +52,8 @@ Hugging Face 維持預設，使用中不受這些操作影響。
 **Scale/Scope**: 每實例一個生效 Gemini 憑證、多個設定分頁、單一憑證管理行程；不新增跨裝置管理。
 
 ## Constitution Check
+
+下表為原獨立頁基線的設計檢查；本次同頁修訂尚未通過上方可信內嵌安全閘門，不能沿用其 Phase 1「通過」狀態宣告新方案可實作。SDK 相容、無新增依賴、非秘密資料與後端交易等既有原則繼續適用。
 
 | 閘門 | Phase 0 前 | Phase 1 後 |
 |---|---|---|
@@ -96,8 +111,7 @@ src/reachy_mini_conversation_app/
 
 ## Phase 0 — Research decisions
 
-見 [research.md](research.md)：所有技術未知已決定，包括 Linux 無 vault、CLI scope、
-本機 HTTP 安全邊界、候選驗證、交易 crash windows 與多行程排他。
+見 [research.md](research.md)：基線的 Linux 無 vault、CLI scope、本機 HTTP、候選驗證、交易 crash windows 與多行程排他已決定；同頁 Control App 可信內嵌機制仍待研究閘門，不沿用基線的「全部已解決」判定。
 
 ## Phase 1 — Design and delivery boundaries
 

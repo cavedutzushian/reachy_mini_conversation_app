@@ -1,5 +1,17 @@
 # Contract: 本機 Gemini 憑證設定
 
+## 2026-11-03 同頁修訂草案（尚未通過安全閘門）
+
+使用者改為原設定頁直接輸入、更新與清除，不另開頁面。下方 GET /settings/gemini-key、全面 frame 禁止及獨立頁操作次數，是既有實作的基線契約，不再作為同頁目標。
+
+- Gemini 區直接顯示空白 password、狀態、「驗證並套用」、取消及清除確認；一般設定儲存不提交此欄位，不回填既存值。提交一次、清除加確認兩次，不計輸入與等待。
+- 保留 GET/POST/DELETE /api/gemini-credential 的 JSON／revision／CSRF 契約及秘密邊界，不以一般 RPC 或 relay 載送金鑰或 token。所有既有 peer／Host／Origin／Fetch Metadata／轉送／大小限制維持。
+- 直接本機頂層設定頁可管理；遠端／relay 與無法驗證的 frame 只顯示安全狀態，不 bootstrap 管理 token。可信本機 Control App frame 的替代授權機制須先補足證據並定案，不以 hostname、前端宣稱或 null origin 放行。
+- 一般設定原有內嵌／遠端操作保留，不能為此對整頁施加全面 frame 禁止。也不能僅刪除舊保護而沒有替代邊界。
+- 最終移除舊獨立輸入介面；舊路由不再提供另一個管理入口。切頁／卸載須清空草稿及記憶體 token，取消監聽與輪詢，重新進入時只查安全狀態，不重送金鑰。
+
+可信內嵌授權細節未定前，本節不是可交付實作契約；其餘後端驗證、來源、保存及對話政策沿用下列基線。
+
 ## Transport and authority
 
 沿用現有 settings_app，秘密只走以下 HTTP 路由；`backend.config` RPC 仍拒絕任何 key 欄位。
