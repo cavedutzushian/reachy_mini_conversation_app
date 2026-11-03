@@ -178,8 +178,8 @@ T001 → T002 → T003
 
 40／44 項完成；其餘保留未完成，詳見 quickstart.md 的驗收表：
 
-- T037：直接本機 Chrome、跨來源 fetch／iframe 已驗；原生 Control App 與真正遠端／WebRTC relay 未驗。
-- T040：已授權的 Windows 原生假值保存、跨行程讀回、實例隔離及刪除通過；macOS／Linux 原生 vault 未驗，沒有宣稱三平台均通過。
+- T037：直接本機 Chrome、跨來源 fetch／iframe 已驗；使用者確認 Control App 須先啟動 App 才能查看，依本輪不啟動對話的範圍保持停止。原生 Control App 與真正遠端／WebRTC relay 未驗。
+- T040：Windows 原生假值保存、跨行程讀回、實例隔離及刪除通過；本輪授權的 Ubuntu 24.04 原生 backend 服務不可用測試通過，安全拒絕保存、保留環境來源且無明文 fallback，跨行程確認並清理 scope。Linux 成功保存／讀回／刪除、鎖定及 scope 隔離與 macOS 仍待驗，不宣稱三平台均通過。
 - T041：已授權免費額度下的最小 Live setup 成功、使用者確認、隔離真實憑證已刪除；實際 HF/Gemini 語音對話／切換矩陣未授權，保留待驗。
 - T044：本輪已記錄進度並執行 after_implement 保存；完整結案仍等待上述必要驗收或明確範圍決定，不自動豁免。
 
