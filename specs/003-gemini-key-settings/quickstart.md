@@ -144,7 +144,6 @@ fixture URL：`http://127.0.0.1:7864/#/settings`；獨立頁為 `/settings/gemin
 ### 尚未完成的範圍
 
 - T037：原生 Reachy Mini Control App WebView 與真正遠端／WebRTC relay 未實測；Chrome 跨來源 iframe 模擬不等同原生驗收。
-- T040：macOS Keychain、Linux Secret Service 成功保存／讀回／刪除及鎖定狀態仍待驗；本輪 Ubuntu 24.04 的服務不可用實測見下方，不代表 Linux 成功保存已通過。
 - T041：實際 HF/Gemini 語音對話中更新／清除／失敗、動作停止與手動恢復仍待當輪授權及現場配合；本輪限定最小無語音驗證。
 - T044：完整結案保持待驗；不使用前兩個功能的舊驗收代替本功能結果，也不自動認定範圍豁免。
 
@@ -154,4 +153,10 @@ fixture URL：`http://127.0.0.1:7864/#/settings`；獨立頁為 `/settings/gemin
 - T040：使用者同意限定 Linux 假值驗收。已運作的 WSL Ubuntu 24.04（Python 3.12.3）沒有運作中的 Secret Service；僅在工作區 cache 建立隔離環境，使用 keyring 25.7.0，不啟動或更動系統服務。
 - 原生 SecretService backend 指向不存在的獨立 D-Bus socket，並以 audit hook 禁止其他 socket 連線。保存假值回報安全的 `storage_failed`，原環境假值仍有效；新行程讀回來源一致，journal 不含候選假值，沒有寫入 `.env` 或一般設定。測試 scope 已清理，未讀取日常憑證，也未連雲端或機器人。
 - 隔離 harness：`cache/003-gemini-key-settings/linux_unavailable_trial.py`。首次啟動逾時，後續發現測試 socket 路徑超過 Unix socket 長度限制；縮短測試路徑後，全部斷言通過（exit 0）。這是測試環境修正，沒有修改產品程式。
-- Linux 成功保存／跨行程讀回／刪除、鎖定及 scope 隔離仍需可用的 Secret Service；macOS 仍待驗。T040 保持未完成。本輪只更新驗收文件，完整 gate 沿用上方未變更產品程式的 786 passed 結果。
+- 該輪結束時，Linux 成功保存／跨行程讀回／刪除、鎖定及 scope 隔離仍缺少可用的 Secret Service，macOS 未驗，因此當時 T040 保持未完成。該輪只更新驗收文件，完整 gate 沿用上方未變更產品程式的 786 passed 結果。
+
+### 2026-11-03 平台測試範圍決定
+
+- 使用者明確要求「略過macOS與Linux測試」，本次個人客製化的 macOS／Linux 剩餘實測列為已豁免，不再作為 T040 結案前提；T040 據此結束追蹤。
+- Windows 原生驗收及 Linux 服務不可用的既有結果保留。macOS 未實測、Linux 成功保存／跨行程讀回／刪除、鎖定及 scope 隔離未實測，均不記為通過。
+- 此決定只調整本功能人工平台驗收範圍，保留跨平台產品實作、依賴與 CI；T037、T041 及 T044 仍未完成。本輪沒有執行新的平台測試或修改產品程式。

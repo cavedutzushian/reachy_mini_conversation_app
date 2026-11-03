@@ -110,7 +110,7 @@
 
 - [X] T038 [P] 在 README.md 更新根文件：本機設定入口與限制、OS vault 前提／Linux 無 Secret Service、跨重啟 scope、UI 優先與 clear 回環境但手動重連、失敗保留／未知狀態、清除非 provider 撤銷；保留 GEMINI_API_KEY 相容說明，不新增 README 或 docs/ Markdown，不新增環境變數，若確需變數先檢視範圍並同步 .env.example。
 - [X] T039 [P] 在 docs/scheme.mmd 補憑證保存／驗證及設定資料流，依既有生成方式重新產生 docs/assets/conversation_app_arch.svg 並視覺檢查；不手改 SVG，在 specs/003-gemini-key-settings/quickstart.md 記錄架構圖更新狀態。
-- [ ] T040 在 specs/003-gemini-key-settings/quickstart.md 記錄當輪同意後的獨立 namespace OS vault 驗收：以非真實 sentinel 做各可用平台跨行程保存／讀回／刪除、鎖定與不可用、scope 隔離，僅刪測試槽並清理 fixture；Windows、macOS、Linux 分別標示實測或待驗，未做平台不得勾為通過或以 fake backend 代替。
+- [X] T040 在 specs/003-gemini-key-settings/quickstart.md 記錄當輪同意後的獨立 namespace OS vault 驗收：以非真實 sentinel 做各可用平台跨行程保存／讀回／刪除、鎖定與不可用、scope 隔離，僅刪測試槽並清理 fixture；Windows、macOS、Linux 分別標示實測或待驗，未做平台不得勾為通過或以 fake backend 代替。2026-11-03 依使用者「略過macOS與Linux測試」決定結束本任務追蹤；Windows 與 Linux 已有結果保留，macOS／Linux 剩餘實測明確豁免，勾選不代表三平台實測通過。
 - [ ] T041 在 specs/003-gemini-key-settings/quickstart.md 記錄另行授權後的真實 Gemini 最小 setup 與 HF/Gemini 對話矩陣：獨立 scope、使用者由 UI 輸入 key、既有免費額度／費用範圍先確認，相機／記憶關閉，確認單獨驗證無媒體／工具，update 新 session、clear 待手動重連、fail 保留與無雙回覆；完成後清除測試憑證並恢復原狀，未授權則保持未完成，不索取聊天中的 key。
 - [X] T042 在 specs/003-gemini-key-settings/quickstart.md 記錄完整 gate 實際結果：ruff check . --fix、ruff format .、mypy --pretty --show-error-codes、pytest tests/ -v、uv lock --check；修正本功能引起的失敗，保留 Python／OS／測試數與限制，不降規則或新增 ignore，前次功能 gate 不算本次證據。
 - [X] T043 在 specs/003-gemini-key-settings/quickstart.md 依 FR-001～FR-014／SC-001～SC-005 自審需求覆蓋、程式 diff、文件／lock／生成 SVG 與零秘密；確認無 SDK 私有修改、新 retry owner、額外 provider、受保護貢獻／CI 檔案變更；列出未實測平台／服務，不因服務失敗重測後抹去原紀錄。
@@ -176,10 +176,10 @@ T001 → T002 → T003
 
 ## 本輪進度 — 2026-11-03
 
-40／44 項完成；其餘保留未完成，詳見 quickstart.md 的驗收表：
+41／44 項已處理（40 項完成，T040 依平台測試豁免結束追蹤）；其餘保留未完成，詳見 quickstart.md 的驗收表：
 
 - T037：直接本機 Chrome、跨來源 fetch／iframe 已驗；使用者確認 Control App 須先啟動 App 才能查看，依本輪不啟動對話的範圍保持停止。原生 Control App 與真正遠端／WebRTC relay 未驗。
-- T040：Windows 原生假值保存、跨行程讀回、實例隔離及刪除通過；本輪授權的 Ubuntu 24.04 原生 backend 服務不可用測試通過，安全拒絕保存、保留環境來源且無明文 fallback，跨行程確認並清理 scope。Linux 成功保存／讀回／刪除、鎖定及 scope 隔離與 macOS 仍待驗，不宣稱三平台均通過。
+- T040：Windows 原生假值保存、跨行程讀回、實例隔離及刪除通過；Ubuntu 24.04 原生 backend 服務不可用測試通過，安全拒絕保存、保留環境來源且無明文 fallback，跨行程確認並清理 scope。2026-11-03 使用者明確要求略過 macOS 與 Linux 測試，剩餘實測列為已豁免，結束 T040 追蹤；不宣稱三平台均通過，不變更跨平台產品支援或既有 CI。
 - T041：已授權免費額度下的最小 Live setup 成功、使用者確認、隔離真實憑證已刪除；實際 HF/Gemini 語音對話／切換矩陣未授權，保留待驗。
 - T044：本輪已記錄進度並執行 after_implement 保存；完整結案仍等待上述必要驗收或明確範圍決定，不自動豁免。
 
