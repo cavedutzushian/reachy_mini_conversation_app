@@ -1,6 +1,7 @@
 """Entrypoint for the Reachy Mini conversation app."""
 
 from __future__ import annotations
+import os
 import sys
 import time
 import asyncio
@@ -12,6 +13,7 @@ from pathlib import Path
 from collections.abc import Callable, Awaitable
 
 from fastapi import FastAPI, Request, Response
+from platformdirs import user_config_path
 
 from reachy_mini import ReachyMini, ReachyMiniApp
 from reachy_mini_conversation_app import app_lifecycle
@@ -22,6 +24,7 @@ from reachy_mini_conversation_app.utils import (
 )
 from reachy_mini_conversation_app.config import resolve_instance_path
 from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
+from reachy_mini_conversation_app.gemini_credentials import GeminiCredentials
 from reachy_mini_conversation_app.huggingface_realtime import RealtimeSessionState, HuggingFaceRealtimeHandler
 
 
@@ -207,12 +210,21 @@ def run(
         camera_enabled=not args.no_camera and config.CAMERA_ENABLED,
     )
 
+    credential_scope = (
+        Path(instance_path)
+        if instance_path is not None
+        else Path(os.getenv("REACHY_MINI_INSTANCE_PATH") or user_config_path("reachy_mini") / "conversation_app")
+    )
+    credentials = GeminiCredentials(credential_scope, config.GEMINI_API_KEY)
+    credentials.initialize()
     session_state = RealtimeSessionState(provider=config.CONVERSATION_BACKEND)
 
     def build_handler(startup_voice: Optional[str] = None) -> ConversationHandler:
         """Build the explicitly selected realtime transport using the stream's state."""
         if config.CONVERSATION_BACKEND == "gemini":
-            return GeminiRealtimeHandler(deps, instance_path=instance_path, session_state=session_state)
+            return GeminiRealtimeHandler(
+                deps, instance_path=instance_path, session_state=session_state, api_key=credentials.snapshot().secret
+            )
 
         hf_connection_selection = get_hf_connection_selection()
         transport_label = (
@@ -253,6 +265,7 @@ def run(
         startup_voice=startup_settings.voice,
         tool_deps=deps,
         camera_forced_off=args.no_camera,
+        credentials=credentials,
     )
 
     # The page is served immediately, so the API must be live before the slow startup work below.
@@ -370,6 +383,7 @@ def run(
     except KeyboardInterrupt:
         logger.info("Keyboard interruption in main thread... closing server.")
     finally:
+        credentials.close()
         if own_ui_server is not None:
             own_ui_server.should_exit = True
 

@@ -1,6 +1,6 @@
 # Quickstart: Gemini 設定頁憑證驗收
 
-本指南供實作完成後使用；目前尚未實作，不能把命令預期結果視為已通過。
+本指南含實作驗證方式與本輪證據；程式已完成本機驗證，尚待跨環境及實際對話驗收。未執行項目不能由命令預期結果推定通過。
 Python 3.12，依根 README 建立開發環境。預設所有測試使用 fake vault 與假 Gemini endpoint，
 不讀日常 `.env`、OS 使用者憑證庫或真實登入快取，不連 robot，不啟用相機／記憶。
 
@@ -83,3 +83,67 @@ uv lock --check
 實作加入依賴時先 `uv lock`，不要在本輪規劃修改 lock。
 自審根 README、架構來源與重新產生的 SVG、無秘密 diff；不修改 CONTRIBUTING/CI/PR 範本。
 記錄自動 gate、UI、OS vault、雲端／實機結果的實際範圍；人工驗收未完成要明列，不以舊功能結果補足。
+
+## Implementation evidence — 2026-11-03
+
+T001：分支 feat/003-gemini-key-settings、Python 3.12.12、初始工作目錄乾淨。
+Ruff check／format check 通過（119 files），strict mypy 通過（55 source files），uv lock --check --offline 通過（131 packages）。
+基線 pytest：726 passed；wheel 建置受 PyPI 沙箱限制，另以公開套件下載權限獨立複驗 1 passed，合計 727 項基線通過。
+初次預設 Temp 無權限的結果不計成功；改用 workspace basetemp。未讀 .env／真實 vault，不連 Gemini／robot。
+
+隔離環境命令（PowerShell，環境路徑僅供本儲存庫開發驗證）：
+
+```powershell
+$env:REACHY_MINI_SKIP_DOTENV = '1'
+$env:PYTHONUTF8 = '1'
+$env:UV_CACHE_DIR = Join-Path $PWD 'cache/uv'
+cache/verify-python312/Scripts/python.exe -m pytest tests/ -v --basetemp=cache/003-pytest -o cache_dir=cache/003-pytest-cache
+```
+
+新憑證測試一律使用 tmp_path／fake vault／fake WebSocket，阻擋未預期外連；缺少當輪明確同意時，OS vault／live／robot 驗收保持待驗。
+
+T004～T010：model／scope lock／OS backend allowlist／journal resolver／本機 request guard／Gemini hold 已加入；隔離整合測試 185 passed，strict mypy 56 source files 通過。原型憑證流程尚未對使用者開放。
+
+
+### 本輪驗收結果
+
+| 項目 | 2026-11-03 結果 |
+|---|---|
+| US1／US2 隔離回歸 | 先確認 12 項缺少功能的測試失敗；補實作後通過。clear 另先確認 2 項缺少功能失敗，再補交易。 |
+| 故障／來源／對話 owner | 325 項相關整合測試通過；涵蓋四種來源、壞檔、locked/write/commit/delete 失敗、跨行程鎖、慢寫入與 clear、過期驗證／gate 結果、HF 不受影響、Gemini 舊 owner 退役。 |
+| 使用者畫面回報 | 使用者確認 offline-first／offline-second／offline-invalid 的新增、更新、認證失敗、清除、重整空欄、Tab/Esc、窄視窗與一般設定皆正常。 |
+| Chrome 實際頁面檢查 | 獨立測試 profile、loopback fake fixture：開頁、輸入／提交／更新／失敗／清除／reload、欄位清空、Esc 關閉確認、360px 無水平溢出、回應／URL／Local/Session Storage 無測試金鑰、跨源 fetch 拒絕、金鑰 iframe=403、一般 iframe=200、無 page errors。 |
+| Windows 原生 vault | 使用者當輪同意，只在獨立 namespace 操作非真實假值；原生保存、跨行程讀回、實例隔離、刪除與缺失確認通過，測試條目與 scope 清理完成。未列出或讀取日常憑證。 |
+| 真實 Gemini 最小驗證 | 使用者當輪同意既有免費額度，親自在獨立頁輸入金鑰。gemini-3.8-live／Kore 收到 setupComplete，UI 顯示 validated/applied 且 backend 維持 huggingface；使用者確認。沒有 user turn／音訊／人格／記憶／工具／robot。測試端已關閉、原生隔離金鑰確認刪除且測試 scope 清理完成。 |
+| 最終完整 gate | Ruff check 通過、format 121 files unchanged、strict mypy 56 source files 通過、pytest 786 passed、uv lock --check --offline 139 packages 通過。 |
+| 初次完整 gate 故障 | 2 個 forget 測試因新增測試未還原共用記憶設定失敗；修正測試 fixture 的狀態還原，未更改記憶工具或豁免測試。保留原結果於 ignored cache，最後整套通過。 |
+| wheel | 新 gemini_credentials.py、templates/gemini-key.html、static/js/gemini-key.js 均包含於建置 wheel；Windows 路徑 budget 測試通過。 |
+| 文件與架構 | 根 README 同步；scheme.mmd 重新生成 SVG，PNG 預覽人工視覺檢查完成；未手改 SVG。Mermaid CLI／Puppeteer 僅在 ignored cache，未加入應用依賴。 |
+
+瀏覽器腳本的回應讀取／等待條件曾失敗，修正 fixture 等待與 CDP 回應擷取後才記為通過；
+這不是 Gemini 服務錯誤或產品通過比例。最後調整金鑰頁專用按鈕換行後再跑 Chrome 檢查。
+owner_epoch 是行程隨機 ID，非 key fingerprint；用來接受重啟後的狀態並拒絕舊行程回覆，
+CSRF 有效期為 600 秒且只存在頁面記憶體。啟動讀取失敗時，修正 vault 後需重啟 App 再明確重連。
+
+### 可重現的本機 fixture
+
+先依根 README 安裝開發依賴。以下 cache harness 為本機驗收輔助，不隨 wheel 交付；重建時使用 tests 的 FakeVault、
+假 validator 及暫存 scope，啟動前明確阻擋外連，不新增產品 mock 開關。
+
+```powershell
+$env:PYTHONUTF8 = '1'
+cache/verify-python312/Scripts/python.exe cache/003-gemini-key-settings/settings_trial.py
+# 另開終端；只使用 offline-first、offline-second、offline-invalid
+node cache/003-gemini-key-settings/browser_trial.mjs
+```
+
+fixture URL：`http://127.0.0.1:7864/#/settings`；獨立頁為 `/settings/gemini-key`。
+只有明確授權後才執行 native_vault_trial.py／live_setup_trial.py；不在文件、命令列或聊天記錄輸入真實 key。
+不得將離線 harness 的假值輸入真實服務；本輪驗收結束會停止 fixture，網址不保證持續可用。
+
+### 尚未完成的範圍
+
+- T037：原生 Reachy Mini Control App WebView 與真正遠端／WebRTC relay 未實測；Chrome 跨來源 iframe 模擬不等同原生驗收。
+- T040：macOS Keychain、Linux Secret Service／headless 實際環境未驗；backend 選擇及故障的離線測試通過不代表原生服務已驗。
+- T041：實際 HF/Gemini 語音對話中更新／清除／失敗、動作停止與手動恢復仍待當輪授權及現場配合；本輪限定最小無語音驗證。
+- T044：完整結案保持待驗；不使用前兩個功能的舊驗收代替本功能結果，也不自動認定範圍豁免。

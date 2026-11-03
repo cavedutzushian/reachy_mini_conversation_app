@@ -2,6 +2,7 @@
 
 import threading
 from types import SimpleNamespace
+from pathlib import Path
 from argparse import Namespace
 from unittest.mock import MagicMock
 
@@ -11,6 +12,12 @@ import reachy_mini_conversation_app.main as main_mod
 import reachy_mini_conversation_app.moves as moves_mod
 import reachy_mini_conversation_app.console as console_mod
 from reachy_mini_conversation_app.config import config
+
+
+@pytest.fixture(autouse=True)
+def isolated_credential_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep runtime initialization away from the user's daily credential scope."""
+    monkeypatch.setenv("REACHY_MINI_INSTANCE_PATH", str(tmp_path / "credential-scope"))
 
 
 @pytest.mark.parametrize("provider", ["huggingface", "gemini"])

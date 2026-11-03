@@ -352,6 +352,7 @@ class Config:
     """Configuration class for the conversation app."""
 
     CONVERSATION_BACKEND = normalize_conversation_backend(os.getenv("REACHY_MINI_CONVERSATION_BACKEND")) or HF_BACKEND
+    # Environment compatibility source; managed credentials never overwrite this value.
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live").strip()
     GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Kore").strip()

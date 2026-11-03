@@ -201,3 +201,25 @@ export function describeError(error) {
   const code = error?.body?.error;
   return ERROR_MESSAGES[code] || error?.body?.detail || error?.message || String(error);
 }
+
+
+export async function geminiCredentialRequest(method = "GET", payload = null, csrfToken = "") {
+  const headers = { "X-Credential-Request": "1" };
+  if (method !== "GET") {
+    headers["Content-Type"] = "application/json";
+    headers["X-Credential-CSRF"] = csrfToken;
+  }
+  let response;
+  let status;
+  try {
+    response = await fetch("/api/gemini-credential", {
+      method, headers, cache: "no-store", credentials: "same-origin",
+      ...(payload === null ? {} : { body: JSON.stringify(payload) }),
+    });
+    status = await response.json();
+  } catch {
+    throw new RpcError("無法確認操作結果，請重新查詢狀態；不會自動重送。", "result_unknown");
+  }
+  if (!response.ok) throw new RpcError("金鑰設定操作未完成。", status.reason || "service_unavailable", status);
+  return status;
+}

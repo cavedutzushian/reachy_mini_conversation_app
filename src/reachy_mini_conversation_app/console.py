@@ -11,11 +11,14 @@ import time
 import asyncio
 import hashlib
 import logging
+import secrets
+import ipaddress
 import itertools
 import threading
 from typing import Any, List, Optional
 from pathlib import Path
 from collections import deque
+from urllib.parse import urlsplit
 from collections.abc import Mapping, Callable
 
 import httpx
@@ -59,12 +62,13 @@ from reachy_mini_conversation_app.settings_store import (
     apply_settings_to_runtime,
     load_settings_into_runtime,
 )
-from reachy_mini_conversation_app.gemini_realtime import GeminiConnectionError
+from reachy_mini_conversation_app.gemini_realtime import GeminiConnectionError, validate_gemini_candidate
 from reachy_mini_conversation_app.language_routes import LanguageScope, register_language_methods
 from reachy_mini_conversation_app.audio.resampling import AudioResampler
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, get_tool_specs, initialize_tools
 from reachy_mini_conversation_app.tool_space_routes import register_tool_space_methods
+from reachy_mini_conversation_app.gemini_credentials import CredentialError, GeminiCredentials
 from reachy_mini_conversation_app.personality_routes import (
     build_personality_ops,
     register_personality_methods,
@@ -82,9 +86,9 @@ from reachy_mini_conversation_app.huggingface_realtime import (
 
 try:
     # FastAPI is provided by the Reachy Mini Apps runtime
-    from fastapi import FastAPI, Response
+    from fastapi import FastAPI, Request, Response
     from pydantic import BaseModel
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, JSONResponse
     from starlette.staticfiles import StaticFiles
 except Exception:  # pragma: no cover - only loaded when settings_app is used
     FastAPI = object  # type: ignore
@@ -144,6 +148,7 @@ class LocalStream:
         startup_voice: Optional[str] = None,
         tool_deps: ToolDependencies | None = None,
         camera_forced_off: bool = False,
+        credentials: GeminiCredentials | None = None,
     ):
         """Initialize the stream with a realtime handler and pipelines.
 
@@ -153,6 +158,11 @@ class LocalStream:
         - ``tool_deps``: live tool dependencies, so vision.* can toggle the camera.
         """
         self._robot = robot
+        self._credentials = credentials
+        self._credential_hold = False
+        self._credential_validation_task: asyncio.Task[None] | None = None
+        self._credential_csrf = secrets.token_urlsafe(32)
+        self._credential_csrf_expires = time.monotonic() + 600
         self._stop_event = asyncio.Event()
         self._playback_flush_lock = asyncio.Lock()
         self._playback_clock = 0.0  # monotonic end of audio pushed to the SDK
@@ -700,7 +710,10 @@ class LocalStream:
                 "backend": config.CONVERSATION_BACKEND,
                 "gemini_model": config.GEMINI_MODEL,
                 "gemini_voice": config.GEMINI_VOICE_OVERRIDE or get_session_voice(default=config.GEMINI_VOICE),
-                "gemini_key_configured": bool(config.GEMINI_API_KEY),
+                "gemini_key_configured": bool(self._credentials.snapshot().secret)
+                if self._credentials
+                else bool(config.GEMINI_API_KEY),
+                "gemini_credential": self._credential_status() if self._credentials else None,
                 "has_key": has_hf_connection,
                 "has_hf_session_url": bool(hf_session_url),
                 "has_hf_ws_url": bool(hf_ws_url),
@@ -708,7 +721,9 @@ class LocalStream:
                 "hf_connection_mode": hf_connection_selection.mode,
                 "hf_direct_host": hf_direct_host,
                 "hf_direct_port": hf_direct_port,
-                "can_proceed": bool(config.GEMINI_API_KEY)
+                "can_proceed": (
+                    bool(self._credentials.snapshot().secret) if self._credentials else bool(config.GEMINI_API_KEY)
+                )
                 if config.CONVERSATION_BACKEND == GEMINI_BACKEND
                 else has_hf_connection,
                 "can_proceed_with_hf": has_hf_connection,
@@ -803,6 +818,17 @@ class LocalStream:
                 raise JsonRpcError("invalid Gemini model", reason="invalid_gemini_model", code=-32602)
             if voice is not None and (not isinstance(voice, str) or voice not in GEMINI_AVAILABLE_VOICES):
                 raise JsonRpcError("select a Gemini voice", reason="invalid_gemini_voice", code=-32602)
+            if self._credentials is not None:
+                self._credentials.invalidate()
+                validation_task = self._credential_validation_task
+                if validation_task is not None and not validation_task.done():
+                    validation_task.get_loop().call_soon_threadsafe(validation_task.cancel)
+                if backend == GEMINI_BACKEND and self._credentials.metadata.manual_reconnect_required:
+                    try:
+                        self._credentials.set_manual_reconnect(False)
+                    except CredentialError as error:
+                        raise JsonRpcError("credential recovery required", reason=error.reason) from None
+                self._credential_hold = False
             if backend == GEMINI_BACKEND or not legacy_hf:
                 self._save_settings(
                     AppSettings(
@@ -856,6 +882,14 @@ class LocalStream:
         def _rpc_backend_retry(params: dict[str, object]) -> dict[str, object]:
             if params:
                 raise JsonRpcError("Retry takes no parameters", reason="invalid_params", code=-32602)
+            if self._credentials is not None and config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+                if self._credentials.validation == "validating" or self._credentials.apply in ("saving", "clearing"):
+                    raise JsonRpcError("credential operation in progress", reason="storage_busy")
+                try:
+                    self._credentials.set_manual_reconnect(False)
+                except CredentialError as error:
+                    raise JsonRpcError("credential recovery required", reason=error.reason) from None
+                self._credential_hold = False
             if self._backend_connected() or self._backend_connection_state == "connecting":
                 return {"ok": True, "message": "連線已啟用或正在連線。", **_status_payload()}
             loop = self._asyncio_loop
@@ -961,10 +995,228 @@ class LocalStream:
             except Exception:
                 logger.exception("Failed to register vision methods; the camera switch will be unavailable")
 
+        settings_app.add_api_route(
+            "/api/gemini-credential", self._credential_endpoint, methods=["GET", "POST", "DELETE"]
+        )
+        settings_app.add_api_route("/settings/gemini-key", self._credential_page, methods=["GET"])
         self._settings_initialized = True
+
+    @staticmethod
+    def _check_credential_request(request: Request, *, document: bool = False) -> None:
+        client = request.client
+        try:
+            local = client is not None and ipaddress.ip_address(client.host).is_loopback
+            host = urlsplit("http://" + request.headers.get("host", ""))
+            server: object = request.scope.get("server")
+            port = server[1] if isinstance(server, (tuple, list)) and len(server) == 2 else None
+            valid_host = (
+                host.hostname in ("localhost", "127.0.0.1", "::1")
+                and host.username is None
+                and host.password is None
+                and not host.path
+                and not host.query
+                and not host.fragment
+                and (host.port or (443 if request.url.scheme == "https" else 80)) == port
+            )
+        except ValueError:
+            local, valid_host = False, False
+        if (
+            not local
+            or not valid_host
+            or any(name == "forwarded" or name.startswith("x-forwarded-") for name in request.headers)
+        ):
+            raise CredentialError("local_access_required")
+        if document:
+            if request.headers.get("sec-fetch-dest", "document") != "document":
+                raise CredentialError("request_not_allowed")
+            return
+        origin = request.headers.get("origin")
+        expected_origin = str(request.base_url).rstrip("/")
+        if request.headers.get("sec-fetch-site") != "same-origin" or (origin and origin != expected_origin):
+            raise CredentialError("request_not_allowed")
+        if request.method == "GET":
+            if request.headers.get("x-credential-request") != "1":
+                raise CredentialError("request_not_allowed")
+        elif origin != expected_origin or request.headers.get("content-type", "").split(";")[0] != "application/json":
+            raise CredentialError("request_not_allowed")
+
+    def _credential_status(self) -> dict[str, object]:
+        if self._credentials is None:
+            return {"configured": False, "source": "none", "storage": "unavailable", "reason": "storage_unavailable"}
+        return {
+            **self._credentials.status(),
+            "backend": config.CONVERSATION_BACKEND,
+            "connection": self._backend_connection_status()["backend_connection_state"],
+            "model": config.GEMINI_MODEL,
+            "voice": config.GEMINI_VOICE_OVERRIDE or config.GEMINI_VOICE,
+        }
+
+    def _credential_page(self, request: Request) -> Response:
+        try:
+            self._check_credential_request(request, document=True)
+        except CredentialError as error:
+            return JSONResponse({"reason": error.reason}, status_code=403, headers={"Cache-Control": "no-store"})
+        return FileResponse(
+            Path(__file__).parent / "templates" / "gemini-key.html",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Frame-Options": "DENY",
+                "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+                "Referrer-Policy": "no-referrer",
+            },
+        )
+
+    async def _credential_endpoint(self, request: Request) -> Response:
+        revision: int | None = None
+        try:
+            self._check_credential_request(request)
+            if self._credentials is None:
+                raise CredentialError("storage_unavailable")
+            if request.method == "GET":
+                if time.monotonic() >= self._credential_csrf_expires:
+                    self._credential_csrf = secrets.token_urlsafe(32)
+                    self._credential_csrf_expires = time.monotonic() + 600
+                return JSONResponse(
+                    {**self._credential_status(), "csrf_token": self._credential_csrf},
+                    headers={"Cache-Control": "no-store"},
+                )
+            token = request.headers.get("x-credential-csrf", "")
+            if time.monotonic() >= self._credential_csrf_expires or not secrets.compare_digest(
+                token, self._credential_csrf
+            ):
+                raise CredentialError("request_not_allowed")
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > 16 * 1024:
+                    raise CredentialError("invalid_input")
+                body.extend(chunk)
+            try:
+                payload: object = json.loads(body)
+            except (ValueError, UnicodeError):
+                raise CredentialError("invalid_input") from None
+            if not isinstance(payload, dict):
+                raise CredentialError("invalid_input")
+            expected = payload.get("expected_revision")
+            if type(expected) is not int or expected < 0:
+                raise CredentialError("invalid_input")
+            candidate = payload.get("candidate")
+            clearing = request.method == "DELETE"
+            if clearing:
+                if set(payload) != {"expected_revision", "confirm"} or payload.get("confirm") is not True:
+                    raise CredentialError("invalid_input")
+            elif (
+                set(payload) != {"expected_revision", "candidate"}
+                or not isinstance(candidate, str)
+                or not candidate.strip()
+            ):
+                raise CredentialError("invalid_input")
+            revision = self._credentials.begin(expected, clear=clearing)
+            if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+                self._credential_hold = True
+            operation = self._change_credential(
+                candidate.strip() if isinstance(candidate, str) else "", revision, clearing
+            )
+            loop = self._asyncio_loop
+            if loop is not None and loop.is_running() and loop is not asyncio.get_running_loop():
+                await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(operation, loop))
+            else:
+                await operation
+            return JSONResponse(self._credential_status(), headers={"Cache-Control": "no-store"})
+        except (CredentialError, GeminiConnectionError) as error:
+            reason = error.reason
+            if revision is not None and self._credentials is not None:
+                self._credentials.failure(reason, revision)
+            code = {
+                "invalid_input": 400,
+                "local_access_required": 403,
+                "request_not_allowed": 403,
+                "revision_conflict": 409,
+                "superseded": 409,
+                "storage_busy": 409,
+                "authentication_failed": 422,
+                "model_not_available": 422,
+                "invalid_gemini_model": 422,
+                "invalid_gemini_voice": 422,
+                "quota_exceeded": 429,
+                "validation_timeout": 504,
+            }.get(reason, 503)
+            logger.warning("Credential HTTP operation rejected: %s", reason)
+            return JSONResponse(
+                {**self._credential_status(), "reason": reason},
+                status_code=code,
+                headers={"Cache-Control": "no-store"},
+            )
+
+    async def _change_credential(self, candidate: str, revision: int, clearing: bool) -> None:
+        credentials = self._credentials
+        if credentials is None:
+            raise CredentialError("storage_unavailable")
+        model, voice = config.GEMINI_MODEL, config.GEMINI_VOICE_OVERRIDE or config.GEMINI_VOICE
+        provider = config.CONVERSATION_BACKEND
+        if revision != credentials.revision:
+            raise CredentialError("superseded")
+        if clearing:
+            validation_task = self._credential_validation_task
+            if validation_task is not None and not validation_task.done():
+                validation_task.get_loop().call_soon_threadsafe(validation_task.cancel)
+        if provider == GEMINI_BACKEND:
+            await self._stop_gemini_for_credentials()
+            if revision != credentials.revision:
+                raise CredentialError("superseded")
+            await asyncio.to_thread(credentials.set_manual_reconnect, True, revision)
+        try:
+            if revision != credentials.revision:
+                raise CredentialError("superseded")
+            if clearing:
+                await asyncio.to_thread(credentials.clear, revision)
+                return
+            validation_task = asyncio.create_task(validate_gemini_candidate(candidate, model, voice))
+            self._credential_validation_task = validation_task
+            await validation_task
+            if (
+                revision != credentials.revision
+                or provider != config.CONVERSATION_BACKEND
+                or model != config.GEMINI_MODEL
+                or voice != (config.GEMINI_VOICE_OVERRIDE or config.GEMINI_VOICE)
+            ):
+                raise CredentialError("superseded")
+            await asyncio.to_thread(credentials.save, candidate, revision)
+            if revision != credentials.revision:
+                raise CredentialError("superseded")
+            if provider == GEMINI_BACKEND and config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+                await asyncio.to_thread(credentials.set_manual_reconnect, False, revision)
+                if revision == credentials.revision:
+                    self._credential_hold = False
+                    await self.request_backend_restart("credential_applied")
+        except asyncio.CancelledError:
+            if revision != credentials.revision:
+                raise CredentialError("superseded") from None
+            credentials.invalidate()
+            raise
+
+    async def _stop_gemini_for_credentials(self) -> None:
+        if config.CONVERSATION_BACKEND != GEMINI_BACKEND:
+            return
+        self._credential_hold = True
+        self._restart_requested.set()
+        async with self._transition_lock:
+            self._pending_say = None
+            if self._session_task is not None:
+                self._session_task.cancel()
+            self.session_state.fresh(GEMINI_BACKEND, "")
+            if self._tool_deps is not None:
+                self._tool_deps.movement_manager.clear_move_queue()
+            await self._shutdown_active_handler()
+        self._set_backend_connection_state("waiting_for_config", "manual_reconnect_required")
 
     def _configuration_ready(self) -> bool:
         if config.CONVERSATION_BACKEND == GEMINI_BACKEND:
+            if self._credentials is not None:
+                return (
+                    bool(self._credentials.snapshot().secret)
+                    and not self._credentials.metadata.manual_reconnect_required
+                    and not self._credential_hold
+                )
             return bool(config.GEMINI_API_KEY)
         return has_hf_realtime_target()
 

@@ -115,12 +115,53 @@ The default setup uses the Hugging Face backend and does not require an API key.
 
 ### Optional Gemini conversation
 
-Select Gemini in Settings, or set `REACHY_MINI_CONVERSATION_BACKEND=gemini` in the
-private app `.env`. Set `GEMINI_API_KEY` there using a Gemini Developer API account
-with access to the chosen Live model. The default `GEMINI_MODEL` is `gemini-3.8-live`.
+In Settings, choose **開啟本機金鑰設定** to open the separate local credential page.
+Enter your Gemini Developer API key and choose **驗證並套用**. The field is masked,
+never filled with an existing key, and cleared after submission or cancellation.
+Validation checks the selected Live model without sending a user turn, audio,
+personality, memory or tools. It does not select Gemini or interrupt active Hugging Face.
+Select Gemini separately when you want to use it.
+
+Keys entered through this page survive App restarts in the current OS user's protected
+credential store: Windows Credential Manager (local-machine persistence), macOS Keychain,
+or Linux Secret Service. Linux needs a working user D-Bus session and an unlocked
+Secret Service collection. Unsupported or locked stores fail explicitly; no plaintext,
+browser storage or alternate keyring backend is used. Existing environment-only deployments
+still work without a credential service. An entry for this instance that cannot be read
+blocks Gemini instead of silently trying the environment key. If this happens at startup,
+unlock or repair the store and restart the App before explicitly retrying.
+
+The saved page key takes precedence over `GEMINI_API_KEY` from the existing private `.env`
+or startup environment; this feature never changes that file. You may also select Gemini
+with `REACHY_MINI_CONVERSATION_BACKEND=gemini`. The default `GEMINI_MODEL` is `gemini-3.8-live`.
 API usage may incur charges. Vertex AI and additional providers are outside this feature.
 Saved settings override environment selection. Hugging Face remains the default and its
 connection and voice settings are retained when switching.
+
+Credential management is available only from the App's direct local HTTP entry, using
+`localhost`, `127.0.0.1` or `[::1]`. The credential page cannot be embedded in a frame;
+ordinary settings keep their existing Control App and remote access. Remote or relay-only
+views show safe status and direct you to the computer running the App; your laptop's
+localhost is not the robot's localhost. Unsupported WebViews should use a local browser.
+Do not expose credential routes through an unauthenticated forwarding proxy.
+
+A successful update replaces the original only after validation and protected saving.
+An active Gemini conversation stops before validation and starts fresh after success;
+failed validation/saving keeps the original setting and shows whether manual recovery is needed.
+Clearing stops Gemini, deletes this feature's tracked credentials, and shows whether an
+environment source remains. **It always requires explicit retry/reselection before reconnecting**,
+including after restarting the App; local deletion does not revoke the key in your Google account.
+A failed deletion remains stopped and reports incomplete/unknown state. Neither operation
+changes camera, memory, personality, language, voice or tool permissions.
+
+Credential scope follows the SDK instance path. For standalone CLI use, it follows
+`REACHY_MINI_INSTANCE_PATH`, or the same platformdirs `reachy_mini/conversation_app` default;
+it does not migrate legacy configuration. Use different instance paths for independent Apps.
+Only one process may manage an instance's credentials at a time. The instance-local
+`gemini-credential.json` contains transaction references and the reconnect gate, never a key.
+Do not delete this journal to clear a credential: use the page so protected entries are removed too.
+Status, errors, logs and transcripts never return the key, its suffix or a fingerprint.
+OS account protection does not protect against other malicious programs running as that same user.
 
 Gemini voice precedence is saved Gemini voice, compatible personality voice,
 `GEMINI_VOICE`, then `Kore`. A personality with an incompatible voice requires a saved
@@ -159,8 +200,8 @@ Copy `.env.example` to `.env` when you want to point Hugging Face at your own lo
 | `REACHY_MINI_MEMORY_ENABLED` | Long-term memory. When `false`, remembered facts stay on disk but are not injected into the prompt, and the `remember` / `forget` tools decline. Defaults to `true`. |
 | `REACHY_MINI_CAMERA_ENABLED` | Camera tool. `--no-camera` forces it off regardless. Defaults to `true`. |
 
-These variables are the starting value. What you change through the settings UI
-(or from the mobile app) is written to `settings.json` in the instance directory
+These variables are the starting value. Nonsecret preferences changed through the settings UI
+(or from the mobile app) are written to `settings.json` in the instance directory
 and wins over them, so a toggle always does what it says.
 
 Pick the conversation language with the flag button next to the personality on the Talk view. **儲存範圍** chooses between the active personality only and all personalities; saving for all also clears the languages saved for single personalities. A personality's own language wins over the shared one and applies from the startup greeting on, so switching personality switches the language with it. Saving reconnects the conversation, and Reachy greets you again in the new language.

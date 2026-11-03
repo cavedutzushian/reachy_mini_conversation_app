@@ -7,14 +7,15 @@ from types import SimpleNamespace
 from typing import Any
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import httpx
 import numpy as np
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from numpy.typing import NDArray
 from fastapi.testclient import TestClient
+from test_gemini_credentials import FakeVault
 
 import reachy_mini_conversation_app.console as console_mod
 from reachy_mini_conversation_app.config import HF_AVAILABLE_VOICES, config
@@ -28,12 +29,16 @@ from reachy_mini_conversation_app.startup_settings import (
     load_startup_settings_into_runtime,
 )
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_conversation_app.gemini_credentials import CredentialError, GeminiCredentials
 from reachy_mini_conversation_app.personality_routes import (
     RouteError,
     build_personality_ops,
 )
 from reachy_mini_conversation_app.conversation_handler import ConversationHandler
 from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, HuggingFaceRealtimeHandler
+
+
+CredentialClient = tuple[TestClient, LocalStream, GeminiCredentials, FakeVault]
 
 
 def _rpc_call(app: FastAPI, method: str, params: Any = None) -> dict[str, Any]:
@@ -2215,3 +2220,282 @@ def test_rebuilt_providers_keep_language_policy_and_history(monkeypatch: pytest.
     assert config.PROFILE_LANGUAGES == {"default": "zh"}
     assert list(stream._conversation_history) == history
     assert deps.camera_enabled is False and config.MEMORY_ENABLED is False
+
+
+@pytest.mark.parametrize(
+    "headers,peer",
+    [
+        ({"host": "evil.local:7860"}, "127.0.0.1"),
+        ({"host": "127.0.0.1:7860"}, "192.0.2.1"),
+        ({"host": "127.0.0.1:7860", "x-forwarded-for": "127.0.0.1"}, "127.0.0.1"),
+        ({"host": "127.0.0.1:7860", "origin": "https://evil.invalid", "sec-fetch-site": "cross-site"}, "127.0.0.1"),
+    ],
+)
+def test_credential_access_rejects_untrusted_requests(headers: dict[str, str], peer: str) -> None:
+    """Secret management must not inherit the ordinary RPC's remote access."""
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/gemini-credential",
+            "headers": [(name.encode(), value.encode()) for name, value in headers.items()],
+            "server": ("127.0.0.1", 7860),
+            "client": (peer, 1234),
+            "query_string": b"",
+        }
+    )
+    with pytest.raises(CredentialError):
+        LocalStream._check_credential_request(request)
+
+
+@pytest.mark.asyncio
+async def test_credential_stop_does_not_touch_active_hf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Managing another provider's key does not interrupt HF audio or movements."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    handler = MagicMock(shutdown=AsyncMock())
+    stream = LocalStream(handler, MagicMock())
+    generation = stream.session_state.generation
+    await stream._stop_gemini_for_credentials()
+    assert stream.session_state.generation == generation
+    assert not stream._restart_requested.is_set()
+    handler.shutdown.assert_not_called()
+
+
+@pytest.fixture
+def credential_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[CredentialClient]:
+    """Exercise the real HTTP boundary with isolated storage and no cloud access."""
+    vault = FakeVault()
+    credentials = GeminiCredentials(tmp_path, "", vault_factory=lambda: vault)
+    credentials.initialize()
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    monkeypatch.setattr(console_mod, "validate_gemini_candidate", AsyncMock(), raising=False)
+    app = FastAPI()
+    stream = LocalStream(MagicMock(), MagicMock(), settings_app=app, credentials=credentials)
+    stream._init_settings_ui_if_needed()
+    with TestClient(app, base_url="http://127.0.0.1:7860", client=("127.0.0.1", 1234)) as client:
+        yield client, stream, credentials, vault
+    credentials.close()
+
+
+def test_credential_http_apply_is_redacted_and_preserves_hf(credential_client: CredentialClient) -> None:
+    """A local explicit apply preserves HF and exposes only safe status."""
+    client, stream, store, _vault = credential_client
+    bootstrap = client.get(
+        "/api/gemini-credential", headers={"Sec-Fetch-Site": "same-origin", "X-Credential-Request": "1"}
+    )
+    assert bootstrap.status_code == 200
+    payload = bootstrap.json()
+    headers = {
+        "Origin": "http://127.0.0.1:7860",
+        "Sec-Fetch-Site": "same-origin",
+        "X-Credential-CSRF": payload["csrf_token"],
+    }
+    reply = client.post(
+        "/api/gemini-credential",
+        json={"candidate": "candidate-sentinel", "expected_revision": payload["revision"]},
+        headers=headers,
+    )
+    assert reply.status_code == 200
+    assert reply.json()["source"] == "settings"
+    assert "sentinel" not in reply.text
+    assert not stream._restart_requested.is_set()
+    assert store.snapshot().secret == "candidate-sentinel"
+    console_mod.validate_gemini_candidate.assert_awaited_once()
+
+
+@pytest.mark.parametrize("candidate", ["", "   ", 17, None])
+def test_credential_http_input_is_not_deletion_or_echo(credential_client: CredentialClient, candidate: object) -> None:
+    """Malformed candidates never reach the validator or credential storage."""
+    client, _stream, _store, vault = credential_client
+    bootstrap = client.get(
+        "/api/gemini-credential", headers={"Sec-Fetch-Site": "same-origin", "X-Credential-Request": "1"}
+    ).json()
+    reply = client.post(
+        "/api/gemini-credential",
+        json={"candidate": candidate, "expected_revision": bootstrap["revision"]},
+        headers={
+            "Origin": "http://127.0.0.1:7860",
+            "Sec-Fetch-Site": "same-origin",
+            "X-Credential-CSRF": bootstrap["csrf_token"],
+        },
+    )
+    assert reply.status_code == 400
+    assert "input" not in reply.json()
+    assert not vault.entries
+    console_mod.validate_gemini_candidate.assert_not_awaited()
+
+
+def test_credential_page_is_separate_local_document(credential_client: CredentialClient) -> None:
+    """The protected HTML has no static alias and does not restrict the ordinary settings page."""
+    client, _stream, _store, _vault = credential_client
+    page = client.get("/settings/gemini-key", headers={"Sec-Fetch-Dest": "document"})
+    assert page.status_code == 200
+    assert 'type="password"' in page.text
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert page.headers["x-frame-options"] == "DENY"
+    assert page.headers["cache-control"] == "no-store"
+    assert client.get("/static/gemini-key.html").status_code == 404
+    assert client.get("/settings/gemini-key", headers={"Sec-Fetch-Dest": "iframe"}).status_code == 403
+    general = client.get("/", headers={"Sec-Fetch-Dest": "iframe"})
+    assert general.status_code == 200
+    assert "x-frame-options" not in general.headers
+
+
+@pytest.mark.parametrize(
+    "header,value",
+    [
+        ("Origin", "https://evil.invalid"),
+        ("Sec-Fetch-Site", "cross-site"),
+        ("X-Forwarded-For", "127.0.0.1"),
+        ("X-Credential-CSRF", "wrong"),
+        ("Content-Type", "text/plain"),
+    ],
+)
+def test_credential_write_refuses_untrusted_origin_or_headers(
+    credential_client: CredentialClient, header: str, value: str
+) -> None:
+    """The secret mutation boundary rejects spoofing before any validation or storage."""
+    client, _stream, store, vault = credential_client
+    bootstrap = client.get(
+        "/api/gemini-credential", headers={"Sec-Fetch-Site": "same-origin", "X-Credential-Request": "1"}
+    ).json()
+    headers = {
+        "Origin": "http://127.0.0.1:7860",
+        "Sec-Fetch-Site": "same-origin",
+        "Content-Type": "application/json",
+        "X-Credential-CSRF": bootstrap["csrf_token"],
+        header: value,
+    }
+    response = client.post(
+        "/api/gemini-credential", content='{"candidate":"private-sentinel","expected_revision":0}', headers=headers
+    )
+    assert response.status_code == 403
+    assert "sentinel" not in response.text
+    assert store.revision == 0 and not vault.entries
+    console_mod.validate_gemini_candidate.assert_not_awaited()
+
+
+def test_credential_malformed_requests_and_expired_token_are_sanitized(credential_client: CredentialClient) -> None:
+    """Oversized and invalid bodies never become reflected input errors."""
+    client, stream, store, _vault = credential_client
+    boot = client.get(
+        "/api/gemini-credential", headers={"Sec-Fetch-Site": "same-origin", "X-Credential-Request": "1"}
+    ).json()
+    headers = {
+        "Origin": "http://127.0.0.1:7860",
+        "Sec-Fetch-Site": "same-origin",
+        "Content-Type": "application/json",
+        "X-Credential-CSRF": boot["csrf_token"],
+    }
+    bodies = [
+        "private-sentinel",
+        '{"candidate":"private-sentinel","expected_revision":true}',
+        '{"candidate":"private-sentinel","expected_revision":0,"unknown":"secret"}',
+        "x" * 17000,
+    ]
+    for body in bodies:
+        response = client.post("/api/gemini-credential", content=body, headers=headers)
+        assert response.status_code == 400 and "private-sentinel" not in response.text
+    stream._credential_csrf_expires = 0
+    assert (
+        client.post(
+            "/api/gemini-credential", json={"candidate": "private-sentinel", "expected_revision": 0}, headers=headers
+        ).status_code
+        == 403
+    )
+    assert store.revision == 0
+
+
+@pytest.mark.parametrize("provider", ["huggingface", "gemini"])
+def test_credential_failure_preserves_setting_and_does_not_resume(
+    credential_client: CredentialClient, provider: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authentication failure preserves the protected source and leaves affected Gemini stopped."""
+    client, stream, store, vault = credential_client
+    store.save("original-sentinel", store.begin(0))
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", provider)
+    monkeypatch.setattr(
+        console_mod,
+        "validate_gemini_candidate",
+        AsyncMock(side_effect=console_mod.GeminiConnectionError("authentication_failed", recoverable=False)),
+    )
+    stream.handler.shutdown = AsyncMock()
+    boot = client.get(
+        "/api/gemini-credential", headers={"Sec-Fetch-Site": "same-origin", "X-Credential-Request": "1"}
+    ).json()
+    response = client.post(
+        "/api/gemini-credential",
+        json={"candidate": "candidate-sentinel", "expected_revision": boot["revision"]},
+        headers={
+            "Origin": "http://127.0.0.1:7860",
+            "Sec-Fetch-Site": "same-origin",
+            "X-Credential-CSRF": boot["csrf_token"],
+        },
+    )
+    assert response.status_code == 422 and "sentinel" not in response.text
+    assert store.snapshot().secret == "original-sentinel" and len(vault.entries) == 1
+    assert store.metadata.manual_reconnect_required == (provider == "gemini")
+    if provider == "gemini":
+        assert not stream._configuration_ready()
+    else:
+        stream.handler.shutdown.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_clear_retires_slow_validation_without_waiting_for_cloud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clear intent closes a pending validation and cannot be overwritten by its result."""
+    vault = FakeVault()
+    store = GeminiCredentials(tmp_path, "environment-sentinel", vault_factory=lambda: vault)
+    store.initialize()
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def slow_validation(*_args: str) -> None:
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
+    monkeypatch.setattr(console_mod, "validate_gemini_candidate", slow_validation)
+    stream = LocalStream(MagicMock(), MagicMock(), credentials=store)
+    pending = asyncio.create_task(stream._change_credential("late-sentinel", store.begin(0), False))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        clear_revision = store.begin(store.revision, clear=True)
+        await asyncio.wait_for(stream._change_credential("", clear_revision, True), timeout=1)
+        with pytest.raises(CredentialError, match="superseded"):
+            await pending
+        assert closed.is_set() and not vault.entries
+        assert store.snapshot().secret == "environment-sentinel"
+        assert store.revision == clear_revision
+        assert store.metadata.manual_reconnect_required
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_retired_operation_does_not_validate_after_slow_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed intent during owner shutdown retires validation before it reaches the cloud."""
+    store = GeminiCredentials(tmp_path, "environment-sentinel", vault_factory=FakeVault)
+    store.initialize()
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    validator = AsyncMock()
+    monkeypatch.setattr(console_mod, "validate_gemini_candidate", validator)
+    stream = LocalStream(MagicMock(), MagicMock(), credentials=store)
+    monkeypatch.setattr(stream, "_stop_gemini_for_credentials", AsyncMock(side_effect=store.invalidate))
+    try:
+        with pytest.raises(CredentialError, match="superseded"):
+            await stream._change_credential("candidate-sentinel", store.begin(0), False)
+        validator.assert_not_called()
+        assert store.snapshot().secret == "environment-sentinel"
+    finally:
+        store.close()

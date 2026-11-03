@@ -56,6 +56,7 @@ preparing 的 null 舊 active 只代表此次操作前沒有 managed 來源；cl
 configured: bool；managed_presence: absent/present/unknown；environment_available: bool；
 source: settings/environment/none/blocked；storage: available/locked/unavailable/error/busy；
 validation: unverified/validating/validated/failed；apply: idle/saving/applied/clearing/failed；
+owner_epoch: 每次行程初始化產生的隨機識別，不由金鑰衍生；前端以此接受重啟後的新狀態、丟棄舊行程回覆。
 connection: 沿用既有連線狀態；manual_reconnect_required、revision、operation_id、安全 reason。
 
 `validated` 綁定當次 revision/model/voice，重啟後顯示「已保存、尚未重新驗證」，不得宣稱仍連線。

@@ -27,7 +27,7 @@ HTML 由 templates/gemini-key.html 透過專用路由送出，不建立公開 st
 
 缺 Fetch Metadata、CSRF 或 Origin 的寫入拒絕；GET 不要求瀏覽器通常不送的 Origin，若有則必須同源。
 無此能力的舊 WebView 顯示不支援，提示以本機瀏覽器使用；不能降級為無驗證路由。
-CSRF token 隨行程重啟失效、不可經 RPC/remote bootstrap 取得、不進 localStorage/sessionStorage/cookie/URL。
+CSRF token 有效期為 600 秒，過期後由同源 bootstrap 更新；隨行程重啟失效、不可經 RPC/remote bootstrap 取得、不進 localStorage/sessionStorage/cookie/URL。
 這是本機使用者邊界與防跨站請求，並非保護已遭入侵的同源程式。
 
 request body 大小上限 16 KiB；僅接受宣告欄位、字串 candidate 及合法 revision。

@@ -36,6 +36,14 @@ flowchart TB
 
     Handlers -- results --> Backend
 
+    UI -- opens separate local page --> KeyPage["Local Gemini key settings<br/>top-level loopback page"]
+    KeyPage -- explicit candidate --> Credentials["Instance credential manager<br/>source selection + reconnect gate"]
+    Credentials -- minimal setup only --> Validation["Gemini Live validation<br/>no conversation, media or tools"]
+    Credentials -- verified revision --> Vault["OS protected credential store"]
+    Credentials -- nonsecret references --> Journal["Instance transaction journal"]
+    Environment["Legacy environment key"] -- only without managed source --> Credentials
+    Credentials -- effective key for selected Gemini --> Backend
+
      User:::userStyle
      UI:::uiStyle
      Backend:::aiStyle

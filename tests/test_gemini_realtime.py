@@ -827,3 +827,44 @@ async def test_missing_interrupt_barrier_retires_checkpoint(monkeypatch: pytest.
     with pytest.raises(gemini.GeminiConnectionError, match="resume_unavailable"):
         await handler.start_up()
     assert state.resumption_handle is None and state.logical_session_id != previous
+
+
+@pytest.mark.asyncio
+async def test_candidate_setup_is_silent_and_uses_explicit_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validation sends only setup fields, without starting the conversation handler."""
+    socket = FakeConnection([{"setupComplete": {}}])
+    opened: list[dict[str, object]] = []
+
+    def connect_candidate(_url: str, **kwargs: object) -> FakeConnect:
+        opened.append(kwargs)
+        return FakeConnect(socket)
+
+    monkeypatch.setattr(gemini, "connect", connect_candidate)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "old-environment-sentinel")
+    await gemini.validate_gemini_candidate("candidate-sentinel", "gemini-test-model", "Kore")
+    assert opened[0]["additional_headers"] == {"x-goog-api-key": "candidate-sentinel"}
+    assert len(socket.sent) == 1
+    setup = socket.sent[0]["setup"]
+    assert set(setup) == {"model", "generationConfig"}
+    assert setup["model"] == "models/gemini-test-model"
+    assert config.GEMINI_API_KEY == "old-environment-sentinel"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code,reason",
+    [
+        (401, "authentication_failed"),
+        (403, "model_not_available"),
+        (429, "quota_exceeded"),
+        (503, "service_unavailable"),
+    ],
+)
+async def test_candidate_setup_errors_are_safe(code: int, reason: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credential checks classify provider failures without echoing provider bodies."""
+    socket = FakeConnection([{"error": {"code": code, "message": "candidate-sentinel"}}])
+    monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(socket))
+    with pytest.raises(gemini.GeminiConnectionError) as caught:
+        await gemini.validate_gemini_candidate("candidate-sentinel", "gemini-test-model", "Kore")
+    assert caught.value.reason == reason
+    assert "sentinel" not in str(caught.value)

@@ -71,10 +71,13 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         deps: ToolDependencies,
         instance_path: str | None = None,
         session_state: RealtimeSessionState | None = None,
+        *,
+        api_key: str | None = None,
     ) -> None:
         """Initialize the connection state."""
         super().__init__(deps, session_state or RealtimeSessionState(provider="gemini"))
         self.instance_path = instance_path
+        self._api_key = api_key
         self.connection: ClientConnection | None = None
         self._ready = False
         self._send_lock = asyncio.Lock()
@@ -163,7 +166,8 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
 
     async def start_up(self) -> None:
         """Run one acknowledged Live connection; the stream owner schedules recovery."""
-        if not config.GEMINI_API_KEY:
+        api_key = config.GEMINI_API_KEY if self._api_key is None else self._api_key
+        if not api_key:
             raise GeminiConnectionError("missing_gemini_key", recoverable=False)
         if not re.fullmatch(r"(?:models/)?[a-zA-Z0-9._-]+", config.GEMINI_MODEL):
             raise GeminiConnectionError("invalid_gemini_model", recoverable=False)
@@ -203,7 +207,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                     async with asyncio.timeout(max(0, deadline - time.monotonic())):
                         socket_context = connect(
                             GEMINI_LIVE_URL,
-                            additional_headers={"x-goog-api-key": config.GEMINI_API_KEY},
+                            additional_headers={"x-goog-api-key": api_key},
                             open_timeout=max(0, deadline - time.monotonic()),
                             close_timeout=CLOSE_TIMEOUT_S,
                             max_size=16 * 1024 * 1024,
@@ -609,3 +613,60 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                     invocation.status = "uncertain"
         await self.tool_manager.shutdown()
         await self._close_socket()
+
+
+async def validate_gemini_candidate(candidate: str, model: str, voice: str) -> None:
+    """Check Live setup eligibility without sending conversation content or starting media."""
+    if not candidate.strip():
+        raise GeminiConnectionError("invalid_input", recoverable=False)
+    if not re.fullmatch(r"(?:models/)?[a-zA-Z0-9._-]+", model):
+        raise GeminiConnectionError("invalid_gemini_model", recoverable=False)
+    if voice not in GEMINI_AVAILABLE_VOICES:
+        raise GeminiConnectionError("invalid_gemini_voice", recoverable=False)
+    setup = {
+        "model": "models/" + model.removeprefix("models/"),
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
+        },
+    }
+    try:
+        async with asyncio.timeout(SETUP_TIMEOUT_S):
+            async with connect(
+                GEMINI_LIVE_URL,
+                additional_headers={"x-goog-api-key": candidate},
+                open_timeout=SETUP_TIMEOUT_S,
+                close_timeout=CLOSE_TIMEOUT_S,
+                max_size=1024 * 1024,
+                logger=transport_logger,
+            ) as connection:
+                await connection.send(json.dumps({"setup": setup}))
+                while True:
+                    envelope = _decode_message(await connection.recv())
+                    if "error" in envelope:
+                        remote = _object(envelope["error"])
+                        code = remote.get("code")
+                        if code in (403, 404):
+                            raise GeminiConnectionError("model_not_available", recoverable=False)
+                        if code == 429:
+                            raise GeminiConnectionError("quota_exceeded", recoverable=False)
+                        GeminiRealtimeHandler._raise_remote_error(remote)
+                    if isinstance(envelope.get("setupComplete"), dict):
+                        return
+    except InvalidStatus as error:
+        reason = {
+            400: "invalid_gemini_model",
+            401: "authentication_failed",
+            403: "model_not_available",
+            404: "model_not_available",
+            429: "quota_exceeded",
+        }.get(error.response.status_code, "service_unavailable")
+        raise GeminiConnectionError(reason, recoverable=False) from None
+    except GeminiConnectionError as error:
+        if error.reason == "connection_lost":
+            raise GeminiConnectionError("service_unavailable") from None
+        raise
+    except TimeoutError:
+        raise GeminiConnectionError("validation_timeout") from None
+    except (OSError, ConnectionClosed, json.JSONDecodeError):
+        raise GeminiConnectionError("service_unavailable") from None

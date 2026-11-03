@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from test_gemini_credentials import FakeVault
 
 from reachy_mini_conversation_app.config import config, refresh_runtime_config_from_env
 from reachy_mini_conversation_app.prompts import get_session_instructions
@@ -13,6 +14,7 @@ from reachy_mini_conversation_app.settings_store import (
     update_settings,
     load_settings_into_runtime,
 )
+from reachy_mini_conversation_app.gemini_credentials import GeminiCredentials
 
 
 def test_absent_file_reads_as_unset(tmp_path: Path) -> None:
@@ -184,3 +186,34 @@ def test_temporary_language_policy_does_not_write_settings(
     assert config.PROFILE_LANGUAGES == {}
     assert (tmp_path / "settings.json").read_bytes() == original
     assert list(tmp_path.iterdir()) == [tmp_path / "settings.json"]
+
+
+def test_managed_credential_does_not_mutate_environment_or_general_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refreshing nonsecret preferences cannot overwrite or expose the protected key."""
+    for name, original in vars(config).copy().items():
+        monkeypatch.setattr(config, name, original)
+    monkeypatch.setattr(config, "MEMORY_ENABLED", config.MEMORY_ENABLED)
+    monkeypatch.setattr(config, "CAMERA_ENABLED", config.CAMERA_ENABLED)
+    monkeypatch.setenv("GEMINI_API_KEY", "environment-sentinel")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "environment-sentinel")
+    vault = FakeVault()
+    store = GeminiCredentials(tmp_path, "environment-sentinel", vault_factory=lambda: vault)
+    store.initialize()
+    try:
+        store.save("managed-sentinel", store.begin(0))
+        update_settings(
+            tmp_path, AppSettings(language="zh", memory_enabled=False, camera_enabled=False, gemini_voice="Kore")
+        )
+        refresh_runtime_config_from_env()
+        load_settings_into_runtime(tmp_path)
+        assert config.GEMINI_API_KEY == "environment-sentinel"
+        assert store.snapshot().secret == "managed-sentinel"
+        assert config.REALTIME_TRANSCRIPTION_LANGUAGE == "zh"
+        assert not config.MEMORY_ENABLED and not config.CAMERA_ENABLED
+        assert "sentinel" not in (tmp_path / "settings.json").read_text(encoding="utf-8")
+        assert "sentinel" not in store.path.read_text(encoding="utf-8")
+        assert not (tmp_path / ".env").exists()
+    finally:
+        store.close()

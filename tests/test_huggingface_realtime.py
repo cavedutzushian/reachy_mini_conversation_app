@@ -13,6 +13,7 @@ import pytest
 import reachy_mini_conversation_app.conversation_handler as conv_mod
 import reachy_mini_conversation_app.huggingface_realtime as hf_mod
 from reachy_mini_conversation_app.config import config, get_default_voice, refresh_runtime_config_from_env
+from reachy_mini_conversation_app.console import LocalStream
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.conversation_handler import VADStatus
@@ -1522,3 +1523,20 @@ async def test_debug_vad_reports_probability_and_barge_in_without_extra_inferenc
     handler._set_listening(server=False)
     assert len(statuses) == previous_reports
     handler._reset_listening()
+
+
+@pytest.mark.asyncio
+async def test_credential_retirement_fences_shared_handler_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A retired connection cannot keep shared output ownership or resume old tools."""
+    monkeypatch.setattr(config, "CONVERSATION_BACKEND", "gemini")
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    stream = LocalStream(handler, MagicMock())
+    handler.shutdown = AsyncMock()
+    stream.clear_audio_queue = AsyncMock()
+    session_id = stream.session_state.logical_session_id
+    await stream._stop_gemini_for_credentials()
+    assert stream.session_state.logical_session_id != session_id
+    assert not handler._owns_connection()
+    assert stream.session_state.resumption_handle is None
+    assert not stream.session_state.invocations
+    handler.shutdown.assert_awaited_once()

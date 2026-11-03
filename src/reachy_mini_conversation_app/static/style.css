@@ -1199,6 +1199,14 @@ button {
   gap: 10px;
 }
 
+.credential-actions {
+  flex-wrap: wrap;
+}
+
+.credential-actions > .btn {
+  flex: 1 1 12rem;
+}
+
 .settings-section-intro {
   margin-bottom: 14px;
 }

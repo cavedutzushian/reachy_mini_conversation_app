@@ -17,6 +17,7 @@ dependencies = [
     "websockets>=15,<16",
     "soxr>=1.1,<2",
     "jsonschema>=4,<5",
+    "keyring>=25.7,<26",
 
     #Environment variables
     "python-dotenv",
@@ -72,6 +73,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 reachy_mini_conversation_app = [
   "static/**/*",
+  "templates/*.html",
   ".env.example",
 ]
 reachy_talk_data = [
