@@ -315,6 +315,8 @@ try {
       await page.close();
       completed++;
     }
+  }
+  if (["all", "security", "layout"].includes(values.phase)) {
     await scenario();
     const narrow=await newPage();
     await narrow.setViewport({width:360,height:820});
@@ -324,16 +326,32 @@ try {
     await narrow.type("#credential-input","draft");
     await narrow.keyboard.press("Escape");
     assert.equal(await narrow.$eval("#credential-input",node=>node.value),"");
-    for (const width of [240, 280, 320, 360]) {
+    for (const width of [240, 280, 320, 360, 768, 1280]) {
       await narrow.setViewport({width, height:820});
-      const lineCounts = await narrow.$$eval(".credential-actions button", buttons => buttons.map(button => {
-        const range = document.createRange();
-        range.selectNodeContents(button);
-        return new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size;
-      }));
-      assert(lineCounts.every(count => count === 1), `Button labels must remain on one line at ${width}px`);
+      const outside = await narrow.$$eval(".credential-controls, .credential-controls *", nodes => nodes.filter(node => {
+        const frame = node.closest(".settings-section");
+        const bounds = node.getBoundingClientRect();
+        const container = frame.getBoundingClientRect();
+        return bounds.left < container.left || bounds.right > container.right;
+      }).map(node => node.id || node.className || node.tagName));
+      assert.deepEqual(outside, [], `Credential elements outside connection section at ${width}px`);
+      const textOutside = await narrow.$eval(".credential-controls", outlet => {
+        const container = outlet.closest(".settings-section").getBoundingClientRect();
+        const walker = document.createTreeWalker(outlet, NodeFilter.SHOW_TEXT);
+        const outside = [];
+        while (walker.nextNode()) {
+          const range = document.createRange();
+          range.selectNodeContents(walker.currentNode);
+          if ([...range.getClientRects()].some(bounds => bounds.left < container.left || bounds.right > container.right)) {
+            outside.push(walker.currentNode.parentElement.id || walker.currentNode.parentElement.tagName);
+          }
+        }
+        return outside;
+      });
+      assert.deepEqual(textOutside, [], `Credential text outside connection section at ${width}px`);
       assert.equal(await narrow.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Overflow at ${width}px`);
     }
+    await narrow.setViewport({width:280, height:820});
     await narrow.screenshot({path:resolve("cache/inline-settings-narrow.png"),fullPage:true});
     await narrow.close();
     completed++;

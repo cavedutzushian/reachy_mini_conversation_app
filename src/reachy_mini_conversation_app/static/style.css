@@ -1201,8 +1201,10 @@ button {
 
 .credential-controls {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .credential-actions {
@@ -1211,7 +1213,7 @@ button {
 
 .credential-actions > .btn {
   flex: 1 1 12rem;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .settings-section-intro {

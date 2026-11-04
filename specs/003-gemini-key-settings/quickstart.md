@@ -16,9 +16,10 @@ T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16�
 - T067／T068：根 README 已改為同頁操作；更新 `docs/scheme.mmd` 後用既有 Mermaid CLI 重產 SVG，預覽確認沒有獨立輸入頁節點。未手改 SVG。
 - T069：Python 3.12.12；Ruff check／format 通過（122 files）、strict mypy 通過（56 source files）、`uv lock --check --offline` 通過（139 packages）。先前完整 pytest 為 785 passed，wheel 因沙箱禁止 PyPI 連線失敗；允許該次公開建置下載後 wheel 單獨 1 passed。原始記錄 `cache/003-gemini-key-settings/inline-full-gate.log` 保留。
 - 續跑完整 pytest gate：786 passed，含 wheel；僅一則 `.pytest_cache` 寫入權限警告，未影響測試。原始紀錄 `cache/003-gemini-key-settings/inline-resume-full-gate.log`。Ruff／format／mypy／lock 亦再次通過；未變更依賴或鎖檔。
-- T070：使用者回報同頁假值操作與一般設定正常，只有縮窄視窗的按鈕文字會換行。240px 瀏覽器回歸已重現，金鑰按鈕新增單行文字樣式、保留群組換列；修正後 240／280／320／360px 的按鈕各單行且全頁無橫向溢出；人工畫面複驗待回報，不把使用者原回報改寫為全部通過。
+- T070：使用者先回報假值操作正常、按鈕窄版換行；單行調整後，再回報說明、輸入欄與按鈕超出「連線」框，既有元件正常。原整頁 scrollWidth／單行檢查不足以發現區塊內溢出，不將先前通過當成人工完成。新增逐元件邊界回歸，在 240px 確認失敗；將金鑰 Grid 欄改為 minmax(0, 1fr)，文字可斷行、按鈕 min-width=0，移除強制單行。修正後 240～360px 區塊邊界回歸通過；再加入實際文字 Range 邊界及 768／1280px 複驗，完整 43 cases（all）通過，記錄於 `cache/003-gemini-key-settings/inline-contained-browser.log`；280px 截圖已檢視。Ruff／format／strict mypy 再次通過，Python 未變更、完整 786 passed gate 保留；人工最終畫面仍待確認。
+- 修正區塊溢出時曾誤用人工 7864 fixture 執行自動安全矩陣，既有頁面輪詢干擾「零 bootstrap」計數；該次失敗不作產品結論，已改回獨立 7866 fixture。
 - 本次續跑曾有 Chrome 啟動／導覽逾時，保留為測試執行失敗，最終補跑 43 browser cases（all）通過，含新增完整來源變體；紀錄於 `cache/003-gemini-key-settings/inline-resume-browser.log`。無真實憑證、雲端、daemon、語音、相機或記憶操作。
-- T071 原生 Control App／實際 remote-relay 及 T072 同頁真實服務矩陣保持待驗，須各自當輪授權；T073 尚未結案。先前 macOS／Linux 豁免保留，不記為實測通過。
+- 使用者本輪選擇保存進度、實機下次驗收；T071 原生 Control App／實際 remote-relay 及 T072 同頁真實服務矩陣保持待驗，未啟動 App；T073 尚未結案。先前 macOS／Linux 豁免保留，不記為實測通過。
 
 可重現命令（工具路徑依本機既有安裝填入，不新增產品依賴）：
 
@@ -31,7 +32,7 @@ node --experimental-vm-modules tests/static/js/gemini-key.browser.mjs --url http
 .venv/Scripts/python.exe -X utf8 -c "import httpx; print(httpx.post('http://127.0.0.1:7866/fixture/finish',trust_env=False).status_code)"
 ```
 
-runner 的 `--phase` 可用 all／eligibility／initial／lifecycle／stale-read／security。人工只用 offline-first、offline-second、offline-invalid；不可輸入真實金鑰。Chrome／Puppeteer 位置只由參數傳入，fixture 關閉後網址不保證持續可用。
+runner 的 `--phase` 可用 all／eligibility／initial／lifecycle／stale-read／security／layout。人工只用 offline-first、offline-second、offline-invalid；不可輸入真實金鑰。Chrome／Puppeteer 位置只由參數傳入，fixture 關閉後網址不保證持續可用。
 
 ## 1. 研究結果與可重現 spike
 
