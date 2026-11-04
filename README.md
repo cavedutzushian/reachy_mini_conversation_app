@@ -122,6 +122,8 @@ never filled with an existing key, and cleared after submission, cancellation or
 Validation checks the selected Live model without sending a user turn, audio,
 personality, memory or tools. It does not select Gemini or interrupt active Hugging Face.
 Select Gemini separately when you want to use it.
+If checking key status times out, choose **重新查詢金鑰狀態** to retry manually;
+key changes are never resent automatically.
 
 Keys entered through this page survive App restarts in the current OS user's protected
 credential store: Windows Credential Manager (local-machine persistence), macOS Keychain,

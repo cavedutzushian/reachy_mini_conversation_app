@@ -204,6 +204,11 @@ export function describeError(error) {
 
 
 export async function geminiCredentialRequest(method = "GET", payload = null, csrfToken = "", signal) {
+  const requestController = new AbortController();
+  const cancelRequest = () => requestController.abort();
+  if (signal?.aborted) cancelRequest();
+  else signal?.addEventListener("abort", cancelRequest, { once: true });
+  const timeout = method === "GET" ? setTimeout(cancelRequest, 10000) : null;
   const headers = { "X-Credential-Request": "1" };
   if (method !== "GET") {
     headers["Content-Type"] = "application/json";
@@ -213,12 +218,15 @@ export async function geminiCredentialRequest(method = "GET", payload = null, cs
   let status;
   try {
     response = await fetch("/api/gemini-credential", {
-      method, headers, cache: "no-store", credentials: "same-origin", signal,
+      method, headers, cache: "no-store", credentials: "same-origin", signal: requestController.signal,
       ...(payload === null ? {} : { body: JSON.stringify(payload) }),
     });
     status = await response.json();
   } catch {
     throw new RpcError("無法確認操作結果，請重新查詢狀態；不會自動重送。", "result_unknown");
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", cancelRequest);
   }
   if (!response.ok) throw new RpcError("金鑰設定操作未完成。", status.reason || "service_unavailable", status);
   return status;

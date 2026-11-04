@@ -21,6 +21,33 @@ T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16�
 - 本次續跑曾有 Chrome 啟動／導覽逾時，保留為測試執行失敗，最終補跑 43 browser cases（all）通過，含新增完整來源變體；紀錄於 `cache/003-gemini-key-settings/inline-resume-browser.log`。無真實憑證、雲端、daemon、語音、相機或記憶操作。
 - 使用者本輪選擇保存進度、實機下次驗收；T071 原生 Control App／實際 remote-relay 及 T072 同頁真實服務矩陣保持待驗，未啟動 App；T073 尚未結案。先前 macOS／Linux 豁免保留，不記為實測通過。
 
+### T071 原生嘗試與查詢逾時修正 — 2026-11-04
+
+- 使用者重新授權 Windows 原生驗收；實際 Control App 為 0.9.37、daemon 1.13.0、mockup-sim 模擬模式。一般內嵌頁及設定頁可開啟，UI 顯示父頁 http://tauri.localhost、子頁 http://localhost:7860；相機／記憶 false、HF 已連線由 conversation.status 安全欄位確認。不把模擬模式當成實體語音驗收。
+- 首次金鑰區停在「正在確認金鑰設定…」，未提供輸入。獨立 API GET 回 200、source=none、storage=available；未印出或儲存 CSRF。完整 ancestorOrigins、原生 request headers、remote／relay 尚未觀察，不宣稱完整 T071 通過。
+- 原生發布版未提供可用開發診斷；使用者按實體 Esc 後即停止視窗操作。App 已停止，僅刪除內容未變的本輪安全設定 guard、還原原先不存在狀態，fixture 亦停止。自動審查拒絕以 HEAD 覆寫兩個未提交工作檔；沒有執行該覆寫，續輪改為檢查差異並繼續修正。
+- 狀態查詢新增十秒前端等待上限，逾時清理 AbortSignal 監聽／timer，沿用 result_unknown 及手動重新查詢；mutation 不新增逾時、不自動重送，前端取消仍不表示後端交易取消。此修正避免無限等待，不宣稱已修復原生網路根因。
+- 上輪 timeout 回歸的繁體比對字串遭 PowerShell 管線編碼成問號；直接修正 Unicode 字串後通過。新增恢復測試時，一次性模擬會受初次 pageshow 重新 bootstrap 干擾，改為明確手動恢復前持續模擬阻塞。原始失敗保留，不作產品已修復證據。
+- 最終 timeout／手動恢復及完整 browser 44 cases（all）通過：逾時前不建立輸入、逾時後能明確重查並取得空白遮蔽欄位，不重送候選。記錄 cache/003-gemini-key-settings/inline-timeout-browser-final.log。
+- 完整 Python 3.12 gate 786 passed、1 則 pytest cache 寫入權限警告；Ruff／format、strict mypy 通過。記錄 cache/003-gemini-key-settings/inline-timeout-full-gate.log。uv 預設使用者 cache 的 lock 存取被拒，指定既有工作區 cache/uv 後再檢查；無依賴或 SDK 變更。
+- 本輪再次取得使用者明確同意後才恢復 Windows 操作。原生重啟後金鑰區正常建立空白欄位；非真實草稿遮蔽、取消清空、離開返回不回填均實測通過，無另開頁面。最終安全狀態 HF、memory=false、vision=false、Gemini 未設定；未提交／驗證／清除任何金鑰，未變更硬體音量。這次成功不歸因於已修復原生網路原因。
+- 使用者明確接受原生頁面證據，將未直接量測的完整 ancestorOrigins／請求標頭及真正 remote／relay 列為個人客製化限制，據此結束 T071。該等項目不記為實測通過，來源 allowlist／SDK 不變。測後 App 停止，內容未變的安全設定 guard 已移除，還原原先不存在狀態。
+- 使用者另行授權 T072，只使用既有免費額度。隔離 scope 位於工作區 cache，新的 OS vault namespace；Gemini 環境值清空、不載入日常 dotenv、相機與記憶關閉，由使用者在 http://127.0.0.1:7865/#/settings 同頁輸入真實 key。執行腳本 cache/003-gemini-key-settings/inline_live_trial.py，實際 HF 連線已建立。模擬 daemon 未找到 Reachy 音訊 USB，現場聲音／實體動作不當成已通過。T072／T073 仍未完成，實際結果如下。
+
+### T072 本輪實際服務結果 — 2026-11-04
+
+| 情境 | 結果 |
+|---|---|
+| HF active，使用者從同頁首次提供 Gemini key | 最小 Gemini setup／保存成功，source=settings、validated；HF 仍 connected，沒有選用 Gemini |
+| HF active，使用者再次輸入有效 key 更新 | 多次回報 service_unavailable；保留原 managed 來源，HF 持續 connected、retry_attempt=0；不判定 key 無效、不記成功更新 |
+| HF active，以明示非真實候選測試失敗 | 也回 service_unavailable，舊 managed 保留、HF 不動；認證失敗分類尚未實測通過 |
+| HF active，清除隔離實例金鑰 | HTTP 200，source=none、managed_presence=absent、manual_reconnect_required=true；HF 仍 connected、retry_attempt=0 |
+| Gemini active／disconnected 的更新、失敗、清除，fresh session／manual gate／無重播 | 未完成；依有效 key 重試仍失敗時停止新增雲端驗證的本輪約定，未繼續切換或追加驗證 |
+
+- 服務失敗原始結果保留，最初 setup 成功不代表後續服務穩定；不以離線矩陣取代未完成 live 項目。僅用假 header 值的獨立診斷沒有得到可用結論，已核對行程身分後停止，不作判斷依據；沒有讀取或輸出真實 key。
+- 測後同頁真實實例與離線 fixture 均停止。隔離 vault 清除回讀確認成功；journal state=cleared，active/pending 均空、retired_count=0；隔離 scope 未建立 .env。日誌只檢查 Google key 格式是否出現，結果 false；這項格式掃描不單獨宣稱證明所有機密零洩漏。保留非秘密 journal 供驗收追蹤，未刪除日常憑證或修改 daemon 模式／硬體音量。
+- 本輪仍為 27／29 完成：T071 依明確接受的證據／限制結束；T072 以上述服務失敗及未實測矩陣保持未完成，T073 不結案。下次先確認 Gemini 服務可用，再補有效更新及 Gemini active／disconnected 矩陣；真實 key 仍由使用者在隔離同頁提供。
+
 可重現命令（工具路徑依本機既有安裝填入，不新增產品依賴）：
 
 ```powershell
@@ -32,7 +59,7 @@ node --experimental-vm-modules tests/static/js/gemini-key.browser.mjs --url http
 .venv/Scripts/python.exe -X utf8 -c "import httpx; print(httpx.post('http://127.0.0.1:7866/fixture/finish',trust_env=False).status_code)"
 ```
 
-runner 的 `--phase` 可用 all／eligibility／initial／lifecycle／stale-read／security／layout。人工只用 offline-first、offline-second、offline-invalid；不可輸入真實金鑰。Chrome／Puppeteer 位置只由參數傳入，fixture 關閉後網址不保證持續可用。
+runner 的 `--phase` 可用 all／eligibility／initial／lifecycle／stale-read／security／layout／timeout。人工只用 offline-first、offline-second、offline-invalid；不可輸入真實金鑰。Chrome／Puppeteer 位置只由參數傳入，fixture 關閉後網址不保證持續可用。
 
 ## 1. 研究結果與可重現 spike
 

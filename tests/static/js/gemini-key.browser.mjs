@@ -356,6 +356,33 @@ try {
     await narrow.close();
     completed++;
   }
+  if (["all", "timeout"].includes(values.phase)) {
+    await scenario();
+    const page = await newPage();
+    await page.evaluateOnNewDocument(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.allowCredentialReads = false;
+      window.fetch = (url, options) => {
+        if (!window.allowCredentialReads && String(url).includes("/api/gemini-credential") && options?.method === "GET") {
+          return new Promise((resolve, reject) => {
+            if (options.signal?.aborted) reject(new DOMException("Aborted", "AbortError"));
+            else options.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {once:true});
+          });
+        }
+        return originalFetch(url, options);
+      };
+    });
+    await page.goto(origin + "/#/settings", {waitUntil:"domcontentloaded"});
+    await page.waitForFunction(() => document.querySelector(".credential-controls")?.textContent.includes("重新查詢金鑰狀態"), {timeout:13000});
+    assert.equal(await page.$("#credential-input"), null, "Hung bootstrap must not enable secret input");
+    assert.equal((await (await fetch(origin + "/fixture/status")).json()).requests.length, 0);
+    await page.evaluate(() => { window.allowCredentialReads = true; });
+    await page.click(".credential-controls button");
+    await waitReady(page);
+    assert.deepEqual((await (await fetch(origin + "/fixture/status")).json()).requests, ["GET"]);
+    await page.close();
+    completed++;
+  }
   await Promise.all(responses);
   assert.equal(echoed, false, "Credential echoed in response");
   assert.equal(websocketLeak,false,"Credential submitted through ordinary RPC");
