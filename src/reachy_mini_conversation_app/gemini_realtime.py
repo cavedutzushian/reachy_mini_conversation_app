@@ -527,16 +527,20 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         )
         converted = self._input_resampler.process(mono)
         if converted.size:
-            await self._send(
-                {
-                    "realtimeInput": {
-                        "audio": {
-                            "mimeType": "audio/pcm;rate=16000",
-                            "data": base64.b64encode(converted.astype("<i2").tobytes()).decode(),
+            try:
+                await self._send(
+                    {
+                        "realtimeInput": {
+                            "audio": {
+                                "mimeType": "audio/pcm;rate=16000",
+                                "data": base64.b64encode(converted.astype("<i2").tobytes()).decode(),
+                            }
                         }
                     }
-                }
-            )
+                )
+            except (ConnectionError, ConnectionClosed):
+                logger.debug("Dropping microphone frame: Gemini transport unavailable")
+                return
         self._process_local_audio(rate, mono)
 
     async def say(self, text: str) -> None:

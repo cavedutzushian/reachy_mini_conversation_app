@@ -1,10 +1,21 @@
 # Quickstart: 同頁 Gemini 憑證設定驗收
 
+## 結案狀態 — 2026-11-04
+
+同頁差異任務 T045～T073 共 29／29 完成。使用者確認清除後頁面正常，先前更新／恢復沒有發現舊語音重播、重複回覆或其他異常，並明確接受本輪實際服務矩陣、既有離線證據與下列限制，完成 T072 及個人客製化結案。
+
+- HF active 的有效更新／認證失敗保留／清除均確認 HF 持續 connected、retry=0；Gemini active 的有效更新及斷線後有效更新均有新對話與實際語音，API context=new；受控假值失敗保留舊 managed、停止並要求手動恢復。
+- 最後 active clear 經退役送音競態修正後，HTTP 200、source=none、managed absent、manual gate=true、Gemini waiting_for_config、retry=0；多次查詢及使用者畫面確認 App 未退出、不自動換 HF。修正前清除失敗、上輪服務失敗原始證據均保留。
+- 模擬 daemon（mockup-sim）驗收，等待設定 clear 為無已存 key 的情境；未測實體動作中變更 key／舊工具重播，相關退役行為採離線回歸，不宣稱為實體硬體通過。T071 未直接量測的完整 ancestorOrigins／請求標頭、真正 remote／relay 及 macOS／Linux 豁免延續，不擴充 allowlist 或 SDK。
+- 最終 Ruff check／format、strict mypy、uv lock --check --offline 通過，Python 3.12 完整 pytest 793 passed（含 wheel）；既有同頁 browser 44 cases 證據保留，本次沒有 UI 變更。沒有新依賴／環境變數或架構變更，未建立上游 PR。
+- 使用者確認後停止隔離實例，process exit=0，vault clear 回讀成功。最後 journal=cleared、active/pending 空、retired_count=0；三個已確認清除的 t072-live scope 共移除三份測試設定，保留非秘密 journal 作證據。未建立 .env；新日誌 Google key 格式掃描 false（不以此單項掃描證明所有機密邊界）。相機／記憶保持關閉，未變更日常設定／憑證或硬體音量。
+- 依既有已啟用 after_implement hook 保存結案。下方為逐輪歷史、原始失敗與驗收操作，當時待驗描述保留，現在完成狀態以本節及 tasks.md 為準。
+
 ## 同頁實作進度 — 2026-11-03
 
 T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16／16；Python 3.12.12、Node v22.17.0、既有 Chrome 及 ignored Puppeteer 工具可用。已讀受影響模組與專案規則；沿用最後未變更產品的 785 passed ＋獨立 wheel 1 passed 基線，完整 gate 於同頁修改後重跑。不讀 .env／日常 vault、不連雲端／daemon。既有 metadata／來源／鎖、依賴與 schema 保持；工具位置僅從執行參數指定，不寫入交付測試。
 
-本指南前半為同頁實作與目標驗收，完整產品仍待原生及實際服務驗收；後半保留原獨立頁基線證據。採 Python 3.12、假 key、fake vault／假 Gemini endpoint、隔離 scope，不讀日常 .env／憑證、不連 robot／雲端。設計細節見 plan.md 與 contracts/credential-settings.md。
+本指南保留同頁實作、目標驗收及原獨立頁基線歷史；現行完成狀態與已接受限制見上方結案紀錄。採 Python 3.12、假 key、fake vault／假 Gemini endpoint、隔離 scope，不讀日常 .env／憑證、不連 robot／雲端。設計細節見 plan.md 與 contracts/credential-settings.md。
 
 ## 2026-11-04 同頁實作與離線複驗
 
@@ -57,7 +68,18 @@ T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16�
 - HF active：明示假值 HTTP 422/authentication_failed，source=settings 保留、manual gate=false、HF connected/retry=0；使用者再次有效更新成功（revision 3），清除成功（revision 4/source=none），HF 持續 connected/retry=0。
 - 明確選用 Gemini 後，無 key 停在 waiting_for_config。假值失敗（revision 6）及清除（revision 7）均不自動重連；後續本機查詢仍 retry=0。使用者從等待狀態套用有效 key，回報已連線。
 - 使用者回報連線後，另觀察到 revision 9/authentication_failed、managed 保留、manual gate=true 的狀態；未觀察到該次提交的確切操作及時間，不把它單獨當成受控 active 失敗證據。明確 backend.retry 後原設定可重新 connected、manual gate=false、retry=0，證實舊設定可恢復。T072／T073 仍未結案，後續受控 active／disconnected 矩陣另補。
-- 保存時仍等待使用者在同頁完成 Gemini active 的有效更新回報，尚未執行後續受控 active failure／clear 與完整 disconnected 保留矩陣。隔離實例仍開啟，inline_live_trial.py 設有 1800 秒自動停止及 finally 清除隔離 vault；若自動停止，後續須以新 scope 重新提供 key，不讀舊測試憑證或日常 .env。不勾選 T072／T073。
+- commit 26e122f 保存時仍等待使用者在同頁完成 Gemini active 的有效更新回報，尚未執行後續受控 active failure／clear 與完整 disconnected 保留矩陣。隔離實例仍開啟，inline_live_trial.py 設有 1800 秒自動停止及 finally 清除隔離 vault；若自動停止，後續須以新 scope 重新提供 key，不讀舊測試憑證或日常 .env。不勾選 T072／T073。
+
+### T072 續輪：Gemini active 更新與故障恢復
+
+- 使用者回報有效更新成功，出現新對話與語音；本機查詢確認 revision 10、validated/applied、source=settings、Gemini connected、context=new、manual gate=false、retry=0，相機與記憶 false。
+- 在已確認 connected 的狀態提交明示假值：HTTP 422/authentication_failed，revision 11、source=settings/managed present 保留，Gemini 轉 waiting_for_config、manual gate=true、retry=0。
+- 保持上述斷線／等待狀態，再提交明示假值：HTTP 422/authentication_failed，revision 12，原 managed 保留、manual gate=true、retry=0，未自動換 provider 或重連。使用者再次有效更新後回報已連線、新對話與語音；查詢確認 revision 13、validated/applied、connected、context=new、manual gate=false。
+- 最後 active clear 發生非 JSON 回應並結束 App；安全堆疊定位到 record_loop → Gemini receive → send，連線已退役時的 ConnectionError 未處理，未把這次 clear 當成正常通過。finally 已清除隔離 vault，回讀 journal=cleared、active/pending 空、retired_count=0；main process exit=1 及 nanobind 結束警告保留。
+- 先加入退役送音回歸，2 failed／1 passed，揭露 ConnectionError／ConnectionClosed 會中斷 microphone receive；在 Gemini transport 接收音訊處只處理預期送音連線錯誤，固定 DEBUG 訊息、不帶例外原文並丟棄該幀，非預期 RuntimeError 仍拋出。沿用既有共享 send／session owner，不新增 retry owner 或修改 SDK。
+- 三項針對性回歸、Ruff／format、strict mypy 通過；完整 Python 3.12 gate 793 passed，記錄 cache/003-gemini-key-settings/t072-retired-audio-gate.log。原 UI 及來源契約未變；架構圖無需變更。
+- 新隔離實例直接選 Gemini，僅複驗 active clear。使用者同頁驗證成功，查詢確認 revision 1、Gemini connected、validated/applied、source=settings；明確 clear 回 HTTP 200，revision 2、source=none、managed absent、manual gate=true、waiting_for_config。後續查詢仍可用，retry=0，沒有重現 App 退出或改選 HF。相機／記憶保持 false。
+- 先前 scope 的 key 已刪除，不讀回／重用；新 scope 的 key 也已由 clear 移除。最後畫面／異常回報及個人客製化限制尚待使用者確認，T072／T073 此刻不勾選。
 
 可重現命令（工具路徑依本機既有安裝填入，不新增產品依賴）：
 

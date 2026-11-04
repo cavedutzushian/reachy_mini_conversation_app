@@ -147,6 +147,43 @@ async def test_actual_rate_stereo_input_is_sent_as_mono_pcm_and_not_buffered(mon
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("websocket_closed", [False, True])
+async def test_microphone_send_survives_connection_retirement(
+    websocket_closed: bool, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Retiring a transport during audio delivery must not stop microphone processing."""
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    handler._ready = True
+
+    async def retire_during_send(_message: str) -> None:
+        handler.session_state.begin_connection()
+        if websocket_closed:
+            raise ConnectionClosedError(Close(1000, "private-close-sentinel"), None)
+        raise gemini.GeminiConnectionError("connection_lost")
+
+    monkeypatch.setattr(socket, "send", retire_during_send)
+    with caplog.at_level(logging.DEBUG):
+        await handler.receive((16000, np.zeros(1600, dtype=np.int16)))
+    assert not handler._owns_connection()
+    assert "Dropping microphone frame" in caplog.text
+    assert "private-close-sentinel" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_microphone_send_does_not_hide_unexpected_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unexpected failures remain visible instead of being treated as disconnection."""
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    monkeypatch.setattr(socket, "send", AsyncMock(side_effect=RuntimeError("unexpected failure")))
+    handler._ready = True
+    with pytest.raises(RuntimeError, match="unexpected failure"):
+        await handler.receive((16000, np.zeros(1600, dtype=np.int16)))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "envelope",
     [

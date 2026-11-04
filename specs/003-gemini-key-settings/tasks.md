@@ -89,8 +89,8 @@
 - [X] T069 在 specs/003-gemini-key-settings/quickstart.md 記錄完整 Ruff check／format、strict mypy、pytest tests/ -v、uv lock --check --offline、持久化 browser 回歸及 wheel 結果；遵守 Python 3.12、無新 ignore／依賴／硬編路徑，保留原始失敗及修正後複驗，不將沙箱／工具缺失報成功，自審產品與文件差異。
 - [X] T070 依 specs/003-gemini-key-settings/quickstart.md 進行人工同頁 fake 畫面驗收：提交一次、清除加確認兩次、無 popup，Tab／Enter／Esc／焦點／aria-live／繁體窄視窗、更新失敗／返回欄位空白、一般設定正常。只輸入明示假值，不連雲端／robot；未獲使用者結果保留待驗，不拿自動 browser 取代人工結果。
 - [X] T071 在 specs/003-gemini-key-settings/quickstart.md 記錄當輪同意後的 Windows Control App 原生入口及實際 remote／relay 驗收：原設定頁直接控制、完整實際祖先鏈／ancestorOrigins 能力、Origin／Fetch Metadata、無開窗、相機／記憶關閉；不符精確 allowlist 或不支援時確認只讀、無 token／mutation、一般設定可用。源碼推論／Chrome 模擬不算原生成功；未有環境的 remote／relay 部分保持待驗或等待明確範圍決定，不為通過而放寬來源，不修改 SDK。測後只清理自己的暫時設定／行程並還原。
-- [ ] T072 在 specs/003-gemini-key-settings/quickstart.md 記錄另行授權後的同頁真實 Gemini 最小 setup 與 HF active／Gemini active／disconnected 更新／清除／失敗矩陣：獨立 scope、受保護測試 namespace、使用者從已允許的同頁輸入 key、先確認免費額度／費用範圍，相機／記憶關閉；單獨驗證無媒體，fresh session／manual gate／保留／HF 不動及無重播均核對，最後清理測試憑證及設定。未授權保持待驗，不讀既有 .env／日常 key、不索取聊天中的 key，不重開已豁免 macOS／Linux 測試。
-- [ ] T073 在 specs/003-gemini-key-settings/tasks.md 與 specs/003-gemini-key-settings/quickstart.md 更新同頁完成狀態、歷史基線／新結果及剩餘限制；只有實作／必要驗證完成才勾選，T070～T072 的未做部分需完成或使用者明確範圍決定才能結案。保留平台豁免但不宣稱實測通過，執行既有 after_implement hook 保存，不建立上游 PR。
+- [X] T072 在 specs/003-gemini-key-settings/quickstart.md 記錄另行授權後的同頁真實 Gemini 最小 setup 與 HF active／Gemini active／disconnected 更新／清除／失敗矩陣：獨立 scope、受保護測試 namespace、使用者從已允許的同頁輸入 key、先確認免費額度／費用範圍，相機／記憶關閉；單獨驗證無媒體，fresh session／manual gate／保留／HF 不動及無重播均核對，最後清理測試憑證及設定。未授權保持待驗，不讀既有 .env／日常 key、不索取聊天中的 key，不重開已豁免 macOS／Linux 測試。
+- [X] T073 在 specs/003-gemini-key-settings/tasks.md 與 specs/003-gemini-key-settings/quickstart.md 更新同頁完成狀態、歷史基線／新結果及剩餘限制；只有實作／必要驗證完成才勾選，T070～T072 的未做部分需完成或使用者明確範圍決定才能結案。保留平台豁免但不宣稱實測通過，執行既有 after_implement hook 保存，不建立上游 PR。
 
 ## Dependencies and execution order
 
@@ -135,4 +135,4 @@ T045 → T046 → T047 → T048 → T049
 
 **Incremental delivery**: US1 首次設定 → US2 更新／清除與生命週期 → US3 相容／邊界及移除舊頁 → 文件與 gate → 明確授權的實際驗收 → 結案。不因缺少真實 key 或現場操作停止可獨立完成的離線工作。
 
-**Counts**: 共 29 項（T045～T073），Setup 2、Foundation 3、US1 6、US2 6、US3 5、Polish 7；8 項 [P]。27／29 項完成（T045～T071）；T070 人工畫面通過，T071 依原生頁面結果及使用者接受的未量測限制結束；T072 已完成首次 setup、HF 保留與清除；因服務不可用停止本輪，成功更新及 Gemini／斷線矩陣待補，T073 保持未結案。
+**Counts**: 共 29 項（T045～T073），Setup 2、Foundation 3、US1 6、US2 6、US3 5、Polish 7；8 項 [P]。29／29 項完成（T045～T073）。T070 人工畫面通過；T071／T072 依實際證據及使用者明確接受的限制結束。T072 修正後清除複驗通過，隔離實例正常停止、測試憑證與設定清理；完整 gate 793 passed，詳 quickstart.md 結案紀錄。macOS／Linux 豁免及未實測限制保留，不冒稱通過。
