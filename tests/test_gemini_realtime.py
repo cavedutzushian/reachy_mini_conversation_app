@@ -868,3 +868,27 @@ async def test_candidate_setup_errors_are_safe(code: int, reason: str, monkeypat
         await gemini.validate_gemini_candidate("candidate-sentinel", "gemini-test-model", "Kore")
     assert caught.value.reason == reason
     assert "sentinel" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "close_code,message,reason",
+    [
+        (1007, "API key not valid. candidate-sentinel", "authentication_failed"),
+        (1008, "API_KEY_INVALID: candidate-sentinel", "authentication_failed"),
+        (1007, "Unsupported model. candidate-sentinel", "service_unavailable"),
+        (1011, "API key not valid. candidate-sentinel", "service_unavailable"),
+    ],
+)
+async def test_candidate_close_errors_are_safe(
+    close_code: int, message: str, reason: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Recognize explicit key rejection without publishing the remote close reason."""
+    socket = FakeConnection([])
+    socket.recv = AsyncMock(side_effect=ConnectionClosedError(Close(close_code, message), None))
+    monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(socket))
+    with caplog.at_level(logging.DEBUG), pytest.raises(gemini.GeminiConnectionError) as caught:
+        await gemini.validate_gemini_candidate("candidate-sentinel", "gemini-test-model", "Kore")
+    assert caught.value.reason == reason
+    assert caught.value.recoverable is (reason == "service_unavailable")
+    assert "candidate-sentinel" not in str(caught.value) + repr(caught.value) + caplog.text

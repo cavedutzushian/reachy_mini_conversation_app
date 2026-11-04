@@ -668,5 +668,11 @@ async def validate_gemini_candidate(candidate: str, model: str, voice: str) -> N
         raise
     except TimeoutError:
         raise GeminiConnectionError("validation_timeout") from None
-    except (OSError, ConnectionClosed, json.JSONDecodeError):
+    except ConnectionClosed as error:
+        received = error.rcvd
+        if received is not None and received.code in (1007, 1008):
+            if any(fragment in received.reason.lower() for fragment in ("api key not valid", "api_key_invalid")):
+                raise GeminiConnectionError("authentication_failed", recoverable=False) from None
+        raise GeminiConnectionError("service_unavailable") from None
+    except (OSError, json.JSONDecodeError):
         raise GeminiConnectionError("service_unavailable") from None

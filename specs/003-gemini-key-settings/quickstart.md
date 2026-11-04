@@ -48,6 +48,17 @@ T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16�
 - 測後同頁真實實例與離線 fixture 均停止。隔離 vault 清除回讀確認成功；journal state=cleared，active/pending 均空、retired_count=0；隔離 scope 未建立 .env。日誌只檢查 Google key 格式是否出現，結果 false；這項格式掃描不單獨宣稱證明所有機密零洩漏。保留非秘密 journal 供驗收追蹤，未刪除日常憑證或修改 daemon 模式／硬體音量。
 - 本輪仍為 27／29 完成：T071 依明確接受的證據／限制結束；T072 以上述服務失敗及未實測矩陣保持未完成，T073 不結案。下次先確認 Gemini 服務可用，再補有效更新及 Gemini active／disconnected 矩陣；真實 key 仍由使用者在隔離同頁提供。
 
+### T072 續輪：無效金鑰 close frame 分類 — 2026-11-04
+
+- 參照 [官方 WebSocket setup 流程](https://aistudio.google.com/docs/live-api/get-started-websocket)，用明示假值及十二秒總時限發送最小 setup；實際收到 close 1007，僅輸出碼與固定分類布林值，不輸出 reason/header/body。觀察到明確無效 API key 訊息，證實既有 validator 把該關閉誤報 service_unavailable。不能據此倒推前輪有效 key 失敗的原因。
+- 必要回歸先出現 2 failed／2 passed；validator 僅對 1007／1008 且明確 API key not valid／API_KEY_INVALID 訊息回 authentication_failed（不可自動重試），其他關閉保留 service_unavailable。不傳出或記錄上游原文，也不把未知錯誤判成金鑰無效。
+- 修正後用同一假值對實際服務複驗得到 authentication_failed。新增 4 個離線分類／去密回歸；Ruff check／format、strict mypy 通過，完整 Python 3.12 gate 790 passed（含 wheel），uv lock --check --offline 通過。記錄 cache/003-gemini-key-settings/t072-close-error-gate.log。初次選擇性 pytest 因系統 Temp 權限出現 149 passed／42 fixture errors，改用工作區 basetemp 後完整 gate 通過；該環境失敗未記作產品通過。
+- daemon 仍為 mockup_sim_enabled=true、current_app=null；沿用既有授權啟動全新隔離 scope，HF connected、Gemini source=none、memory=false、vision=false。使用者從同頁提供 key，首次 setup 成功；不讀上輪已清除的 key 或日常 .env。
+- HF active：明示假值 HTTP 422/authentication_failed，source=settings 保留、manual gate=false、HF connected/retry=0；使用者再次有效更新成功（revision 3），清除成功（revision 4/source=none），HF 持續 connected/retry=0。
+- 明確選用 Gemini 後，無 key 停在 waiting_for_config。假值失敗（revision 6）及清除（revision 7）均不自動重連；後續本機查詢仍 retry=0。使用者從等待狀態套用有效 key，回報已連線。
+- 使用者回報連線後，另觀察到 revision 9/authentication_failed、managed 保留、manual gate=true 的狀態；未觀察到該次提交的確切操作及時間，不把它單獨當成受控 active 失敗證據。明確 backend.retry 後原設定可重新 connected、manual gate=false、retry=0，證實舊設定可恢復。T072／T073 仍未結案，後續受控 active／disconnected 矩陣另補。
+- 保存時仍等待使用者在同頁完成 Gemini active 的有效更新回報，尚未執行後續受控 active failure／clear 與完整 disconnected 保留矩陣。隔離實例仍開啟，inline_live_trial.py 設有 1800 秒自動停止及 finally 清除隔離 vault；若自動停止，後續須以新 scope 重新提供 key，不讀舊測試憑證或日常 .env。不勾選 T072／T073。
+
 可重現命令（工具路徑依本機既有安裝填入，不新增產品依賴）：
 
 ```powershell
