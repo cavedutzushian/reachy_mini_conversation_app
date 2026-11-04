@@ -1,6 +1,37 @@
 # Quickstart: 同頁 Gemini 憑證設定驗收
 
-本指南前半為同頁實作後的目標驗收，尚未宣稱產品已完成；後半保留原獨立頁基線證據。採 Python 3.12、假 key、fake vault／假 Gemini endpoint、隔離 scope，不讀日常 .env／憑證、不連 robot／雲端。設計細節見 plan.md 與 contracts/credential-settings.md。
+## 同頁實作進度 — 2026-11-03
+
+T045／T046：feat/003-gemini-key-settings 工作目錄乾淨，規格檢查 16／16；Python 3.12.12、Node v22.17.0、既有 Chrome 及 ignored Puppeteer 工具可用。已讀受影響模組與專案規則；沿用最後未變更產品的 785 passed ＋獨立 wheel 1 passed 基線，完整 gate 於同頁修改後重跑。不讀 .env／日常 vault、不連雲端／daemon。既有 metadata／來源／鎖、依賴與 schema 保持；工具位置僅從執行參數指定，不寫入交付測試。
+
+本指南前半為同頁實作與目標驗收，完整產品仍待原生及實際服務驗收；後半保留原獨立頁基線證據。採 Python 3.12、假 key、fake vault／假 Gemini endpoint、隔離 scope，不讀日常 .env／憑證、不連 robot／雲端。設計細節見 plan.md 與 contracts/credential-settings.md。
+
+## 2026-11-04 同頁實作與離線複驗
+
+- T047～T066：原 Gemini 設定區已掛載獨立金鑰表單，先檢查本機位置及原生完整祖先鏈、bootstrap 成功後才建立遮蔽輸入；一般設定提交不攜帶金鑰。移除外開入口與 template，舊 `/settings/gemini-key` 為 404，根頁仍可內嵌。
+- controller 擁有短暫草稿、CSRF、事件、輪詢及 request wait；切頁／pagehide 釋放，返回重新 bootstrap，不重送候選。保留後端 vault、journal、revision、唯一 session owner 與全部來源／連線政策；沒有新增依賴、環境變數或修改 SDK。
+- 測試保存於 `tests/fixtures/gemini_key_settings.py` 與 `tests/static/js/gemini-key.browser.mjs`，不依賴 ignored cache 內的測試程式。fixture 使用既有 FakeVault、獨立暫存 scope 與假 validator，禁止 dotenv、日常憑證及 outbound socket；runner 開獨立 Chrome，封鎖非 fixture 網址，關閉自己建立的 browser。原生 Tauri 分支以隔離能力資料測試，真正 HTTP iframe 另外驗證完整鏈，均不冒充 native 結果。
+- 先前完整 browser 35 cases 通過；涵蓋首次設定、取消／提交清空、一般設定分離、四種來源與模擬 owner 重啟、HF／Gemini／斷線更新失敗清除、保存及刪除失敗、離開／返回／pagehide／pageshow、延遲結果、惡意 parent／grandparent／referrer 隱藏／opaque frame、URL／browser storage／API 回應及 RPC 假值洩漏檢查。
+- 回歸先揭露：pending apply 期間 clear 使用舊 revision，以及舊 GET 失敗卸載較新成功控制；分別改為 clear 前取最新 revision、輪詢以 intent／完成次數忽略舊回覆，再通過複驗。舊獨立路由的測試先因 200 而失敗，移除後通過。原始失敗未當成成功。
+- T067／T068：根 README 已改為同頁操作；更新 `docs/scheme.mmd` 後用既有 Mermaid CLI 重產 SVG，預覽確認沒有獨立輸入頁節點。未手改 SVG。
+- T069：Python 3.12.12；Ruff check／format 通過（122 files）、strict mypy 通過（56 source files）、`uv lock --check --offline` 通過（139 packages）。先前完整 pytest 為 785 passed，wheel 因沙箱禁止 PyPI 連線失敗；允許該次公開建置下載後 wheel 單獨 1 passed。原始記錄 `cache/003-gemini-key-settings/inline-full-gate.log` 保留。
+- 續跑完整 pytest gate：786 passed，含 wheel；僅一則 `.pytest_cache` 寫入權限警告，未影響測試。原始紀錄 `cache/003-gemini-key-settings/inline-resume-full-gate.log`。Ruff／format／mypy／lock 亦再次通過；未變更依賴或鎖檔。
+- T070：使用者回報同頁假值操作與一般設定正常，只有縮窄視窗的按鈕文字會換行。240px 瀏覽器回歸已重現，金鑰按鈕新增單行文字樣式、保留群組換列；修正後 240／280／320／360px 的按鈕各單行且全頁無橫向溢出；人工畫面複驗待回報，不把使用者原回報改寫為全部通過。
+- 本次續跑曾有 Chrome 啟動／導覽逾時，保留為測試執行失敗，最終補跑 43 browser cases（all）通過，含新增完整來源變體；紀錄於 `cache/003-gemini-key-settings/inline-resume-browser.log`。無真實憑證、雲端、daemon、語音、相機或記憶操作。
+- T071 原生 Control App／實際 remote-relay 及 T072 同頁真實服務矩陣保持待驗，須各自當輪授權；T073 尚未結案。先前 macOS／Linux 豁免保留，不記為實測通過。
+
+可重現命令（工具路徑依本機既有安裝填入，不新增產品依賴）：
+
+```powershell
+# 第一個終端：只提供假服務，預設 7864；自動測試可另外使用 7866
+cache/verify-python312/Scripts/python.exe -X utf8 tests/fixtures/gemini_key_settings.py --port 7866
+# 第二個終端：請換成既有 Chrome 與 Puppeteer 模組的實際路徑
+node --experimental-vm-modules tests/static/js/gemini-key.browser.mjs --url http://127.0.0.1:7866 --chrome '<Chrome executable>' --puppeteer '<puppeteer.js>' --phase all
+# 測後關閉自己啟動的 fixture，釋放 lock 並清除暫存 scope
+.venv/Scripts/python.exe -X utf8 -c "import httpx; print(httpx.post('http://127.0.0.1:7866/fixture/finish',trust_env=False).status_code)"
+```
+
+runner 的 `--phase` 可用 all／eligibility／initial／lifecycle／stale-read／security。人工只用 offline-first、offline-second、offline-invalid；不可輸入真實金鑰。Chrome／Puppeteer 位置只由參數傳入，fixture 關閉後網址不保證持續可用。
 
 ## 1. 研究結果與可重現 spike
 

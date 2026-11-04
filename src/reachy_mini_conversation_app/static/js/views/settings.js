@@ -13,6 +13,7 @@ import {
 } from "../api.js";
 import { SHOW_LATENCIES_KEY } from "../constants.js";
 import { h } from "../ui.js";
+import { mountGeminiCredential } from "../gemini-key.js";
 
 const HF_CONNECTION_MODES = Object.freeze({
   DEPLOYED: "deployed",
@@ -22,7 +23,7 @@ const HF_CONNECTION_MODES = Object.freeze({
 const DEFAULT_HF_HOST = "localhost";
 const DEFAULT_HF_PORT = 8765;
 const BACKEND_ERRORS = Object.freeze({
-  missing_gemini_key: "請開啟本機金鑰設定頁輸入 Gemini API key；既有 GEMINI_API_KEY 環境設定仍可使用。",
+  missing_gemini_key: "請在下方 Gemini 金鑰區輸入 API key；既有 GEMINI_API_KEY 環境設定仍可使用。",
   invalid_gemini_voice: "請在連線設定選擇支援的 Gemini 聲音。",
   invalid_gemini_model: "請選擇 Gemini Developer API 帳號可使用的 Live 模型。",
   authentication_failed: "請修正所選服務的憑證，重新啟動應用程式後再重試。",
@@ -69,6 +70,7 @@ export async function mountSettingsView({ outlet, signal }) {
     developerSection
   );
   outlet.replaceChildren(view);
+  mountGeminiCredential({ outlet: connectionSection.credentialOutlet, signal });
 
   await Promise.all([
     refreshStatus({ statusSection, connectionSection, speechSection, signal }),
@@ -92,7 +94,7 @@ function buildConnectionSection({ onSaved } = {}) {
   const geminiFields = h("div", { class: "settings-form" },
     h("label", { class: "settings-field" }, "模型", modelInput),
     h("label", { class: "settings-field" }, "Gemini 聲音", geminiVoice),
-    h("p", { class: "settings-hint" }, "可從下方開啟本機金鑰設定頁；既有 GEMINI_API_KEY 環境入口仍可使用，並需啟用 Gemini Developer API 存取權；服務可能收費。音訊、依請求拍攝的照片及已啟用的共用記憶會傳送至所選服務。切換後會開始新對話，已儲存的記憶仍共用。"));
+    h("p", { class: "settings-hint" }, "可直接在下方 Gemini 金鑰區設定；既有 GEMINI_API_KEY 環境入口仍可使用，並需啟用 Gemini Developer API 存取權；服務可能收費。音訊、依請求拍攝的照片及已啟用的共用記憶會傳送至所選服務。切換後會開始新對話，已儲存的記憶仍共用。"));
   const hfModeSelect = h(
     "select",
     { class: "settings-select", name: "hf_mode" },
@@ -154,15 +156,12 @@ function buildConnectionSection({ onSaved } = {}) {
     status
   );
 
-  const localCredentialPage = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)
-    && ["/", "/static/index.html"].includes(location.pathname);
+  const credentialOutlet = h("div", { class: "credential-controls" });
   const credentialSummary = h("p", { class: "settings-hint", role: "status" }, "Gemini 金鑰狀態尚未確認。");
   const credentialEntry = h("div", { class: "settings-form" },
     h("h3", {}, "Gemini 金鑰"),
     credentialSummary,
-    localCredentialPage
-      ? h("a", { href: "/settings/gemini-key", target: "_blank", rel: "noopener noreferrer", class: "btn btn--ghost" }, "開啟本機金鑰設定")
-      : h("p", { class: "settings-hint" }, "請在 App 所在電腦開啟本機金鑰設定頁；此遠端／轉送入口只顯示狀態，一般設定仍可操作。"));
+    credentialOutlet);
   const element = h(
     "section",
     { class: "settings-section" },
@@ -181,7 +180,7 @@ function buildConnectionSection({ onSaved } = {}) {
     hfPortInput.disabled = !isLocal;
     hfHostInput.required = isLocal;
     hfPortInput.required = isLocal;
-    hint.textContent = isGemini ? "可使用本機金鑰設定頁修正憑證；若連線已停止，請明確按重試。" : HF_MODE_HINTS[hfModeSelect.value] || "";
+    hint.textContent = isGemini ? "可在下方 Gemini 金鑰區修正憑證；若連線已停止，請明確按重試。" : HF_MODE_HINTS[hfModeSelect.value] || "";
   }
 
   providerSelect.addEventListener("change", syncLocalFields);
@@ -227,6 +226,7 @@ function buildConnectionSection({ onSaved } = {}) {
 
   return {
     element,
+    credentialOutlet,
     syncFromStatus(payload) {
       const credential = payload?.gemini_credential;
       const sourceLabels = { settings: "設定頁（受保護保存）", environment: "既有環境設定", none: "未設定", blocked: "已阻擋，請處理憑證錯誤" };

@@ -998,11 +998,10 @@ class LocalStream:
         settings_app.add_api_route(
             "/api/gemini-credential", self._credential_endpoint, methods=["GET", "POST", "DELETE"]
         )
-        settings_app.add_api_route("/settings/gemini-key", self._credential_page, methods=["GET"])
         self._settings_initialized = True
 
     @staticmethod
-    def _check_credential_request(request: Request, *, document: bool = False) -> None:
+    def _check_credential_request(request: Request) -> None:
         client = request.client
         try:
             local = client is not None and ipaddress.ip_address(client.host).is_loopback
@@ -1026,10 +1025,6 @@ class LocalStream:
             or any(name == "forwarded" or name.startswith("x-forwarded-") for name in request.headers)
         ):
             raise CredentialError("local_access_required")
-        if document:
-            if request.headers.get("sec-fetch-dest", "document") != "document":
-                raise CredentialError("request_not_allowed")
-            return
         origin = request.headers.get("origin")
         expected_origin = str(request.base_url).rstrip("/")
         if request.headers.get("sec-fetch-site") != "same-origin" or (origin and origin != expected_origin):
@@ -1050,21 +1045,6 @@ class LocalStream:
             "model": config.GEMINI_MODEL,
             "voice": config.GEMINI_VOICE_OVERRIDE or config.GEMINI_VOICE,
         }
-
-    def _credential_page(self, request: Request) -> Response:
-        try:
-            self._check_credential_request(request, document=True)
-        except CredentialError as error:
-            return JSONResponse({"reason": error.reason}, status_code=403, headers={"Cache-Control": "no-store"})
-        return FileResponse(
-            Path(__file__).parent / "templates" / "gemini-key.html",
-            headers={
-                "Cache-Control": "no-store",
-                "X-Frame-Options": "DENY",
-                "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-                "Referrer-Policy": "no-referrer",
-            },
-        )
 
     async def _credential_endpoint(self, request: Request) -> Response:
         revision: int | None = None

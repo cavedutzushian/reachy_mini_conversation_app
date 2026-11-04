@@ -1199,12 +1199,19 @@ button {
   gap: 10px;
 }
 
+.credential-controls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
 .credential-actions {
   flex-wrap: wrap;
 }
 
 .credential-actions > .btn {
   flex: 1 1 12rem;
+  white-space: nowrap;
 }
 
 .settings-section-intro {

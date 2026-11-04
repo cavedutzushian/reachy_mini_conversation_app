@@ -115,9 +115,10 @@ The default setup uses the Hugging Face backend and does not require an API key.
 
 ### Optional Gemini conversation
 
-In Settings, choose **開啟本機金鑰設定** to open the separate local credential page.
-Enter your Gemini Developer API key and choose **驗證並套用**. The field is masked,
-never filled with an existing key, and cleared after submission or cancellation.
+In Settings, enter your Gemini Developer API key directly in **Gemini 金鑰** and
+choose **驗證並套用**. No separate page or popup is required. Key operations are
+submitted separately from ordinary connection settings. The field is masked,
+never filled with an existing key, and cleared after submission, cancellation or leaving Settings.
 Validation checks the selected Live model without sending a user turn, audio,
 personality, memory or tools. It does not select Gemini or interrupt active Hugging Face.
 Select Gemini separately when you want to use it.
@@ -139,8 +140,9 @@ Saved settings override environment selection. Hugging Face remains the default 
 connection and voice settings are retained when switching.
 
 Credential management is available only from the App's direct local HTTP entry, using
-`localhost`, `127.0.0.1` or `[::1]`. The credential page cannot be embedded in a frame;
-ordinary settings keep their existing Control App and remote access. Remote or relay-only
+`localhost`, `127.0.0.1` or `[::1]`, including supported local Control App embedding.
+Unrecognized or unsupported embedding keeps key management read-only; ordinary settings
+keep their existing Control App and remote access. Remote or relay-only
 views show safe status and direct you to the computer running the App; your laptop's
 localhost is not the robot's localhost. Unsupported WebViews should use a local browser.
 Do not expose credential routes through an unauthenticated forwarding proxy.

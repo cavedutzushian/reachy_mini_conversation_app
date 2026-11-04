@@ -203,7 +203,7 @@ export function describeError(error) {
 }
 
 
-export async function geminiCredentialRequest(method = "GET", payload = null, csrfToken = "") {
+export async function geminiCredentialRequest(method = "GET", payload = null, csrfToken = "", signal) {
   const headers = { "X-Credential-Request": "1" };
   if (method !== "GET") {
     headers["Content-Type"] = "application/json";
@@ -213,7 +213,7 @@ export async function geminiCredentialRequest(method = "GET", payload = null, cs
   let status;
   try {
     response = await fetch("/api/gemini-credential", {
-      method, headers, cache: "no-store", credentials: "same-origin",
+      method, headers, cache: "no-store", credentials: "same-origin", signal,
       ...(payload === null ? {} : { body: JSON.stringify(payload) }),
     });
     status = await response.json();

@@ -327,6 +327,8 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
 
     with zipfile.ZipFile(wheel_files[0]) as archive:
         archived_paths = [PurePosixPath(info.filename) for info in archive.infolist() if not info.is_dir()]
+        assert "reachy_mini_conversation_app/templates/gemini-key.html" not in archive.namelist()
+        assert "reachy_mini_conversation_app/static/js/gemini-key.js" in archive.namelist()
 
     violations = []
     for path in archived_paths:

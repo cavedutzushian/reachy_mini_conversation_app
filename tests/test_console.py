@@ -2326,20 +2326,18 @@ def test_credential_http_input_is_not_deletion_or_echo(credential_client: Creden
     console_mod.validate_gemini_candidate.assert_not_awaited()
 
 
-def test_credential_page_is_separate_local_document(credential_client: CredentialClient) -> None:
-    """The protected HTML has no static alias and does not restrict the ordinary settings page."""
+def test_credential_page_is_removed_without_restricting_settings(credential_client: CredentialClient) -> None:
+    """Remove the old key page while preserving ordinary embedded settings."""
     client, _stream, _store, _vault = credential_client
-    page = client.get("/settings/gemini-key", headers={"Sec-Fetch-Dest": "document"})
-    assert page.status_code == 200
-    assert 'type="password"' in page.text
-    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
-    assert page.headers["x-frame-options"] == "DENY"
-    assert page.headers["cache-control"] == "no-store"
+    for destination in ("document", "iframe"):
+        page = client.get("/settings/gemini-key", headers={"Sec-Fetch-Dest": destination})
+        assert page.status_code == 404
+        assert "location" not in page.headers
     assert client.get("/static/gemini-key.html").status_code == 404
-    assert client.get("/settings/gemini-key", headers={"Sec-Fetch-Dest": "iframe"}).status_code == 403
     general = client.get("/", headers={"Sec-Fetch-Dest": "iframe"})
     assert general.status_code == 200
     assert "x-frame-options" not in general.headers
+    assert "frame-ancestors" not in general.headers.get("content-security-policy", "")
 
 
 @pytest.mark.parametrize(
