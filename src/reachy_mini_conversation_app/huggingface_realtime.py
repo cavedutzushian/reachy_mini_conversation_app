@@ -54,6 +54,7 @@ from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
     get_tool_specs,
 )
+from reachy_mini_conversation_app.document_retrieval import validate_document_result
 from reachy_mini_conversation_app.conversation_handler import VADStatus, ConversationHandler
 from reachy_mini_conversation_app.tools.background_tool_manager import (
     ToolCallRoutine,
@@ -174,6 +175,26 @@ class ToolInvocation:
     generation: int = 0
     response_epoch: int = 0
     uncertainty_reported: bool = False
+    answer_retired: bool = False
+    timeout_notice_sent: bool = False
+
+
+class DocumentOutput(AdditionalOutputs):
+    """Keep queued document text bound to its original conversation turn."""
+
+    def __init__(self, invocation: ToolInvocation, text: str) -> None:
+        """Attach ownership without exposing it in the displayed message."""
+        super().__init__({"role": "assistant", "content": text})
+        self.invocation = invocation
+
+
+class DocumentResponse(dict[str, object]):
+    """Keep a queued HF follow-up bound to the document turn that requested it."""
+
+    def __init__(self, invocation: ToolInvocation) -> None:
+        """Use normal response defaults while retaining local ownership metadata."""
+        super().__init__(response={})
+        self.invocation = invocation
 
 
 @dataclass
@@ -194,6 +215,10 @@ class RealtimeSessionState:
         """Mark unfinished effects and return whether they need an uncertainty notice."""
         notification_needed = False
         for invocation in self.invocations.values():
+            if invocation.tool_name == "search_document":
+                invocation.answer_retired = True
+                invocation.status = "cancelled"
+                continue
             if invocation.status in ("received", "running", "uncertain"):
                 invocation.status = "uncertain"
                 if not invocation.uncertainty_reported:
@@ -203,6 +228,10 @@ class RealtimeSessionState:
 
     def begin_connection(self) -> int:
         """Invalidate previous connection ownership while retaining logical context."""
+        for invocation in self.invocations.values():
+            if invocation.tool_name == "search_document":
+                invocation.answer_retired = True
+                invocation.status = "cancelled"
         self.generation += 1
         return self.generation
 
@@ -249,6 +278,54 @@ class RealtimeConversationHandler(ConversationHandler):
     def _owns_connection(self) -> bool:
         return not self._closed and self._generation == self.session_state.generation
 
+    def _document_current(self, invocation: ToolInvocation) -> bool:
+        return (
+            self._owns_connection()
+            and invocation.generation == self._generation
+            and invocation.response_epoch == self.playback_epoch
+            and invocation.status != "cancelled"
+            and "search_document" in core_tools.get_tools()
+        )
+
+    def _retire_document_calls(self) -> None:
+        for invocation in self.session_state.invocations.values():
+            if invocation.tool_name == "search_document":
+                invocation.answer_retired = True
+                invocation.status = "cancelled"
+
+    def _document_result(self, notification: ToolNotification) -> dict[str, object] | None:
+        invocation = self.session_state.invocations.get(notification.id)
+        if invocation is None or invocation.status != "running" or not self._document_current(invocation):
+            if invocation is not None:
+                invocation.answer_retired = True
+            return None
+        if notification.error == "Tool cancelled":
+            invocation.status = "cancelled"
+            invocation.answer_retired = True
+            return None
+        try:
+            result = validate_document_result(
+                {"error": notification.error} if notification.error is not None else notification.result
+            )
+        except ValueError:
+            logger.warning("Document tool result rejected: document_unavailable")
+            result = {"error": "document_unavailable"}
+        invocation.result = result
+        invocation.status = "completed"
+        if result.get("error") == "document_timeout":
+            invocation.answer_retired = True
+            if not invocation.timeout_notice_sent:
+                invocation.timeout_notice_sent = True
+                self.output_queue.put_nowait(DocumentOutput(invocation, "文件查詢已逾時，請稍後再試。"))
+        return result
+
+    async def emit(self) -> tuple[int, NDArray[np.int16]] | AdditionalOutputs | None:
+        """Drop document text whose original turn retired before queue consumption."""
+        output = await super().emit()
+        if isinstance(output, DocumentOutput) and not self._document_current(output.invocation):
+            return None
+        return output
+
     @abstractmethod
     def _abort_connection(self) -> None:
         """Drop the failed provider transport after relinquishing media ownership."""
@@ -281,6 +358,7 @@ class RealtimeConversationHandler(ConversationHandler):
     async def _flush_playback(self) -> None:
         if not self._owns_connection():
             return
+        self._retire_document_calls()
         self.deps.movement_manager.set_speaking(False)
         if self._clear_queue is not None:
             await self._clear_queue()
@@ -437,6 +515,7 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
     ) -> None:
         if audio_response_id is not None and audio_response_id != self._audio_response_id:
             return
+        self._retire_document_calls()
         if self._playback_interrupted:
             return
         self._playback_interrupted = True
@@ -759,6 +838,7 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
             raise ValueError("say: empty text")
         if not self.connection:
             raise RuntimeError("say: no active session")
+        self._retire_document_calls()
         await self._bounded_send(
             self.connection.conversation.item.create(
                 item={
@@ -825,7 +905,10 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
             # Parallel tool calls enqueue duplicate empty requests; coalesce to one.
             while not kwargs and not self._pending_responses.empty():
                 try:
-                    self._pending_responses.get_nowait()
+                    queued_response = self._pending_responses.get_nowait()
+                    if queued_response:
+                        self._pending_responses.put_nowait(queued_response)
+                        break
                 except asyncio.QueueEmpty:
                     break
 
@@ -843,6 +926,9 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                     self._response_done_event.set()
 
                 if not self.connection:
+                    break
+
+                if isinstance(kwargs, DocumentResponse) and not self._document_current(kwargs.invocation):
                     break
 
                 self._last_response_rejected = False
@@ -884,8 +970,45 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
 
                 sent = True
 
+    async def _handle_document_result(self, notification: ToolNotification) -> None:
+        result = self._document_result(notification)
+        invocation = self.session_state.invocations.get(notification.id)
+        try:
+            if result is None or invocation is None or self.connection is None:
+                return
+            timeout = result.get("error") == "document_timeout"
+            if not timeout:
+                self.output_queue.put_nowait(DocumentOutput(invocation, json.dumps(result, ensure_ascii=False)))
+            if not await self._wait_for_response_done_before_tool_result():
+                return
+            if not self._document_current(invocation) or self.connection is None:
+                return
+            await self._bounded_send(
+                self.connection.conversation.item.create(
+                    item={"type": "function_call_output", "call_id": notification.id, "output": json.dumps(result)}
+                )
+            )
+            if not self._document_current(invocation):
+                return
+            self._in_flight_tool_calls.discard(notification.id)
+            if not timeout:
+                self._tool_batch_needs_response = True
+            if self._tool_batch_needs_response and not self._in_flight_tool_calls:
+                self._tool_batch_needs_response = False
+                if timeout:
+                    await self._safe_response_create()
+                else:
+                    self._pending_responses.put_nowait(DocumentResponse(invocation))
+        except (OSError, httpx.HTTPError, ConnectionClosed):
+            logger.warning("Document result transport unavailable")
+        finally:
+            self._in_flight_tool_calls.discard(notification.id)
+
     async def _handle_tool_result(self, completed_tool: ToolNotification) -> None:
         """Process the result of a tool call."""
+        if completed_tool.tool_name == "search_document":
+            await self._handle_document_result(completed_tool)
+            return
         if not self._owns_connection():
             return
         if completed_tool.error is not None:
@@ -1222,12 +1345,13 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                         tool_name = getattr(event, "name", None)
                         args_json_str = getattr(event, "arguments", None)
                         call_id: str = str(getattr(event, "call_id", uuid.uuid4()))
+                        logged_args = "[redacted]" if tool_name == "search_document" else args_json_str
 
                         logger.info(
                             "Tool call received — tool_name=%r, call_id=%s, args=%s",
                             tool_name,
                             call_id,
-                            args_json_str,
+                            logged_args,
                         )
 
                         if not isinstance(tool_name, str) or not isinstance(args_json_str, str):
@@ -1235,12 +1359,18 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                                 "Invalid tool call: tool_name=%s (type=%s), args=%s (type=%s), call_id=%s",
                                 tool_name,
                                 type(tool_name).__name__,
-                                args_json_str,
+                                logged_args,
                                 type(args_json_str).__name__,
                                 call_id,
                             )
                             continue
 
+                        if tool_name == "search_document":
+                            if call_id in self.session_state.invocations:
+                                continue
+                            self.session_state.invocations[call_id] = ToolInvocation(
+                                tool_name, "running", generation=self._generation, response_epoch=self.playback_epoch
+                            )
                         self._in_flight_tool_calls.add(call_id)
                         background_tool = await self.tool_manager.start_tool(
                             call_id=call_id,
@@ -1256,7 +1386,11 @@ class HuggingFaceRealtimeHandler(RealtimeConversationHandler):
                             AdditionalOutputs(
                                 {
                                     "role": "assistant",
-                                    "content": f"🛠️ Used tool {tool_name} with args {args_json_str}. The tool is now running. Tool ID: {background_tool.tool_id}",
+                                    "content": (
+                                        "正在查詢指定文件。"
+                                        if tool_name == "search_document"
+                                        else f"🛠️ Used tool {tool_name} with args {args_json_str}. The tool is now running. Tool ID: {background_tool.tool_id}"
+                                    ),
                                 },
                             ),
                         )

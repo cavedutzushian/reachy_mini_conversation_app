@@ -44,6 +44,10 @@
 
 ## 4. 預建包及檢索品質
 
+**T002 實作預檢證據（2026-11-05）**：在 `cache/004-single-document-rag/dependency-probe/` 複製專案 metadata 並加入候選 extra／explicit torch CPU source，以 Python 3.12.12 解析 191 packages，`uv sync --frozen --no-dev --extra rag --no-install-project` 成功。Windows x86_64 的隔離 import 組合：Chroma 1.5.9、Sentence Transformers 6.2.0、torch 2.15.0+cpu、transformers 5.21.0、HF hub 1.33.0、Reachy Mini SDK 1.13.0、soxr 1.1.0。確認 torch.version.cuda=None、cuda.is_available()=False；在模型離線模式下 import，沒有建立 SentenceTransformer／SDK robot 實例。套件預檢日誌為 `probe-lock.log`、`probe-sync.log`、`probe-import.log`；原先沙箱禁止套件網路的解析失敗已保留，核准的公開索引連線後成功，未修改安全設定或日常環境。
+
+此證據只證明該 Windows 組合的套件 wheel／import 可共存，尚未證明模型、索引、CPU 延遲或其他平台相容；產品 `uv.lock` 會沿用既有可相容鎖定版本，因此以 T003 產生的產品鎖檔為實際交付準據，不能把本隔離解析所有版本當成產品已升級。
+
 **Decision**: 包含 manifest、完整 Chroma 目錄與 checksums；每段有原文、文件 ID／版本、段落 ID 及真實 locator。使用相同模型的 normalized dense embeddings 與 cosine distance。manifest 的門檻由外部校準後固定，最多取三段；低於支援程度的問題如實拒答。
 
 **Rationale**: 只有向量無法還原可引用原文；文件名稱不等於版本身分。Chroma 距離不是答案機率，模型還要判斷段落能否支持回答。唯一定義的 chunk 與穩定 locator 是可核對引用的最小資料。

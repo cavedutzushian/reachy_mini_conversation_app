@@ -25,6 +25,7 @@ from reachy_mini_conversation_app.conversation_handler import AudioFrame
 from reachy_mini_conversation_app.huggingface_realtime import (
     CLOSE_TIMEOUT_S,
     SETUP_TIMEOUT_S,
+    DocumentOutput,
     ToolInvocation,
     RealtimeSessionState,
     RealtimeConversationHandler,
@@ -142,13 +143,21 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                 "description": spec["description"],
                 "parametersJsonSchema": spec["parameters"],
             }
-            if name in tools and not tools[name].needs_response:
+            if name == "search_document":
+                if config.GEMINI_MODEL.removeprefix("models/") not in (
+                    "gemini-3.8-live",
+                    "gemini-3.8-live-extended-thinking",
+                    "gemini-2.5-flash-native-audio-preview-12-2025",
+                ):
+                    raise GeminiConnectionError("document_async_unsupported", recoverable=False)
+                declaration["behavior"] = "NON_BLOCKING"
+            elif name in tools and not tools[name].needs_response:
                 self._silent_tools.add(name)
                 declaration["behavior"] = "NON_BLOCKING"
             declarations.append(declaration)
         return declarations
 
-    async def _send(self, payload: dict[str, object]) -> None:
+    async def _send(self, payload: dict[str, object], *, document_call: ToolInvocation | None = None) -> None:
         if self.connection is None or not self._owns_connection():
             raise GeminiConnectionError("connection_lost")
         connection = self.connection
@@ -157,6 +166,8 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             async with self._send_lock:
                 if not self._owns_connection():
                     raise GeminiConnectionError("connection_lost")
+                if document_call is not None and not self._document_current(document_call):
+                    return
                 await connection.send(json.dumps(payload))
 
         try:
@@ -343,9 +354,13 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         if isinstance(cancellations, list):
             for call_id in cancellations:
                 if isinstance(call_id, str) and call_id in self.session_state.invocations:
-                    if self.session_state.invocations[call_id].status == "running":
+                    if (
+                        self.session_state.invocations[call_id].status == "running"
+                        and self.session_state.invocations[call_id].tool_name != "search_document"
+                    ):
                         self._mark_activity("uncertain_action")
                     self.session_state.invocations[call_id].status = "cancelled"
+                    self.session_state.invocations[call_id].answer_retired = True
                     tool_id = self._tool_ids.get(call_id)
                     if tool_id:
                         await self.tool_manager.cancel_tool(tool_id)
@@ -354,6 +369,8 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             raise GeminiConnectionError("connection_lost")
         incoming = _object(content.get("inputTranscription")).get("text")
         if isinstance(incoming, str) and incoming:
+            if not self._input_text:
+                self._retire_document_calls()
             self._turn_active = True
             self._input_text += incoming
             self._emit_transcript("user", self._input_text, False)
@@ -448,6 +465,10 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             return
         invocation = self.session_state.invocations.get(call_id)
         if invocation is not None:
+            if name == "search_document":
+                if invocation.tool_name == name and self._document_current(invocation):
+                    await self._function_response(call_id, alias, {"error": "document_unavailable"}, silent=True)
+                return
             if invocation.tool_name != name:
                 await self._function_response(call_id, alias, {"error": "Call ID already used for a different tool"})
                 return
@@ -460,7 +481,9 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         self.session_state.invocations[call_id] = invocation
         arguments = call.get("args", {})
         if not isinstance(arguments, dict) or not self._validators[name].is_valid(arguments):
-            invocation.result = {"error": "Invalid tool arguments"}
+            invocation.result = {
+                "error": "document_invalid_query" if name == "search_document" else "Invalid tool arguments"
+            }
             invocation.status = "completed"
             await self._function_response(call_id, alias, invocation.result)
             return
@@ -474,6 +497,20 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         self._tool_ids[call_id] = tool.tool_id
 
     async def _handle_tool_result(self, notification: ToolNotification) -> None:
+        if notification.tool_name == "search_document":
+            document_result = self._document_result(notification)
+            invocation = self.session_state.invocations.get(notification.id)
+            if document_result is not None and invocation is not None and self._document_current(invocation):
+                timeout = document_result.get("error") == "document_timeout"
+                if not timeout:
+                    self.output_queue.put_nowait(
+                        DocumentOutput(invocation, json.dumps(document_result, ensure_ascii=False))
+                    )
+                try:
+                    await self._function_response(notification.id, "search_document", document_result, silent=timeout)
+                except (OSError, GeminiConnectionError, ConnectionClosed):
+                    logger.warning("Document result transport unavailable")
+            return
         invocation = self.session_state.invocations.get(notification.id)
         if not self._owns_connection() or invocation is None or invocation.status != "running":
             return
@@ -505,11 +542,20 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
             self._ready = False
             await self._close_socket()
 
-    async def _function_response(self, call_id: str, alias: str, result: dict[str, object]) -> None:
+    async def _function_response(
+        self, call_id: str, alias: str, result: dict[str, object], *, silent: bool = False
+    ) -> None:
         response: dict[str, object] = {"id": call_id, "name": alias, "response": result}
-        if self._aliases.get(alias) in self._silent_tools:
+        if self._aliases.get(alias) == "search_document":
+            response["scheduling"] = "SILENT" if silent else "WHEN_IDLE"
+        elif self._aliases.get(alias) in self._silent_tools:
             response["scheduling"] = "SILENT"
-        await self._send({"toolResponse": {"functionResponses": [response]}})
+        await self._send(
+            {"toolResponse": {"functionResponses": [response]}},
+            document_call=self.session_state.invocations.get(call_id)
+            if self._aliases.get(alias) == "search_document"
+            else None,
+        )
 
     async def receive(self, frame: AudioFrame) -> None:
         """Send live mono PCM without retaining input while disconnected."""
@@ -547,6 +593,7 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
         """Request spoken output for an injected instruction."""
         if not self._is_connected():
             raise GeminiConnectionError("connection_lost")
+        self._retire_document_calls()
         await self._send(
             {"clientContent": {"turns": [{"role": "user", "parts": [{"text": text}]}], "turnComplete": True}}
         )

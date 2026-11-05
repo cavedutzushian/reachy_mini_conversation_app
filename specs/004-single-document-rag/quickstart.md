@@ -4,6 +4,14 @@
 
 ## Prerequisites
 
+**2026-11-05 開發基線（T001）**：分支 `feat/004-single-document-rag`，Python 3.12.12／Windows x86_64。Ruff check 通過、122 檔 format check 通過、strict mypy 56 source files 通過；`uv lock --check` 基線解析 139 packages，完整 pytest 793 passed（96.85 秒）。首輪 pytest 因回合中斷未完成、不計通過；接續重跑完整通過。記錄位於忽略追蹤的 `cache/004-single-document-rag/baseline-*.log`／`baseline-resume-pytest.log`，未讀日常私密設定，未啟動 App／daemon 或服務。
+
+尚未供應本功能可驗證的單文件預建包／BGE-M3 snapshot；未掃描私人文件／既有模型快取，未下載模型。真實資產、Linux／macOS 與雲端／實機驗收保持未完成，不阻擋本機離線實作。既有 `.gitignore` 涵蓋 Python／venv／build／cache／秘密檔，本輪無需新增其他技術的 ignore 檔。
+
+**T003～T018 本機進度（2026-11-05）**：已接入選用 rag extra、啟動固定路徑、typed ToolDependencies、單 worker runtime／有界協定與既有人格 Tool；提供隨 wheel 交付的 manifest schema、本機 CPU encoder／既有集合讀取、來源／原文限額與條件式指令。先完成 red tests 再實作；相關 149 項回歸通過（`us1-regression.log`），mypy 59 source files 通過，Ruff／format 通過。另有一次以 40ms 當正常查詢上限的測試因主機排程失敗，已改成只在慢工作測試暫縮 deadline、正常重問恢復十秒並等待真實完成；原失敗保留在 `us1-offline.log`，不列為服務／模型問題。
+
+工具／索引測試均使用合成檔案與假的 encoder／Chroma，沒有真實 HNSW 不變性、BGE-M3 效能或服務驗收證據。產品 lock 的精確組合另在隔離環境 import 通過：SDK 1.12.0、HF hub 1.33.0、Chroma 1.5.9、ST 6.2.0、torch 2.15.0+cpu、transformers 5.21.0（`product-probe-import.log`）；不含 extra 的依賴匯出沒有 Chroma／ST／torch。已加入範例文件包／模型目錄忽略項，請勿把實際文件、模型或私密來源加入 Git。後續 US2／US3 進度見下列續作紀錄；這一段只記錄當時的本機 MVP，不能當作即時語音交付證據。
+
 1. Python 3.12、既有 README 安裝環境；個人客製化分支。若要上游貢獻，先走 AGENTS／CONTRIBUTING 的 issue 與人工審閱流程。
 2. 已由外部建置者提供一份無敏感資料的完整包，只有一個文件／版本，含原文、locator、校準門檻及相容 metadata，符合 [完整 JSON Schema](contracts/index-manifest.schema.json) 及包合約的額外語意條件；不用自己的日常文件先試。此 schema 不是產包工具，結構範例／dummy hash 不算可載入的真實資產。
 3. 完整本機 BGE-M3 安全權重／tokenizer，與包指定 immutable revision／pipeline／runtime 一致。事先供應，對話時不下載。
@@ -32,7 +40,7 @@ python -m pytest tests/ -v
 uv lock --check
 ```
 
-新增測試檔與 extra 由實作階段建立；不要在目前分支把不存在測試當成通過。完整 gate、基本／選用安裝及 wheel 驗證都要留下實際結果。一般 gate 不自動下載模型、調雲端或啟動 daemon。
+上述測試與 extra 已建立；opt-in 素材測試未提供路徑時會明確略過。完整 gate、基本／選用安裝及 wheel 驗證都要留下實際結果。一般 gate 不自動下載模型、調雲端或啟動 daemon。
 
 必要情境：
 
@@ -83,4 +91,40 @@ Linux／macOS 以同名啟動環境變數設定本機路徑；不把這些變數
 
 ## Evidence and closure
 
-記錄測試資料 digest／版本、主機、模型 snapshot、實際鎖檔、命令及結果；不寫私密段落、金鑰或日常路徑。維持原始失敗記錄，不用重測抹去第一次失敗。逐項對應 SC-001～SC-006 及 FR-016，包含 schema 正反例、文字 timeout／零語音、九秒關閉與 48／50 成功計數；未驗證的平台、CPU 延遲、雲端限制與現場項目照實列未完成／限制，不以離線 pass 代替。此指南不是免除實測的簽核。既有 tasks.md 需由下一次 tasks 同步後才能做最終跨文件分析。
+記錄測試資料 digest／版本、主機、模型 snapshot、實際鎖檔、命令及結果；不寫私密段落、金鑰或日常路徑。維持原始失敗記錄，不用重測抹去第一次失敗。逐項對應 SC-001～SC-006 及 FR-016，包含 schema 正反例、文字 timeout／零語音、九秒關閉與 48／50 成功計數；未驗證的平台、CPU 延遲、雲端限制與現場項目照實列未完成／限制，不以離線 pass 代替。此指南不是免除實測的簽核。tasks.md 已依實際證據逐項更新；未完成的實際素材／服務驗收保留未勾選。
+
+
+## 續作紀錄（2026-11-05）
+
+- US2：故障矩陣、六種錯誤經真實 BackgroundToolManager 保留、取消後 busy、初始化期限、單一 monotonic 九秒回收及未確認退出時保留副本的離線測試已完成。拒絕未完成 snapshot／資料庫 journal、migrations、混合來源、錯誤雜湊、模型模組路徑跳脫、缺少模型與壞向量；不呼叫建立／寫入 API。
+- US3：HF／Gemini 共用 generation、response epoch、answer_retired／timeout_notice_sent。只在原回合有效時經 AdditionalOutputs 顯示固定文字一次；不另加 transcript append。HF 不因 timeout 排程 response.create，保留 mixed-tool 的其他合法 follow-up；Gemini 使用 NON_BLOCKING declaration，結果 WHEN_IDLE、timeout SILENT。跨 provider wait／socket lock／queue 消費均檢查有效性，duplicate 不重啟 CPU 工作；取消／插話／停用／新對話後丟棄舊結果。task_status 僅回文件工作的狀態，不重送原段落。
+- 依官方 [Live tools 文件](https://aistudio.google.com/docs/live-api/tools#async-function-calling) 設明確非同步模型能力檢查；本機白名單為 gemini-3.8-live、gemini-3.8-live-extended-thinking、gemini-2.5-flash-native-audio-preview-12-2025。其他模型在有啟用文件工具時明確 setup 失敗，不換模型／供應商；這不是實際服務排程驗收。
+- 已修正 ready handshake 的文件識別須與 query 結果完全一致，避免來源 digest 內部欄位造成誤判。此問題由離線協定回歸涵蓋，沒有宣稱曾成功載入真實索引。
+- 根 README／環境範例與 Mermaid 架構圖已同步。SVG 由既有 CLI 重新產生，PNG 預覽確認內容完整；未手改 SVG。
+- Windows Python 3.12 的 wheel 測試確認 runtime、worker、Tool 與完整 schema 一併交付，schema 與規格合約相同；在 checkout 之外匯入 runtime 不載入 Chroma／torch／ST。普通依賴匯出不含 rag；另以產品鎖檔的 rag 隔離環境驗證 CPU wheel／imports／mypy 與全套測試。未執行 Linux／macOS，不能以 Windows 結果代替。
+- 本輪使用者回覆「尚未準備」索引包與模型。T026 真實 Chroma／HNSW 不變性、T040 真實 CPU 50 題、T041 品質及 T042 兩後端語音／插話驗收都保留未完成，沒有下載模型、產生索引、讀取私密文件、連雲端或啟動機器人。
+
+### 已提供素材後的本機 opt-in 命令
+
+以下變數僅供測試，不是產品新增設定。只設定在隔離測試行程；請使用已驗證相容且可公開測試的素材。問題 JSON 是恰好 50 個有效問題的陣列，每題 <=200 Unicode 字元；在外部先確認文件 <=1,000 段、每段 <=512 BGE tokenizer tokens。此工具沒有產包器。
+
+```powershell
+$env:RAG_ACCEPTANCE_PACKAGE = '完整索引包資料夾'
+$env:RAG_ACCEPTANCE_MODEL = '對應本機模型資料夾'
+$env:RAG_ACCEPTANCE_QUESTIONS = '固定五十題.json'
+python -m pytest tests/test_document_worker.py -k external_prebuilt -v
+python -m pytest tests/test_document_retrieval.py -k external_cpu -v --basetemp=cache/rag-cpu-acceptance
+```
+
+第一個測試以真實 Chroma 檢查原包雜湊、工作副本原文／metadata／向量／count 及 HNSW 雜湊不變性，失敗不能當作已支援。第二個經現有 Tool 量測 50 題，產生 `cache/rag-cpu-acceptance/` 下的 `cpu-benchmark.json`：記錄主機／RAM／runtime／revision／資料 digest、載入時間、逐題時間／段落數／錯誤、p50／nearest-rank p95（50 題分母）與 App／worker RSS 取樣峰值。取樣不代表 OS 的精確瞬時峰值，實際語音可用性仍須 T042。只有 >=48/50 題五秒內取得段落且所有題目十秒內完成才通過；47/50、錯誤／無依據及縮小分母的反例已有離線測試。缺素材時的 skip 不是通過。
+
+
+### 最後離線 gate 證據
+
+本輪完整 `.venv` gate：Ruff check／format、strict mypy（59 source files）、`pytest tests/ -v` **897 passed／2 skipped**（`cache/004-single-document-rag/final-review.log`）、`uv lock --check` 通過。兩個 skip 是上面列出的真實素材 opt-in，未降低成功門檻。產品鎖檔的隔離 rag 環境另有全套 880 passed／2 skipped（較早 snapshot，`rag-installed-gate.log`）及 mypy 59 files 通過；最後的 RAG／兩個 handler／manager 回歸另行補驗，不把早期數字冒充最新完整 gate。
+
+最後審查新增兩個 regression：HF 合併空回覆時保留帶回合所有權的 document follow-up；BackgroundToolManager 的文件通知不排在其他工具等待雲端的 callback 後面，避免延遲本機十秒逾時文字。RAG 仍走同一 Tool／dispatcher／manager；其他工具保留原通知路徑。網路傳送失敗只記錄安全固定訊息，本機 timeout notice 仍可顯示。已保留先失敗、修正後通過的測試紀錄；本輪無真實服務／文件事件可宣稱修復。
+
+目前 FR-001～FR-016 具程式與離線回歸對應；SC-001／002 文件品質、SC-003 實際 CPU、SC-004 實際語音、SC-005 真實 Chroma 不變性及 SC-006 兩服務內容／日誌驗收尚待 T026／T040～T042。T039 Linux／macOS 未測。以上限制不影響繼續一般未啟用 RAG 的使用，但本 feature 保持未結案。
+
+最終 rag 隔離環境複驗：strict mypy 59 source files 通過（`rag-final-mypy.log`）；RAG、HF／Gemini、BackgroundToolManager、task_status 共 **275 passed／2 skipped**（`rag-final.log`）。這是最後 source snapshot 的相關回歸，較早的全套 rag 880 項結果仍依原 snapshot 保留。

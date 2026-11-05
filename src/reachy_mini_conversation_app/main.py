@@ -22,8 +22,9 @@ from reachy_mini_conversation_app.utils import (
     setup_logger,
     log_connection_troubleshooting,
 )
-from reachy_mini_conversation_app.config import resolve_instance_path
+from reachy_mini_conversation_app.config import resolve_instance_path, resolve_document_paths
 from reachy_mini_conversation_app.gemini_realtime import GeminiRealtimeHandler
+from reachy_mini_conversation_app.document_retrieval import DocumentRuntime
 from reachy_mini_conversation_app.gemini_credentials import GeminiCredentials
 from reachy_mini_conversation_app.huggingface_realtime import RealtimeSessionState, HuggingFaceRealtimeHandler
 
@@ -164,6 +165,7 @@ def run(
 
     # After the .env: what the user changed through the UI wins over it.
     load_settings_into_runtime(instance_path)
+    config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH = resolve_document_paths()
 
     logger.info(
         "Configured Hugging Face realtime backend, connection mode: %s",
@@ -208,6 +210,7 @@ def run(
         instance_path=instance_path,
         # --no-camera is a hard off; otherwise the persisted vision.* switch decides.
         camera_enabled=not args.no_camera and config.CAMERA_ENABLED,
+        document_retrieval=DocumentRuntime(config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH),
     )
 
     credential_scope = (
@@ -383,7 +386,10 @@ def run(
     except KeyboardInterrupt:
         logger.info("Keyboard interruption in main thread... closing server.")
     finally:
+        session_state.begin_connection()
         credentials.close()
+        if deps.document_retrieval is not None:
+            deps.document_retrieval.close()
         if own_ui_server is not None:
             own_ui_server.should_exit = True
 

@@ -56,6 +56,19 @@ async def test_task_status_no_running_tools_is_idle() -> None:
 
 
 @pytest.mark.asyncio
+async def test_task_status_does_not_replay_document_evidence() -> None:
+    """Checking an old task cannot bypass the original document turn's output ownership."""
+    tool = _tool("search_document", ToolState.COMPLETED, result={"passages": [{"text": "private-passage"}]})
+    manager = MagicMock()
+    manager.get_tool.return_value = tool
+    result = await TaskStatus()(_deps(), tool_id=tool.tool_id, tool_manager=manager)
+    assert result["name"] == "search_document"
+    assert result["status"] == "completed"
+    assert "result" not in result
+    assert "private-passage" not in str(result)
+
+
+@pytest.mark.asyncio
 async def test_task_status_lists_running_and_filters_system_tools() -> None:
     """System tools (task_status/task_cancel) are excluded from the running list."""
     manager = MagicMock()

@@ -18,6 +18,7 @@ from reachy_mini_conversation_app.mcp_client import McpToolTimeoutError, McpTool
 from reachy_mini_conversation_app.tool_spaces import build_remote_client, read_installed_tool_spaces
 from reachy_mini_conversation_app.profile_store import DEFAULT_PROFILE_NAME
 from reachy_mini_conversation_app.profile_toolsets import read_profile_tool_names
+from reachy_mini_conversation_app.document_retrieval import DocumentRuntime, validate_document_query
 from reachy_mini_conversation_app.tools.tool_constants import SystemTool
 
 
@@ -44,6 +45,7 @@ class ToolDependencies:
     camera_enabled: bool = False
     motion_duration_s: float = 1.0
     go_to_sleep: Callable[[], dict[str, Any]] | None = None
+    document_retrieval: DocumentRuntime | None = None
 
 
 class ToolSpec(TypedDict):
@@ -460,12 +462,22 @@ def get_tools() -> dict[str, Tool]:
 
 
 # Dispatcher
-def _safe_load_obj(args_json: str) -> Dict[str, Any]:
+def _safe_load_obj(args_json: str, *, document_query: bool = False) -> Dict[str, Any]:
     try:
         parsed_args = json.loads(args_json or "{}")
+        if document_query and (
+            not isinstance(parsed_args, dict)
+            or set(parsed_args) != {"query"}
+            or validate_document_query(parsed_args.get("query")) is None
+        ):
+            logger.warning("Document retrieval: document_invalid_query")
+            return {}
         return parsed_args if isinstance(parsed_args, dict) else {}
     except Exception:
-        logger.warning("bad args_json=%r", args_json)
+        if document_query:
+            logger.warning("Document retrieval: document_invalid_query")
+        else:
+            logger.warning("bad args_json=%r", args_json)
         return {}
 
 
@@ -479,6 +491,9 @@ async def _dispatch_tool_call(tool_name: str, args: Dict[str, Any], deps: ToolDe
         logger.info("Tool cancelled: %s", tool_name)
         return {"error": "Tool cancelled"}
     except Exception as e:
+        if tool_name == "search_document":
+            logger.warning("Document retrieval failed: %s", type(e).__name__)
+            return {"error": "document_unavailable"}
         msg = f"{type(e).__name__}: {e}"
         logger.exception("Tool error in %s: %s", tool_name, msg)
         return {"error": msg}
@@ -486,13 +501,15 @@ async def _dispatch_tool_call(tool_name: str, args: Dict[str, Any], deps: ToolDe
 
 async def dispatch_tool_call(tool_name: str, args_json: str, deps: ToolDependencies) -> Dict[str, Any]:
     """Dispatch a tool call by name with JSON args and dependencies."""
-    return await _dispatch_tool_call(tool_name, _safe_load_obj(args_json), deps)
+    return await _dispatch_tool_call(
+        tool_name, _safe_load_obj(args_json, document_query=tool_name == "search_document"), deps
+    )
 
 
 async def dispatch_tool_call_with_manager(
     tool_name: str, args_json: str, deps: ToolDependencies, tool_manager: "BackgroundToolManager"
 ) -> Dict[str, Any]:
     """Dispatch a tool call, injecting a BackgroundToolManager into the args."""
-    args = _safe_load_obj(args_json)
+    args = _safe_load_obj(args_json, document_query=tool_name == "search_document")
     args["tool_manager"] = tool_manager
     return await _dispatch_tool_call(tool_name, args, deps)

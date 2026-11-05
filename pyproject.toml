@@ -36,6 +36,13 @@ dependencies = [
     "httpx2>=2.5.0",
 ]
 
+[project.optional-dependencies]
+rag = [
+    "chromadb==1.5.9",
+    "sentence-transformers==6.2.0",
+    "torch",
+]
+
 [dependency-groups]
 dev = [
   "allure-pytest==2.16.0",
@@ -53,6 +60,14 @@ reachy-mini-conversation-app = "reachy_mini_conversation_app.main:main"
 [tool.uv]
 required-version = ">=0.13.4"
 exclude-newer = "7 days"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'", extra = "rag" }]
 
 [tool.uv.exclude-newer-package]
 "certifi" = false
@@ -72,6 +87,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 reachy_mini_conversation_app = [
+  "*.schema.json",
   "static/**/*",
   "templates/*.html",
   ".env.example",

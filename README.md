@@ -93,6 +93,48 @@ uv sync --group dev
 > [!NOTE]
 > Run `uv sync --frozen` to install the exact dependency set from `uv.lock` without re-resolving versions.
 
+The optional local document retrieval dependencies can be installed with `uv sync --extra rag`.
+This installs Chroma, Sentence Transformers and PyTorch; uv selects CPU PyTorch wheels on
+Windows and Linux. Model files and document indexes are supplied separately and are not
+downloaded by this command. The retrieval tool is not enabled by installing the extra.
+Without the extra, normal conversation does not require these dependencies.
+Document retrieval reads `REACHY_MINI_DOCUMENT_INDEX_PATH` (one complete prebuilt Chroma
+package) and `REACHY_MINI_DOCUMENT_MODEL_PATH` (the matching local BGE-M3 model directory)
+at startup. Relative paths resolve from the launch directory. Both default to unset;
+URLs are rejected. Stop the app before replacing a complete package, then restart.
+Changing the environment during a conversation does not replace the selected document.
+
+Enable `search_document` for the selected personality under Tools → Tool access. It is
+optional and disabled by default; ordinary conversation still works without a document.
+Supply a complete `manifest.json` and `chroma/` directory conforming to the
+[index package contract](specs/004-single-document-rag/contracts/index-package.md) and
+[manifest schema](specs/004-single-document-rag/contracts/index-manifest.schema.json).
+An external preparation step must supply all chunks, source locators, dense normalized
+1024-dimensional vectors, file checksums, exact runtime versions, a matching reference
+embedding and a calibrated cosine distance limit. The app has no index builder or uploader.
+Only the stated document and version are searchable; other files and URLs are not tool inputs.
+
+The first query starts a local CPU worker and can report not ready; ask again after loading.
+The original query, including whitespace, is limited to 500 Unicode characters. Results
+contain up to three original passages totaling 2,000 characters, with document identity,
+version and source locators. A distance miss reports no evidence. A query has ten seconds
+and no waiting queue: a timed-out CPU job stays busy until it actually finishes. Timeout
+shows one local Traditional Chinese text notice without a spoken follow-up; interruption,
+cancel, tool disable or conversation replacement discards old results and notices.
+
+The worker uses a disposable copy of the index and never rebuilds or migrates it. Shutdown
+waits at most nine seconds (5 normal, 2 terminate, 2 kill); an unconfirmed exit preserves the
+copy and logs `cleanup_incomplete`. Model encoding and search stay local, but retrieved
+passages are sent to the selected conversation provider and may appear in its existing
+transcripts. RAG diagnostic logs redact questions and passages. Treat document content as
+untrusted reference text; it grants no robot, camera or memory permissions. Hugging Face
+remains the default. Gemini requires an explicitly supported asynchronous Live model;
+unsupported scheduling fails setup without switching model or provider.
+
+Real document accuracy, CPU performance and voice acceptance require separately supplied
+assets and approval. The [acceptance guide](specs/004-single-document-rag/quickstart.md)
+includes opt-in local checks; passing offline tests does not establish these results.
+
 <details>
 <summary>Using pip</summary>
 

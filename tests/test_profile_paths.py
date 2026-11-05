@@ -1,3 +1,5 @@
+import sys
+import json
 import shutil
 import logging
 import zipfile
@@ -48,7 +50,7 @@ def _git_tracked_files(project_root: Path) -> list[Path]:
     """Return git-tracked files that still exist in the working tree."""
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--cached"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
             cwd=project_root,
             check=True,
             capture_output=True,
@@ -317,6 +319,7 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         details = exc.stderr if isinstance(exc, subprocess.CalledProcessError) and exc.stderr else str(exc)
@@ -329,6 +332,29 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
         archived_paths = [PurePosixPath(info.filename) for info in archive.infolist() if not info.is_dir()]
         assert "reachy_mini_conversation_app/templates/gemini-key.html" not in archive.namelist()
         assert "reachy_mini_conversation_app/static/js/gemini-key.js" in archive.namelist()
+        schema_path = "reachy_mini_conversation_app/document_manifest.schema.json"
+        assert json.loads(archive.read(schema_path)) == json.loads(
+            (project_root / "specs/004-single-document-rag/contracts/index-manifest.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for module in ("document_retrieval.py", "document_worker.py", "tools/search_document.py"):
+            assert "reachy_mini_conversation_app/" + module in archive.namelist()
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import sys,json; from importlib.resources import files; "
+            "sys.path.insert(0,sys.argv[1]); import reachy_mini_conversation_app.document_retrieval; "
+            "assert not {'chromadb','torch','sentence_transformers'} & set(sys.modules); "
+            "json.loads(files('reachy_mini_conversation_app').joinpath('document_manifest.schema.json').read_text())",
+            str(wheel_files[0]),
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
 
     violations = []
     for path in archived_paths:

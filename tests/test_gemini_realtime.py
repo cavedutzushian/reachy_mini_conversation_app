@@ -18,6 +18,9 @@ from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, RealtimeSessionState
+from reachy_mini_conversation_app.tools.tool_constants import ToolState
+from reachy_mini_conversation_app.tools.search_document import SearchDocument
+from reachy_mini_conversation_app.tools.background_tool_manager import ToolNotification
 
 
 class FakeConnection:
@@ -929,3 +932,149 @@ async def test_candidate_close_errors_are_safe(
     assert caught.value.reason == reason
     assert caught.value.recoverable is (reason == "service_unavailable")
     assert "candidate-sentinel" not in str(caught.value) + repr(caught.value) + caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", ["document_timeout", "document_no_evidence", "document_busy"])
+async def test_document_result_scheduling_and_duplicate_timeout(monkeypatch, error: str) -> None:
+    """RAG retains its fixed error and only timeout stays silent without repeating text."""
+    tool = SearchDocument()
+    monkeypatch.setattr(core_tools, "get_tools", lambda: {tool.name: tool})
+    monkeypatch.setattr(gemini, "get_tools", lambda: {tool.name: tool})
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [tool.spec()])
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    assert handler._declarations()[0]["behavior"] == "NON_BLOCKING"
+    handler.session_state.invocations["doc"] = ToolInvocation("search_document", "running")
+    note = ToolNotification(
+        id="doc", tool_name="search_document", is_idle_tool_call=False, status=ToolState.FAILED, error=error
+    )
+    await handler._handle_tool_result(note)
+    response = socket.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert response["response"] == {"error": error}
+    assert response["scheduling"] == ("SILENT" if error == "document_timeout" else "WHEN_IDLE")
+    count = handler.output_queue.qsize()
+    await handler._tool_call({"id": "doc", "name": "search_document", "args": {"query": "question"}})
+    assert handler.output_queue.qsize() == count
+    assert socket.sent[-1]["toolResponse"]["functionResponses"][0]["scheduling"] == "SILENT"
+    handler._ready = True
+    await handler.say("請用中文說你好")
+    assert "clientContent" in socket.sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_document_send_lock_rechecks_interruption(monkeypatch) -> None:
+    """A result waiting for the socket lock cannot escape into a newer turn."""
+    tool = SearchDocument()
+    monkeypatch.setattr(core_tools, "get_tools", lambda: {tool.name: tool})
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    handler._aliases["search_document"] = "search_document"
+    invocation = ToolInvocation("search_document", "running")
+    handler.session_state.invocations["doc"] = invocation
+    await handler._send_lock.acquire()
+    pending = asyncio.create_task(
+        handler._handle_tool_result(
+            ToolNotification(
+                id="doc",
+                tool_name="search_document",
+                is_idle_tool_call=False,
+                status=ToolState.FAILED,
+                error="document_timeout",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    await handler._flush_playback()
+    handler._send_lock.release()
+    await pending
+    assert socket.sent == []
+    assert invocation.answer_retired
+    assert await handler.emit() is None
+
+
+@pytest.mark.asyncio
+async def test_document_result_transport_failure_is_safe(monkeypatch, caplog) -> None:
+    """An unavailable Gemini transport does not crash the background callback or expose details."""
+    monkeypatch.setattr(core_tools, "get_tools", lambda: {"search_document": SearchDocument()})
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    handler.session_state.invocations["doc"] = ToolInvocation("search_document", "running")
+    handler._function_response = AsyncMock(side_effect=OSError("private-payload-sentinel"))
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_timeout",
+        )
+    )
+    assert "transport unavailable" in caplog.text
+    assert "private-payload-sentinel" not in caplog.text
+    assert "逾時" in str((await handler.emit()).args)
+
+
+@pytest.mark.parametrize("model", ["gemini-3.1-flash-live-preview", "unknown-future-model"])
+def test_document_requires_supported_async_model_without_switching(monkeypatch, model: str) -> None:
+    """Unsupported scheduling is an explicit setup error and never changes the selected model."""
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [SearchDocument().spec()])
+    monkeypatch.setattr(gemini.config, "GEMINI_MODEL", model)
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    with pytest.raises(gemini.GeminiConnectionError, match="document_async_unsupported"):
+        handler._declarations()
+    assert gemini.config.GEMINI_MODEL == model
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retirement", ["epoch", "generation", "cancelled", "disabled"])
+async def test_document_late_result_never_reaches_new_gemini_turn(monkeypatch, retirement: str) -> None:
+    """A retired document call cannot emit even its timeout notice in a newer turn."""
+    tools = {"search_document": SearchDocument()}
+    monkeypatch.setattr(core_tools, "get_tools", lambda: tools)
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    socket = FakeConnection([])
+    monkeypatch.setattr(handler, "connection", socket)
+    invocation = ToolInvocation("search_document", "running")
+    handler.session_state.invocations["doc"] = invocation
+    if retirement == "epoch":
+        handler.playback_epoch += 1
+    elif retirement == "generation":
+        handler.session_state.begin_connection()
+    elif retirement == "cancelled":
+        invocation.status = "cancelled"
+    else:
+        tools.clear()
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_timeout",
+        )
+    )
+    assert socket.sent == []
+    assert handler.output_queue.empty()
+    assert invocation.answer_retired
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("length,accepted", [(500, True), (501, False)])
+async def test_document_original_length_is_checked_before_dispatch(monkeypatch, length: int, accepted: bool) -> None:
+    """Gemini validates the same raw Unicode boundary before invoking the shared tool."""
+    tool = SearchDocument()
+    monkeypatch.setattr(gemini, "get_tools", lambda: {tool.name: tool})
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [tool.spec()])
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock()))
+    monkeypatch.setattr(handler, "connection", FakeConnection([]))
+    handler._declarations()
+    start = AsyncMock(return_value=SimpleNamespace(tool_id="doc"))
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start)
+    await handler._tool_call(
+        {"id": "doc", "name": "search_document", "args": {"query": " " + "字" * (length - 2) + " "}}
+    )
+    assert start.await_count == int(accepted)
+    if not accepted:
+        assert handler.session_state.invocations["doc"].result == {"error": "document_invalid_query"}

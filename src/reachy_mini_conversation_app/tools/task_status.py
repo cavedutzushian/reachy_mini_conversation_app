@@ -63,7 +63,7 @@ class TaskStatus(Tool):
                 if tool.progress.message:
                     result["progress_message"] = tool.progress.message
 
-            if tool.result:
+            if tool.result and tool.tool_name != "search_document":
                 result["result"] = tool.result
             if tool.error:
                 result["error"] = tool.error

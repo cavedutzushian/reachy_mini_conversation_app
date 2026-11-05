@@ -62,6 +62,8 @@ def test_gemini_selection_preserves_hf_and_rejects_secrets(tmp_path: Path, monke
     """Persist explicit provider selection without accepting credentials."""
     monkeypatch.setattr(config, "CONVERSATION_BACKEND", "huggingface")
     monkeypatch.setattr(config, "GEMINI_API_KEY", "private-token")
+    monkeypatch.setattr(config, "DOCUMENT_INDEX_PATH", Path("private-index-sentinel"))
+    monkeypatch.setattr(config, "DOCUMENT_MODEL_PATH", Path("private-model-sentinel"))
     app = FastAPI()
     stream = LocalStream(
         MagicMock(),
@@ -75,6 +77,8 @@ def test_gemini_selection_preserves_hf_and_rejects_secrets(tmp_path: Path, monke
     assert result["result"]["backend"] == "gemini"
     assert result["result"]["gemini_key_configured"] is True
     assert "private-token" not in str(result)
+    assert "private-index-sentinel" not in str(result)
+    assert "private-model-sentinel" not in str(result)
     assert read_settings(str(tmp_path)).conversation_backend == "gemini"
     error = _rpc_call(app, "backend.config", {"backend": "gemini", "api_key": "forbidden"})
     assert error["error"]["code"] == -32602

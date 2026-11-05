@@ -10,6 +10,7 @@ import time
 import asyncio
 import logging
 from typing import Any, Dict, Callable, Optional, Coroutine
+from collections.abc import Awaitable
 
 from pydantic import Field, BaseModel, PrivateAttr
 
@@ -104,6 +105,7 @@ class BackgroundToolManager(BaseModel):
     _lifecycle_tasks: list[asyncio.Task[None]] = PrivateAttr(default_factory=list)
     _max_tool_duration_seconds: float = PrivateAttr(default=86400)  # 1 day
     _max_tool_memory_seconds: float = PrivateAttr(default=3600)  # 1 hour
+    _document_callbacks: list[Callable[[ToolNotification], Awaitable[None]]] = PrivateAttr(default_factory=list)
 
     def set_loop(
         self,
@@ -190,6 +192,10 @@ class BackgroundToolManager(BaseModel):
             background_tool.status = ToolState.COMPLETED
             logger.debug(f"Background tool completed: {background_tool.tool_name} (id={background_tool.id})")
 
+        if background_tool.tool_name == "search_document" and self._document_callbacks:
+            for callback in self._document_callbacks:
+                await callback(background_tool.get_notification())
+            return
         await self._notification_queue.put(background_tool.get_notification())
         logger.debug(f"Queued notification for tool: {background_tool.tool_name} (id={background_tool.id})")
 
@@ -264,6 +270,8 @@ class BackgroundToolManager(BaseModel):
 
         """
         self.set_loop()
+
+        self._document_callbacks = list(tool_callbacks)
 
         async def _listener() -> None:
             while True:

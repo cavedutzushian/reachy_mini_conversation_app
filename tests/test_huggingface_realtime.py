@@ -1177,6 +1177,261 @@ async def test_handle_tool_result_error_is_reported_and_prompts_response() -> No
 
 
 @pytest.mark.asyncio
+async def test_document_result_is_not_logged(caplog: pytest.LogCaptureFixture, monkeypatch) -> None:
+    """Document evidence remains available to the model without entering diagnostic logs."""
+    caplog.set_level(logging.DEBUG, logger=hf_mod.__name__)
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": MagicMock()})
+    handler.session_state.invocations["document-1"] = hf_mod.ToolInvocation("search_document", "running")
+    note = ToolNotification(
+        id="document-1",
+        tool_name="search_document",
+        is_idle_tool_call=False,
+        status=ToolState.COMPLETED,
+        result={
+            "status": "ok",
+            "document": {"id": "doc", "title": "手冊", "version": "v1"},
+            "index_version": "v1",
+            "passages": [
+                {"chunk_id": "one", "locator": "第一頁", "text": "private-document-sentinel", "truncated": False}
+            ],
+        },
+    )
+    await handler._handle_tool_result(note)
+    assert "private-document-sentinel" not in caplog.text
+    assert "private-document-sentinel" in str(_messages(_drain(handler)))
+
+
+@pytest.mark.asyncio
+async def test_document_timeout_notice_does_not_wait_for_network_or_speak(monkeypatch) -> None:
+    """The local timeout notice arrives before provider completion and never queues speech."""
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": MagicMock()})
+    handler.session_state.invocations["doc"] = hf_mod.ToolInvocation("search_document", "running")
+    blocked = asyncio.Event()
+    handler._wait_for_response_done_before_tool_result = AsyncMock(side_effect=blocked.wait)
+    handler._safe_response_create = AsyncMock()
+    note = ToolNotification(
+        id="doc",
+        tool_name="search_document",
+        is_idle_tool_call=False,
+        status=ToolState.FAILED,
+        error="document_timeout",
+    )
+    task = asyncio.create_task(handler._handle_tool_result(note))
+    await asyncio.sleep(0)
+    notice = await handler.emit()
+    assert "逾時" in str(notice.args)
+    assert not task.done()
+    blocked.set()
+    await task
+    handler._safe_response_create.assert_not_awaited()
+    await handler._handle_tool_result(note)
+    assert handler.output_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_document_transport_failure_does_not_escape_or_log_content(monkeypatch, caplog) -> None:
+    """A lost result write preserves the local notice and logs no provider payload."""
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": MagicMock()})
+    handler.session_state.invocations["doc"] = hf_mod.ToolInvocation("search_document", "running")
+    handler._wait_for_response_done_before_tool_result = AsyncMock(return_value=True)
+    handler.connection.conversation.item.create = AsyncMock(side_effect=OSError("private-payload-sentinel"))
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_timeout",
+        )
+    )
+    assert "transport unavailable" in caplog.text
+    assert "private-payload-sentinel" not in caplog.text
+    assert "逾時" in str((await handler.emit()).args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retirement", ["epoch", "generation", "disabled"])
+async def test_document_queued_notice_is_fenced_at_consumption(monkeypatch, retirement: str) -> None:
+    """An interruption or tool disable retires even an already queued timeout notice."""
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    tools = {"search_document": MagicMock()}
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: tools)
+    handler.session_state.invocations["doc"] = hf_mod.ToolInvocation("search_document", "running")
+    handler._wait_for_response_done_before_tool_result = AsyncMock(return_value=True)
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_timeout",
+        )
+    )
+    if retirement == "epoch":
+        handler.playback_epoch += 1
+    elif retirement == "generation":
+        handler.session_state.begin_connection()
+    else:
+        tools.clear()
+    assert await handler.emit() is None
+
+
+@pytest.mark.asyncio
+async def test_document_result_retired_during_provider_wait_is_not_sent(monkeypatch) -> None:
+    """A result cannot cross an interruption while waiting for provider acknowledgement."""
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": MagicMock()})
+    invocation = hf_mod.ToolInvocation("search_document", "running")
+    handler.session_state.invocations["doc"] = invocation
+    handler._in_flight_tool_calls.add("doc")
+    gate = asyncio.Event()
+    handler._wait_for_response_done_before_tool_result = AsyncMock(side_effect=gate.wait)
+    task = asyncio.create_task(
+        handler._handle_tool_result(
+            ToolNotification(
+                id="doc",
+                tool_name="search_document",
+                is_idle_tool_call=False,
+                status=ToolState.FAILED,
+                error="document_timeout",
+            )
+        )
+    )
+    await asyncio.sleep(0)
+    await handler._flush_playback()
+    gate.set()
+    await task
+    handler.connection.conversation.item.create.assert_not_awaited()
+    assert "doc" not in handler._in_flight_tool_calls
+    assert invocation.answer_retired
+    assert handler._pending_responses.empty()
+
+
+@pytest.mark.asyncio
+async def test_document_followup_queue_checks_ownership_after_response_wait(monkeypatch) -> None:
+    """A queued follow-up is dropped if its document turn retires before send."""
+    handler = _plain_handler()
+    handler.connection = MagicMock()
+    handler.connection.response.create = AsyncMock()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": MagicMock()})
+    invocation = hf_mod.ToolInvocation("search_document", "completed")
+    handler._response_done_event.clear()
+    handler._pending_responses.put_nowait(hf_mod.DocumentResponse(invocation))
+    sender = asyncio.create_task(handler._response_sender_loop())
+    await asyncio.sleep(0)
+    handler.playback_epoch += 1
+    handler._response_done_event.set()
+    await asyncio.sleep(0.01)
+    sender.cancel()
+    await sender
+    handler.connection.response.create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_coalescing_empty_responses_preserves_document_followup_owner() -> None:
+    """Coalescing plain requests cannot discard a queued document ownership guard."""
+    handler = _plain_handler()
+    handler.connection = MagicMock()
+    handler.connection.response.create = AsyncMock()
+    invocation = hf_mod.ToolInvocation("search_document", "completed")
+    handler._pending_responses.put_nowait({})
+    handler._pending_responses.put_nowait(hf_mod.DocumentResponse(invocation))
+    sender = asyncio.create_task(handler._response_sender_loop())
+    for _attempt in range(100):
+        if handler.connection.response.create.await_count:
+            break
+        await asyncio.sleep(0.001)
+    assert handler.connection.response.create.await_count == 1
+    assert handler._pending_responses.qsize() == 1
+    sender.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await sender
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("document_first", [True, False])
+async def test_document_timeout_does_not_suppress_other_tool_followup(monkeypatch, document_first: bool) -> None:
+    """A mixed batch retains exactly one legitimate follow-up from its other tool."""
+    handler = _plain_handler()
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(
+        hf_mod.core_tools,
+        "get_tools",
+        lambda: {"search_document": MagicMock(), "get_robot_status": MagicMock(needs_response=True)},
+    )
+    handler.session_state.invocations["doc"] = hf_mod.ToolInvocation("search_document", "running")
+    handler._in_flight_tool_calls.update(("doc", "status"))
+    handler._wait_for_response_done_before_tool_result = AsyncMock(return_value=True)
+    handler._safe_response_create = AsyncMock()
+    timeout = ToolNotification(
+        id="doc",
+        tool_name="search_document",
+        is_idle_tool_call=False,
+        status=ToolState.FAILED,
+        error="document_timeout",
+    )
+    status = ToolNotification(
+        id="status",
+        tool_name="get_robot_status",
+        is_idle_tool_call=False,
+        status=ToolState.COMPLETED,
+        result={"status": "awake"},
+    )
+    for note in (timeout, status) if document_first else (status, timeout):
+        await handler._handle_tool_result(note)
+    handler._safe_response_create.assert_awaited_once()
+    assert not handler._in_flight_tool_calls
+
+
+@pytest.mark.asyncio
+async def test_document_arguments_are_not_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The shared INFO tool-call log must redact document queries before dispatch."""
+    caplog.set_level(logging.DEBUG, logger=hf_mod.__name__)
+    handler = _session_handler(
+        monkeypatch,
+        (
+            _FakeEvent(
+                "response.function_call_arguments.done",
+                name="search_document",
+                arguments='{"query":"private-question-sentinel"}',
+                call_id="document-1",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        type(handler.tool_manager), "start_tool", AsyncMock(return_value=SimpleNamespace(tool_id="doc-1"))
+    )
+    await handler._run_realtime_session()
+    assert "private-question-sentinel" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_duplicate_document_call_id_does_not_restart_work(monkeypatch) -> None:
+    """Repeated HF tool events never enqueue the same document request twice."""
+    event = _FakeEvent(
+        "response.function_call_arguments.done",
+        name="search_document",
+        arguments='{"query":"question"}',
+        call_id="same-doc",
+    )
+    handler = _session_handler(monkeypatch, (event, event))
+    start = AsyncMock(return_value=SimpleNamespace(tool_id="doc"))
+    monkeypatch.setattr(type(handler.tool_manager), "start_tool", start)
+    await handler._run_realtime_session()
+    start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_handle_tool_result_no_connection_is_dropped() -> None:
     """With no connection the tool result is dropped without enqueuing anything."""
     handler = _plain_handler()
