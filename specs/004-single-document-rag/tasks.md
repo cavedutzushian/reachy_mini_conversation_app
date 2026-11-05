@@ -108,7 +108,7 @@
 
 - [X] T037 更新根 `README.md`、`.env.example` 與 `specs/004-single-document-rag/quickstart.md` 的實際安裝／測試命令、既有人格啟用方式、唯一預建包 Schema／額外語意條件、本機模型供應、snippets 外送／日誌限制、原始字串 500 限制、純文字 timeout、5／2／2 回收及未退出保留副本、48／50 成功門檻與停止換包；不新增 README 或 docs Markdown，不宣稱未測效能／平台／索引可攜性。
 - [X] T038 [P] 依最終實作更新 `docs/scheme.mmd`，用既有產生方式重新輸出 `docs/assets/conversation_app_arch.svg` 並檢查 README 嵌入；圖中顯示 shared Tool → 本機 CPU worker → 唯一預建包與有界結果流，禁止手工改 SVG，不改 CI。
-- [ ] T039 在 `tests/test_document_retrieval.py`、`tests/test_document_worker.py` 與 `tests/test_profile_paths.py` 的既有 wheel 測試補基本安裝／rag extra／worker module 打包驗證，確保安裝後的 runtime Schema 驗證不依賴 source checkout／specs 目錄或遠端 $ref，結構規則符合 `specs/004-single-document-rag/contracts/index-manifest.schema.json`；在 `specs/004-single-document-rag/quickstart.md` 記 Python 3.12 與三平台可取得證據，確認缺套件不退出普通 App、重型 import 隔離、CPU 套件來源、原包相容矩陣，未測平台未完成，不繼承舊功能跳過授權。
+- [X] T039 在 `tests/test_document_retrieval.py`、`tests/test_document_worker.py` 與 `tests/test_profile_paths.py` 的既有 wheel 測試補基本安裝／rag extra／worker module 打包驗證，確保安裝後的 runtime Schema 驗證不依賴 source checkout／specs 目錄或遠端 $ref，結構規則符合 `specs/004-single-document-rag/contracts/index-manifest.schema.json`；在 `specs/004-single-document-rag/quickstart.md` 記 Python 3.12 與三平台可取得證據，確認缺套件不退出普通 App、重型 import 隔離、CPU 套件來源、原包相容矩陣；依 2026-11-05 使用者對本功能的明確指示略過 Linux／macOS，保留未驗證限制，不將略過記成通過。
 - [ ] T040 在 `tests/test_document_retrieval.py` 建立明確 opt-in 的 CPU 量測入口（不需新產品 CLI），接收事先供應的包／模型／固定 50 題路徑，記錄逐題時間／成功段落數／固定錯誤及摘要，先用合成 50 筆結果驗證 47 題成功不過、48 題成功可過且快速錯誤不算成功；於 `specs/004-single-document-rag/quickstart.md` 補實際命令並固定 CPU／RAM／OS／架構／model revision／依賴／threads／包 digest。執行 50 次 <=200 字有效問題（<=1,000 段、每段 <=512 tokens），至少 48／50 題五秒內成功取得段落，全部十秒內完成或明確失敗；error／no_evidence／busy／not_ready／timeout 即使很快也不計成功，不刪失敗題縮小分母。另記冷載入、p50／p95 的分母與取法、parent／worker RAM 峰值及音訊可用性；不下載／建索引／調低精度，缺資產或未達門檻保持未完成（SC-003）。
 - [ ] T041 在確認文件段落外送與既有額度授權後，依 `specs/004-single-document-rag/quickstart.md` 使用事先標註並凍結的 20 題可答（>=10 換句話）、10 題無依據及 5 題要求其他文件測 HF／Gemini；檢索 >=18/20 有支持原文、各後端 >=18/20 正確、全部文件答案可核對來源、15 題負向全數不捏造／不存取其他來源，含數字／否定／表格／注入題，逐題留結果與失敗，不用重測改寫原比例（SC-001／SC-002／SC-006）。
 - [ ] T042 在現場配合與雲端使用範圍確認後，依 `specs/004-single-document-rag/quickstart.md` 對 HF／Gemini 各做十次查詢，涵蓋各五次插話與五次取消／換後端／新對話，無退出、遲到語音／文字／動作或舊工具重播。另各用可控慢 worker 測有效回合 timeout 只有一次固定文字、無該錯誤觸發語音，取消／切換與顯示交錯無 notice，late success／duplicate 不重播，成功／下一輪語音正常；實際驗 Gemini 排程支援、不用 fake 代替。再測故障後中文對話、停止換包及 FR-016 九秒回收／未退出保留副本，記相機／記憶關閉、不自動換模型／provider（SC-004／SC-005）。
@@ -132,7 +132,7 @@ T001 → T002 → T003
 
 T010／T011／T012、T019／T020／T021、T028／T029／T030 各組是在其前置階段完成後的不同檔案測試工作。T037 與 T038 為最終產品行為固定後的不同文件工作。除此之外，特別是 `document_worker.py`、`document_retrieval.py`、`core_tools.py`、`huggingface_realtime.py` 上的修改循序進行。
 
-T026 需要實際鎖定 Chroma 及外部預建測試包；可先完成其 opt-in 測試實作，再繼續不依賴真實資產的離線任務，但 T026 未取得不變性證據就不能宣告可對真實包交付。T039 平台不可取得、T040 模型／CPU 樣本未供應、T041／T042 尚未授權或無現場配合時，相關驗收保持未完成；繼續可執行的文件／離線 gate，不能重複要求同一已授權範圍，也不能用等待時間代替授權。
+T026 需要實際鎖定 Chroma 及外部預建測試包；可先完成其 opt-in 測試實作，再繼續不依賴真實資產的離線任務，但 T026 未取得不變性證據就不能宣告可對真實包交付。除本功能已明確略過的 Linux／macOS 外，T039 平台不可取得、T040 模型／CPU 樣本未供應、T041／T042 尚未授權或無現場配合時，相關驗收保持未完成；繼續可執行的文件／離線 gate，不能重複要求同一已授權範圍，也不能用等待時間代替授權。
 
 T040 開始前必須完成 T026 的該目標平台不變性驗證；T041／T042 需要 T040 結果及外送／現場範圍確認。T043 是最後 gate，前面遇到回歸時先做相關測試／必要 gate，不延到結案才發現。未滿足真實驗收時，T044 只能記錄部分交付，不能勾選整體完成。
 
@@ -184,11 +184,18 @@ T040 開始前必須完成 T026 的該目標平台不變性驗證；T041／T042 
 
 ## 本輪執行狀態（2026-11-05）
 
-已完成 38／44 項：T001～T025、T027～T038、T043。實作及離線驗證已完成，但功能尚未結案。詳細命令、套件及限制見 quickstart 的續作紀錄；requirements checklist 保持原有 16／16，不修改其標記。
+已完成 39／44 項：T001～T025、T027～T039、T043（T039 依本功能明確授權略過 Linux／macOS）。實作及離線驗證已完成，但功能尚未結案。詳細命令、套件及限制見 quickstart 的續作紀錄；requirements checklist 保持原有 16／16，不修改其標記。
 
 - T026：已提供明確 opt-in 真實 Chroma 不變性測試；使用者回覆索引／模型「尚未準備」，未執行，不以 fake HNSW 證據替代。
-- T039：Windows Python 3.12 普通／rag 安裝、CPU import、wheel／隨包 schema／checkout 外 import 已驗證；Linux／macOS 尚未執行，整項保留未完成。
+- T039：Windows Python 3.12 普通／rag 安裝、CPU import、wheel／隨包 schema／checkout 外 import 已驗證；Linux／macOS 依使用者 2026-11-05「略過Linux與Mac測試」的明確指示略過；以既有 Windows 證據完成本次個人客製化範圍，不宣稱兩平台相容或測試通過。
 - T040：已建立真實 CPU 50 題 opt-in 測試入口及 47／50 失敗、48／50 通過的固定分母回歸；尚無真實模型、索引、固定題組及主機量測，未完成。
 - T041、T042：等待同一份實際素材及本次文件段落外送／雲端額度／語音與機器人驗收範圍確認。前次金鑰功能授權不作為 RAG 授權；本輪不連雲端、不啟動機器人。
 - T043：Ruff check／format、strict mypy（59 source files）、完整 pytest 897 passed／2 skipped、uv lock --check 已通過。兩個 skip 僅為未提供素材的 opt-in 完整性與 CPU 測試；不是實際驗收通過。其他初期失敗與每輪測試紀錄保留於 ignored cache。
 - T044：待上述實際證據與平台缺項完成後，才做最終全 feature 結案；目前僅記錄已完成部分。
+
+
+### 平台範圍更新（2026-11-05）
+
+使用者明確要求本功能略過 Linux／macOS 測試。已立即停止本輪 Ubuntu 24.04 的工作區專用 uv 安裝行程，行程以 15 結束；這是依指示取消，不是相容性測試失敗。先前只確認系統 Python 3.12.3，下載／建置了鎖定依賴，安裝尚未完成，沒有執行 Linux CPU import、gate 或模型／索引測試。隔離 cache 保留，沒有更動 Linux 系統套件或 Control App 環境。macOS 未執行。
+
+T039 按調整後的 Windows 個人客製化驗收範圍完成；產品仍使用跨平台 API，既有 CI 與索引包 validated_targets 檢查不變。剩餘 T026、T040、T041、T042、T044 仍未完成，未因平台略過而免除真實素材、CPU、對話及結案要求。

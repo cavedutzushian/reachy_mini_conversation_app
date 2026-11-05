@@ -6,7 +6,7 @@
 
 **2026-11-05 開發基線（T001）**：分支 `feat/004-single-document-rag`，Python 3.12.12／Windows x86_64。Ruff check 通過、122 檔 format check 通過、strict mypy 56 source files 通過；`uv lock --check` 基線解析 139 packages，完整 pytest 793 passed（96.85 秒）。首輪 pytest 因回合中斷未完成、不計通過；接續重跑完整通過。記錄位於忽略追蹤的 `cache/004-single-document-rag/baseline-*.log`／`baseline-resume-pytest.log`，未讀日常私密設定，未啟動 App／daemon 或服務。
 
-尚未供應本功能可驗證的單文件預建包／BGE-M3 snapshot；未掃描私人文件／既有模型快取，未下載模型。真實資產、Linux／macOS 與雲端／實機驗收保持未完成，不阻擋本機離線實作。既有 `.gitignore` 涵蓋 Python／venv／build／cache／秘密檔，本輪無需新增其他技術的 ignore 檔。
+尚未供應本功能可驗證的單文件預建包／BGE-M3 snapshot；未掃描私人文件／既有模型快取，未下載模型。真實資產與雲端／實機驗收保持未完成，不阻擋本機離線實作；Linux／macOS 依同日後續明確指示略過，詳見平台範圍更新。既有 `.gitignore` 涵蓋 Python／venv／build／cache／秘密檔，本輪無需新增其他技術的 ignore 檔。
 
 **T003～T018 本機進度（2026-11-05）**：已接入選用 rag extra、啟動固定路徑、typed ToolDependencies、單 worker runtime／有界協定與既有人格 Tool；提供隨 wheel 交付的 manifest schema、本機 CPU encoder／既有集合讀取、來源／原文限額與條件式指令。先完成 red tests 再實作；相關 149 項回歸通過（`us1-regression.log`），mypy 59 source files 通過，Ruff／format 通過。另有一次以 40ms 當正常查詢上限的測試因主機排程失敗，已改成只在慢工作測試暫縮 deadline、正常重問恢復十秒並等待真實完成；原失敗保留在 `us1-offline.log`，不列為服務／模型問題。
 
@@ -125,6 +125,15 @@ python -m pytest tests/test_document_retrieval.py -k external_cpu -v --basetemp=
 
 最後審查新增兩個 regression：HF 合併空回覆時保留帶回合所有權的 document follow-up；BackgroundToolManager 的文件通知不排在其他工具等待雲端的 callback 後面，避免延遲本機十秒逾時文字。RAG 仍走同一 Tool／dispatcher／manager；其他工具保留原通知路徑。網路傳送失敗只記錄安全固定訊息，本機 timeout notice 仍可顯示。已保留先失敗、修正後通過的測試紀錄；本輪無真實服務／文件事件可宣稱修復。
 
-目前 FR-001～FR-016 具程式與離線回歸對應；SC-001／002 文件品質、SC-003 實際 CPU、SC-004 實際語音、SC-005 真實 Chroma 不變性及 SC-006 兩服務內容／日誌驗收尚待 T026／T040～T042。T039 Linux／macOS 未測。以上限制不影響繼續一般未啟用 RAG 的使用，但本 feature 保持未結案。
+目前 FR-001～FR-016 具程式與離線回歸對應；SC-001／002 文件品質、SC-003 實際 CPU、SC-004 實際語音、SC-005 真實 Chroma 不變性及 SC-006 兩服務內容／日誌驗收尚待 T026／T040～T042。T039 依使用者對本功能的明確指示略過 Linux／macOS，兩平台仍未驗證。以上限制不影響繼續一般未啟用 RAG 的使用，但本 feature 保持未結案。
 
 最終 rag 隔離環境複驗：strict mypy 59 source files 通過（`rag-final-mypy.log`）；RAG、HF／Gemini、BackgroundToolManager、task_status 共 **275 passed／2 skipped**（`rag-final.log`）。這是最後 source snapshot 的相關回歸，較早的全套 rag 880 項結果仍依原 snapshot 保留。
+
+
+## 平台範圍更新（2026-11-05）
+
+使用者明確指示「略過Linux與Mac測試」，本次個人客製化以已完成的 Windows Python 3.12 普通／rag 安裝、CPU wheel／import、wheel 內容／checkout 外 runtime 及完整 gate 證據完成 T039。Linux／macOS 記為使用者要求略過，不記 pass，也不新增相容性保證。跨平台程式要求、既有 CI 與包的平台／架構驗證保持不變。
+
+略過指示前已在 Ubuntu 24.04 檢查到 Python 3.12.3，並嘗試在 `cache/004-single-document-rag/linux-project/` 以原產品 lock 準備隔離環境；165 個依賴已完成下載／建置，寫入環境尚未完成。收到指示後只終止該專用 uv 命令，確認行程退出碼 15（依指示取消），沒有執行 Linux imports／Ruff／mypy／pytest／wheel／模型驗收。只使用工作區 cache，未安裝系統套件、未讀私密文件或憑證、未下載模型、未啟動機器人；cache 與原安裝紀錄 `linux-sync.log` 保留，不能作為驗收成功證據。macOS 未執行。
+
+本輪只調整計畫、任務及驗收紀錄，沒有變更產品程式或依賴，沿用既有 897 passed／2 skipped 與相關 gate 證據，不重跑相同測試。進度為 39／44；剩餘 T026／T040／T041／T042／T044 等待實際素材與後續驗收，功能尚未結案。

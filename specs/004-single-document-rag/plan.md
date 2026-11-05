@@ -22,6 +22,8 @@ App 持有一個可延遲啟動的本機工作行程，隔離重型選用依賴�
 
 **Target Platform**: Linux、macOS、Windows；CPU。相同 Chroma 版號不等於跨平台索引可攜性：依預建包的經驗證平台／架構矩陣接受或拒絕，不在執行時轉換。
 
+**本機驗收範圍更新（2026-11-05）**：使用者明確要求本功能略過 Linux／macOS 測試。本次個人客製化採既有 Windows Python 3.12 證據完成 T039；兩平台未驗證，不宣稱通過。這不改變跨平台程式要求、既有 CI 或預建包 validated_targets 的拒絕條件；真實包、CPU 與兩後端驗收仍須完成。
+
 **Project Type**: 現有 Reachy Mini 對話 App 的選用本機工具。
 
 **Performance Goals**: 查詢受理起十秒內完成／失敗；模型與包就緒後，固定 50 題至少 48 題在五秒內成功提供段落，錯誤／無依據／busy／not_ready／timeout 不計成功，分母不可縮小。p50／p95 另作報表，不以快速失敗時間代替成功證據。第一次載入不計暖機效能，但不能讓工具等到超過十秒；載入中立即 `not_ready`。RAG worker 關閉最多九秒（5／2／2），非整個 App 關閉期限；上述均不是已測得效能。
