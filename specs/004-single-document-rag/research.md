@@ -80,4 +80,34 @@
 
 ## Resolved unknowns and remaining evidence
 
-包格式、啟動配置、model pipeline、worker 所有權、固定錯誤碼、回傳上限、來源／日誌邊界均已定義，沒有待選的設計方案。仍須實作取得的證據：依賴鎖定共存、真實包不變性／平台、模型 snapshot 與實際 CPU 資源、標註題門檻及服務／現場驗收。這些不是已通過結果；不能以文件檢查取代它們。
+包格式、啟動配置、model pipeline、worker 所有權、固定錯誤碼、回傳上限、來源／日誌邊界均已定義；下列補充決策同步 2026-11-05 澄清。仍須實作取得的證據：依賴鎖定共存、真實包不變性／平台、模型 snapshot 與實際 CPU 資源、標註題門檻及服務／現場驗收。這些不是已通過結果；不能以文件檢查取代它們。
+
+## 7. 外部包的完整資料格式（U1）
+
+**Decision**: 新增 [index-manifest.schema.json](contracts/index-manifest.schema.json)，採 JSON Schema 2020-12；固定所有巢狀欄位、required／禁止 null、未知欄位拒絕、檔案清單 path／sha256 物件、平台 enum、精確版本與模型 revision。搭配 index-package.md 的額外語意檢查（hash、唯一來源、路徑、非有限數、向量、真實引擎設定）。沿用既有 jsonschema，不新增套件、服務或產包器。
+
+**Rationale**: 外部包必須在 App 執行前就可交付，不能讓產包者猜清單形狀。Schema 可檢查資料形狀，但不能證明檔案存在、可信來源或 Chroma 沒有寫索引，這些仍要分別驗證。規則只用本檔 $defs，不在執行時抓取外部 schema。
+
+**Alternatives considered**: 只有欄位表不足以固定巢狀結構；增加產包 CLI 超出範圍；只提供一份含虛構 hash／向量的範例容易被誤當可用包。選擇完整 schema 加語意條件，驗證時用記憶體中的結構樣本，明示不是實際可載入資產。
+
+**Source**: [JSON Schema 2020-12 Core](https://json-schema.org/draft/2020-12/json-schema-core)。
+
+## 8. 逾時只顯示文字及所有權分離（U2）
+
+**Decision**: 遵使用者 B 選擇，document_timeout 在原回合有效時只顯示一次本機繁體中文文字，不觸發語音。永久退役背景答案與一次 notice 的所有權分開；正常成功仍 needs_response=true。HF 完成 function output 但 timeout 不貢獻 batch follow-up；Gemini 針對 RAG 宣告 NON_BLOCKING，成功 WHEN_IDLE、timeout SILENT，固定錯誤碼不得被通用 error 吃掉。
+
+**Rationale**: 原有 HF 錯誤會強制 follow-up，Gemini 的 _silent_tools 則是整工具層級；單把 needs_response 設 false 既可能沒擋錯誤語音，又會讓成功結果不回答。既有 AdditionalOutputs 可顯示本機文字，無須模型朗讀或另一條重複 transcript。官方 Gemini 工具文件描述 NON_BLOCKING 及結果 scheduling，但所選模型的實際支援仍需 setup／wire／服務驗證。
+
+**Alternatives considered**: 使用者已否決逾時語音；不回 function response 可能留下懸而未決 call；用同一 retired flag 會把合法 notice 一起丟掉；只靠 system prompt 沒有可測的協定控制。不自動換模型或 provider 來繞過不相容。
+
+**Source**: [Gemini Live asynchronous tools](https://aistudio.google.com/docs/live-api/tools#async-function-calling)，以及 `huggingface_realtime.py::_handle_tool_result`、`gemini_realtime.py::_declarations/_handle_tool_result/_function_response` 的唯讀檢查。此為設計，未呼叫實際 API。
+
+## 9. 固定關閉與驗收／輸入規則（A1／A2／I1）
+
+**Decision**: 遵使用者 A 選擇，以 monotonic 總九秒限制 worker 關閉，分段最多 5／2／2 秒；未確認退出就保留副本、記錄清理未完成，不無限 join。不把 RAG 期限擴張為整個 App 關閉保證。輸入先計原始字串（含空白）<=500 code points 再 trim；固定效能 50 題至少 48 題五秒內取得段落，所有快速失敗皆不計成功且分母不減。
+
+**Rationale**: 固定時限才能驗證退出；在 child 仍可能持有檔案時刪副本會引起清理競態。原始輸入長度與 schema maxLength 一致可避免雙後端差異；成功率是取回段落而非完成回傳任意錯誤，不能用低延遲失敗美化 p95。
+
+**Alternatives considered**: 四秒／二十秒已由使用者選擇九秒取代；先 trim 才限長與原始 schema 不一致；只計成功樣本的 latency percentile 會掩蓋失敗，故 percentile 僅作額外觀察，硬門檻為 48／50 與全部 <=10 秒。
+
+**Validation boundary**: 以上五項分析問題在 Phase 0／1 設計已明確化，不代表舊 tasks 已同步，也不代表 shutdown、模型／索引或雙後端語音已測；下次 tasks 必須補上述測試與 FR-016 對應後再 analyze。

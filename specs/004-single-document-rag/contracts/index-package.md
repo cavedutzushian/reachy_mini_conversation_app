@@ -18,6 +18,8 @@
 
 ## Manifest required fields
 
+機器可讀格式以 [index-manifest.schema.json](index-manifest.schema.json)（JSON Schema 2020-12）為準，以下表格與額外語意檢查共同構成 v1 合約。Schema 只描述資料，不是產包器或執行期下載入口；驗證時所有 `$ref` 只解析本檔的 `$defs`，使用既有 jsonschema 套件，不讀遠端 schema。所有物件拒絕未知欄位、所有 required 欄位不得省略／null，不替缺欄補預設，也不自動升級。
+
 | 欄位 | 契約 |
 |---|---|
 | schema_version | 整數 1，不自動升級 |
@@ -36,6 +38,16 @@
 安全字串欄位不接受控制字元／本機絕對路徑；文件／索引 ID 使用英數、`-`、`_`、`.`，title／locator 可用原語言文字。manifest 最大 16 MiB、UTF-8 JSON、不得重複 key；限制不符就是不支援的包，不能略過檢查。此為交付格式上限，非文件段落數的固定上限。
 
 files 不含逃逸路徑、連結、junction 或不明額外檔；不在 App 內解壓縮。預建者需確保傳輸／複製的是已封存 snapshot；`snapshot_complete` 宣告不取代實測。不要手工刪掉引擎必要檔來假造乾淨快照。
+
+### Exact encoding and semantic checks
+
+- `files` 與 `embedding.files` 均為非空陣列，每個元素只有 `{"path": "相對路徑", "sha256": "64位小寫十六進位"}`。前者相對包根的 `chroma/`，例如 `chroma.sqlite3`；後者相對模型根，例如 `1_Pooling/config.json`。不要在前者再加 `chroma/` 前綴，不將模型檔加入索引清單。每一清單涵蓋其根下所有常規檔案，不包含 manifest；拒絕相同路徑不同 hash，不能只靠 uniqueItems。
+- 路徑只用 `/` 分隔，禁止空段、`.`／`..` 段、前導 `/`、反斜線、冒號、控制字元及 URI。解析後不得逃出各自根目錄，禁止連結／junction；拒絕目標平台正規化後碰撞的名稱（包括 Windows 大小寫／尾端空白或點的別名），不能把它們覆寫成同一檔。
+- SHA-256 全部為 64 位小寫 hex；`embedding.revision` 是模型 snapshot 的 40 位小寫 Git commit hex，不接受 main、tag 或模型路徑。`source_sha256` 是外部對原文件原始 bytes 的 digest；App 不需取得原文件。
+- `producer` 與 `validated_targets` 元素形狀固定為 `{"os":"windows|linux|macos", "architecture":"x86_64|aarch64"}`，字串填單一 enum 值而不是含 `|` 的文字。Windows／Linux／Darwin 名稱映射為 windows／linux／macos，AMD64／x86_64 映射 x86_64，ARM64／aarch64 映射 aarch64；其他值拒絕。producer 是來源資訊，runtime 必須精確出現在 validated_targets；列出目標不是實測證據，驗收仍須記錄包 digest／平台的實際開啟與不變性結果。
+- 引擎／ST／torch／transformers 版本填實際安裝的完整版本字串（包括如 `+cpu` 的 local suffix），逐字比對；不接受版本範圍或自動忽略 suffix。若目標平台需要不同版本組合，外部交付相容的單文件包；App 不改 manifest 或重建索引。collection 另須符合鎖定 Chroma 的名稱規則，文件 version／ID／index_version 使用 schema 的安全 identifier，不混用標題。
+- JSON 為 UTF-8（不接受 BOM），整檔 <=16 MiB；解析前檢查 bytes 大小，拒絕重複 key、NaN／Infinity／非有限數或數值溢位。JSON Schema 之外，reference.query 依工具相同順序檢查原始 500 code points 上限、再 trim 檢查有效內容；reference.embedding 也須非零／L2 norm 誤差 <=1e-4。
+- schema 驗證不等於資料相容：仍須檔案真實存在與 hash 相符、必要模型模組／權重齊全、Chroma 真實 metric、count／唯一來源、所有 row 向量、reference 向量及平台檢查。缺任何檢查不能直接 ready；未知 schema_version 整包拒絕。
 
 ## Embedding compatibility
 
@@ -63,7 +75,7 @@ files 不含逃逸路徑、連結、junction 或不明額外檔；不在 App 內
 
 Chroma 沒有公開承諾的嚴格 read-only 模式。工作副本允許鎖、SQLite journal／SHM 等必要記帳，但不能有 schema migration、文件／向量變更、重放未完成寫入或持久檢索索引變更。實作需以真實鎖定版本驗證：文件／metadata／向量／count 邏輯相同、持久 HNSW 檔案 hash 相同、沒有建立／變更 API 呼叫及 ingestion replay；SQLite 主檔不可只因整檔 hash 改變就誤判所有情況，也不可用「記帳」掩蓋文件索引寫入。
 
-如果引擎在正常開啟／query 仍需要補建索引，此包不符合合約，停用工具並回報限制。App 停止回收 worker 後只清除自己的暫存目錄，不刪／改原包或模型。
+如果引擎在正常開啟／query 仍需要補建索引，此包不符合合約，停用工具並回報限制。App 停止時依 FR-016 最多九秒回收 worker（正常五秒、terminate 兩秒、kill 後兩秒）；只在確認已退出後清除自己的暫存目錄。超時仍未確認則安全記錄清理未完成、保留副本，不無限等待，不刪／改原包或模型。
 
 ## Trust and data flow
 
