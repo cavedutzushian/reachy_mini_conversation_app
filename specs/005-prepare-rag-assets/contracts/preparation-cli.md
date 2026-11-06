@@ -22,7 +22,7 @@
 - document-id／document-version／index-version 遵 004 identifier，title 遵 004 display text；max-distance 必填有限 [0,2]，是使用者提供的已校準值，無通用預設。
 - model／output 預設 checkout 的兩個既有目錄；無 checkout 時兩者都要明確給出。相對的明確參數從呼叫 CWD 解析，預設值則從 checkout 解析，輸出顯示最終絕對值。
 - model 必須有可信的合約 receipt、完整必要檔與符合的實際 runtime；不自動連網。先鎖模型、再鎖 output，任一 busy 明確失敗。
-- 原文 hash／切段／locator／vectors 遵 data-model。reference query 固定非敏感文字，不送服務；索引只含本次單一文件。
+- 原文 hash／vectors 遵 data-model，切段／ID／locator 遵 [source-window-v1](source-window-v1.md)。reference query 固定非敏感文字，不送服務；索引只含本次單一文件。
 - producer 公開寫入／close／退出；verifier 全量／副本不變性成功才發布。不能以 metadata snapshot_complete=true 跳過驗證。
 - 不修改既有 v1 包 schema、讀取端拒絕條件或來源文件；不自動設定／啟動 App、不執行文件內連結與指令。
 
@@ -39,17 +39,24 @@
 | 5 | download_unavailable |
 | 6 | validation_failed／snapshot_incomplete |
 | 7 | io_failed |
-| 8 | recovery_required／cleanup_incomplete；須明示是否已發布 |
-| 130 | cancelled；若留下需恢復的發布階段須一併明示 |
+| 8 | recovery_required；發布後清理不全 code=cleanup_incomplete、published=true、ready=true，保留新版且不自動重跑；發布前恢復失敗則 published=false |
+| 130 | 發布前 cancelled；若無法安全回復則 exit 8／published=false 並附恢復指引。發布後取消清理按 exit 8／published=true 處理，不宣稱未發布 |
 
 --help 在未裝 rag 或未提供素材時仍可閱讀。只有實際重型操作才需要 rag；缺套件明確說明安裝既有 extra，不自行安裝。
 
 目的地 lock 已存在就拒絕，不自動根據時間／PID 破鎖。預設 siblings 的 stage／backup／lock 只屬本次操作，需窄範圍 Git 忽略；自訂輸出在 repo 內但未忽略時拒絕並請使用者改位置或自行管理忽略，不修改 Git 設定。
 
-替換前先由使用者停止 App。普通失敗 rollback，硬中斷留操作記錄、可核對舊版及恢復指引。沒有自動 recovery 入口；人工先確認無準備程序，核對記錄及 stage／backup hashes，恢復完整目的地後才清理自有殘留。不能只刪 lock／舊目錄，也不停止其他應用程式。
+結果必須區分 published（本次是否發布）與 ready（是否已驗證就緒）：completed 的 published=true／ready=true，already_ready 的 published=false／ready=true；發布前失敗／busy 為 published=false、ready=null，不推測既有素材。發布後清理不全 true／true 仍非 exit 0。
+
+替換前先由使用者停止 App。先 old→backup，再 validated stage→destination；後者 rename 成功就是發布界線。界線前普通失敗恢復 backup，舊 payload bytes 不變，但不保證目的地路徑全程存在。界線後任何清理／階段記錄失敗均保留新版、exit 8／published=true，顯示「已發布，清理未完成」及自有殘留；不得自動 rollback、下載、產包或重試。硬中斷留操作記錄、可核對舊版及恢復指引；人工需核對實際目錄／hash，不能只相信可能尚未更新的 phase。沒有自動 recovery 入口；人工先確認無準備程序，核對記錄及 stage／backup hashes，恢復完整目的地後才清理自有殘留。不能只刪 lock／舊目錄，也不停止其他應用程式。
 
 ## Internal worker boundary
 
-document_prepare_worker 是兩 CLI 的內部本機子程序，不是第三個使用者腳本。以私有管道傳入 typed operation／已驗證本機路徑及 metadata，結果只含固定狀態／摘要；不開 socket、不載 dotenv、不啟動 SDK。分工為模型驗證、producer、fresh verifier；父程序持有發布鎖，子程序不得移動正式目的地。
+document_prepare_worker 是兩 CLI 的內部本機子程序，不是第三個使用者腳本；不開 socket、不載 dotenv、不啟動 SDK。父程序持有發布鎖，子程序不得移動正式目的地。
+
+- Request：typed operation（模型驗證／producer／fresh verifier）、已驗證 source／model／stage／副本路徑，以及 revision、文件 ID／title／versions／max_distance／policy 等 scalar metadata；不傳全文、chunks、向量、model／tokenizer 或 pickle。
+- Result：固定狀態／錯誤碼、來源與檔案 digests、count、安全驗證結果；不傳 reference embedding、文件段落或 collection。所有 receipt／manifest／collection 由 worker 寫入本次 candidate 檔案，父程序只核對摘要與路徑並發布。
+- 所有模型／tokenizer 載入與 inference 均在 worker。producer 唯一負責初次來源 bytes 讀取、hash、解碼、切段、locator 與文件向量。純切段函式可位於輕量 build 模組，接受 typed tokenizer 介面，不 import inference stack 或自行建立 tokenizer。
+- 模型驗證 worker 與 fresh verifier 仍各自獨立載入／編碼。fresh verifier 發布前串流核對來源 hash 與初始身分／stat，變更即拒絕；不重新 decode／tokenize，也不宣稱禁止外部寫入。
 
 producer 與 verifier 必須是不同程序；工作完成後 public close 並正常退出，父程序確認退出才接續。中斷時先終止工作程序、確認資源已釋放再清理；無法確認則保留操作狀態，不刪檔、不發布。

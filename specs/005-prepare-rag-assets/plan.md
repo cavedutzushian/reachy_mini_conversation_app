@@ -24,7 +24,7 @@
 
 **Project Type**: 既有 Python application 的兩個離線 CLI 模組；不是新 App、Tool、服務或 HTTP API。
 
-**Performance Goals**: 固定流程兩次手動呼叫；同完整 revision 不下載；產包零網路。切段固定 policy v1、目標 400 content tokens／約 50 overlap、含特殊 tokens 實際總數 <=512；不承諾未量測下載／建置時間與 RAM。
+**Performance Goals**: 固定流程兩次手動呼叫；同完整 revision 不下載；產包零網路。切段固定 policy v1、400 content token 候選／固定第 n−50 token 原文起點重疊、含特殊 tokens 實際總數 <=512；不承諾未量測下載／建置時間與 RAM。
 
 **Constraints**: 固定 revision、唯一本機文件、原文連續切片、精確版本／hash、無 dotenv／私密快取、僅公開模型匿名下載、禁止 runtime indexing。相同輸出拒絕並行；不得用私有 SDK／Chroma API 或修改 loader 來通過檢查。
 
@@ -57,6 +57,7 @@ specs/005-prepare-rag-assets/
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/
+│   ├── source-window-v1.md
 │   ├── preparation-cli.md
 │   ├── model-receipt.md
 │   └── model-receipt.schema.json
@@ -107,9 +108,11 @@ receipt schema 以 package resource 隨 wheel 交付，沿用現有 *.schema.jso
 
 ### 2. 原文切段與來源定位
 
-先 read_bytes 算來源 hash，再 UTF-8-sig 解碼；保留原始 CRLF／LF／單 CR、語法及空白。拒絕全無有效文字，不 render Markdown、不抓其他文件；v1 只輸出行／字元範圍，不解析章節，符合 spec 的可選章節條件。
+producer 子程序一次讀取來源 bytes，從同一緩衝區計算 hash、UTF-8-sig 解碼、切段與向量；保留 CRLF、LF、單 CR 與所有空白，不 render Markdown、不展開其他文件。fresh verifier 在發布前串流重算來源 hash 並比對身分／stat；不重新解碼／切段。若來源被修改或替換則拒絕發布，這是變更偵測，不宣稱阻止外部寫入。
 
-固定 `source-window-v1`：fast tokenizer offsets 供提議切點，目標 400 content tokens、約 50 overlap；輸出始終是原字串連續 slice，不以 decode(tokens) 重建文字。每片以實際編碼含 special tokens 驗 <=512；超限確定性後退字元直到合規，不假設前綴 token 數單調。不切斷 CRLF；每次起點必須前進，完整覆蓋來源。空白等零長 offsets 區域以固定字元切點候選前進，再重新計數；不得因此漏掉空白區域。不提供合規 offsets 的 tokenizer 明確拒絕。ID 由文件 ID／版本、來源 hash、policy 與原字元範圍產生安全 digest。locator 使用 1-based `Lx:Cy-Lz:Cw`，end-exclusive；不因結尾換行虛增定位。
+固定 [source-window-v1 合約](contracts/source-window-v1.md)：400 content token 候選、以第 n−50 token 的原文起點決定重疊、512 字元零 offset fallback，實際 slice 含特殊 tokens 不超過 512；逐個合法字元切點後退，不假定 token 數單調。不分開 CRLF、起點嚴格前進、完整覆蓋來源；合約列出 ID canonical JSON、真實行範圍及 golden fixtures。
+
+父 CLI 不讀全文作切段，也不建立 tokenizer／模型。純切段函式可留在 build_document_package，接受 typed tokenizer 介面，由 producer 呼叫；所有模型／tokenizer 載入與編碼只在內部 worker。模型驗證 worker 與 fresh verifier 仍各自獨立載入驗證。worker 寫 candidate receipt／manifest／collection，私有 IPC 只傳已驗證路徑、scalar metadata、狀態及摘要，禁止全文／chunks／vectors／模型物件；詳見 [CLI 合約](contracts/preparation-cli.md)。
 
 ### 3. 產包、封存與發布 gate
 
@@ -127,7 +130,7 @@ producer public close 並退出後才算候選 inventory。新的 verifier 使�
 
 每個目的地排他 mkdir sibling lock，內記 operation UUID、目的地、stage／backup 相對名稱及階段；已存在即 busy，不根據時間／PID 自動刪鎖。stage／backup 同父目錄。模型發布與產包讀模型使用同一模型目錄鎖；builder 先鎖模型、再鎖包，任一 busy 即釋放本次鎖退出。這防止兩腳本互相破壞，不提供 App 行程鎖；部署者須先停止 App。
 
-新目錄以完成 stage rename 發布；替換為 old→backup、stage→dest，普通錯誤恢復 backup。Windows 非空目錄不能靠 os.replace 達成整包原子替換。硬中斷保留 lock／backup／stage 與恢復指引；不加入自動 recover 命令，不自動根據 PID 判斷已停。人工確認沒有準備程序後，依已核對操作記錄恢復舊目錄或完成新目錄，再清理該次自有殘留；不得盲刪 lock 或遞迴刪任意目的地。
+新目錄以完成 stage rename 發布；替換為 old→backup、stage→dest，發布前普通錯誤恢復 backup。Windows 非空目錄不能靠 os.replace 達成整包原子替換。硬中斷保留 lock／backup／stage 與恢復指引；不加入自動 recover 命令，不自動根據 PID 判斷已停。人工確認沒有準備程序後，依已核對操作記錄恢復舊目錄或完成新目錄，再清理該次自有殘留；不得盲刪 lock 或遞迴刪任意目的地。
 
 操作前／發布前重驗解析後路徑、所有祖先 link／junction、來源／模型／output 重疊及根目錄／專案保護目錄。拒絕不可安全判斷的情況。預設 sibling 殘留新增狹窄 .gitignore 規則；自訂目的地須在 repo 外或已被 Git 忽略，不自動編輯使用者 Git 設定。
 
@@ -140,3 +143,9 @@ producer public close 並退出後才算候選 inventory。新的 verifier 使�
 ## Complexity Tracking
 
 無憲章違規。新增程序只處理重型離線工作與釋放資源；發布記錄只處理兩個目錄的已知操作，不發展為通用工作／交易框架。
+
+## 本次澄清後同步
+
+已驗證 stage → 正式目的地 rename 成功就是發布界線。界線前普通失敗不改舊 payload bytes；若舊目錄已暫移 backup，先恢復原位置。Windows 替換不保證目的地路徑全程存在；硬中斷依操作記錄人工恢復。界線後清理失敗保留新版，`published=true`、exit 8，顯示「已發布，清理未完成」，不得自動 rollback、下載、產包或重試。來源文件在所有情境均不得由腳本修改。
+
+Phase 1 後憲章檢查仍 PASS：無新增依賴、架構例外或 loader 合約放寬。本輪只更新設計；既有 tasks.md 尚未同步發布界線、worker 歸屬及固定切段規則，下一步以 speckit-tasks 重新產生，再執行 speckit-analyze。

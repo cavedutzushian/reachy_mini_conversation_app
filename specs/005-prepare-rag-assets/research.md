@@ -36,7 +36,9 @@
 
 ## 4. 原文、token 與定位
 
-**Decision**: raw bytes hash 後 UTF-8-sig 解碼；source-window-v1 使用 tokenizer offsets 提議 400 content token／約 50 overlap 的切點，實際含 special tokens <=512。輸出只取原字串 slice，每片重驗上限，起點前進且不分開 CRLF。定位用行／字元範圍，不解析 Markdown 標題。
+**Decision**: producer 以同一次 bytes 讀取計算 hash／解碼／切段。採 [source-window-v1](contracts/source-window-v1.md) 的固定 400 token 候選、50 token 重疊起點與 512 字元零 offset fallback，每片實際含 special tokens <=512；逐個合法字元切點後退，原文字串 slice 不重建。行範圍以最後包含字元所在行計算，另附半開字元範圍，不解析 Markdown 標題。
+
+**程序歸屬**：純函式留在輕量 build 模組，typed tokenizer adapter 與全部 inference 僅在 worker；producer 處理來源，其他驗證 worker 獨立載入模型。worker 寫 candidate 檔案，不經 IPC 傳原文／向量。fresh verifier 最後串流核對來源摘要及身分／stat，外部變更就拒絕。
 
 **Rationale**: decode token IDs 可能改空白與原文；文字模式讀取會轉換行尾。行／字元範圍足以符合既有 locator，同時避免把程式碼內 # 誤認為章節。非單調 token 計數用確定性後退處理，不做錯誤二分假設。
 
@@ -66,11 +68,11 @@
 
 ## 7. Windows 發布／鎖／恢復
 
-**Decision**: 同父目錄 staging／backup、排他 mkdir lock 與小型操作記錄。普通 rename 失敗恢復 backup；硬中斷留可辨識狀態與人工指引，不根據 PID／逾時自動刪鎖。模型鎖在前、包鎖在後，busy 立即失敗。預設根來自已驗證 checkout，不來自 CWD。
+**Decision**: 同父目錄 staging／backup、排他 mkdir lock 與小型操作記錄。已驗證 stage rename 至 destination 成功即發布；界線前普通失敗恢復 backup，界線後清理失敗保留新版、published=true、exit 8，顯示「已發布，清理未完成」，不自動回復或重跑。硬中斷保留可辨識狀態供人工核對，不根據 PID／逾時自動刪鎖。模型鎖在前、包鎖在後，busy 立即失敗；預設根來自已驗證 checkout。
 
 **Rationale**: Windows 不支援把非空目錄 os.replace 成另一個非空目錄；不能宣稱整包原子替換。預設素材 sibling 暫存目前未被 .gitignore 涵蓋，實作需補狹窄規則；custom output 要 repo 外或已忽略。
 
-**Alternatives considered**: 先刪舊目錄會失去可用版本；跨 volume temp 不能可靠 rename；強制 PID 清理有誤判風險；不建立通用自動復原系統。
+**Alternatives considered**: 發布後回復會違反本次澄清，目的地路徑零變動則需額外 indirection／loader 變更，均不採用；先刪舊目錄會失去可用版本；跨 volume temp 不能可靠 rename；強制 PID 清理有誤判風險；不建立通用自動復原系統。
 
 **Sources**: [Python os.replace](https://docs.python.org/3.12/library/os.html#os.replace)、[mkdir](https://docs.python.org/3.12/library/pathlib.html#pathlib.Path.mkdir)、本機 .gitignore。
 

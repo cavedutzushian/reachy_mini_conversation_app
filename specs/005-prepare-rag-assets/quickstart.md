@@ -33,8 +33,12 @@ python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_S
 6. 無效編碼／空白／PDF／目錄／glob／URL／多輸入、無效識別欄位、NaN／越界門檻：明確錯誤，無可用半成品。
 7. model／input／output 重疊、根目錄、link／junction、專案受保護目錄或未忽略 repo 內自訂輸出：拒絕，不影響來源。
 8. 並行兩命令處理相同模型／目的地：一方持鎖，另一方 busy 立即失敗，沒有互刪；不要用時間或 PID 自動破鎖。
-9. 既有目的地無 replace：拒絕。明確 `--replace` 時，注入新包驗證失敗／第二個 rename 失敗：舊資料保持或復原，沒有虛假 completed。
+9. 發布前保護：既有目的地無 replace：拒絕。明確 `--replace` 時，注入新包驗證失敗／第二個 rename 失敗：舊資料保持或復原，沒有虛假 completed。
 10. 在 preparing／validating／backed_up／published／cleaning 各階段中止子／父程序：不把半成品當完成；顯示可辨識 stage／backup／lock 狀態。先人工確認無準備程序，再核對 operation 記錄及 hashes 恢復完整舊版或已驗證新版；不可直接刪 lock、刪整個輸出或停止無關程序。
+
+11. 新版 rename 已成功後注入 backup／stage／lock／操作記錄清理失敗或取消：新版維持可用且不回復，顯示「已發布，清理未完成」、exit 8、published=true／ready=true，保留可核對殘留；確認沒有自動下載、產包或重試。與第 9 項發布前普通失敗／第 10 項硬中斷分開判定，來源 bytes 在全部案例均不變。
+
+依 [source-window-v1](contracts/source-window-v1.md) 驗證 golden fixtures、原文完整覆蓋、CRLF、末片、零 offset 與非單調計數；兩次重建的段落／ID／定位必須一致。假 tokenizer fixtures 只證明演算法，不取代真實 BGE-M3 驗收。另以程序／IPC spy 確認父 CLI 不載 tokenizer／模型、不讀全文切段；worker 產出 candidate 檔案，管道無原文／向量；來源中途修改／替換須在發布前拒絕。
 
 以上錯誤碼、CLI 輸出與狀態依 [CLI 合約](contracts/preparation-cli.md)；不將 provider body、原文、向量、token 或私密例外內容加入診斷。
 
@@ -67,3 +71,5 @@ wheel 測試要涵蓋兩 CLI help、runtime receipt schema 與本功能 schema �
 記錄 OS／架構、Python／lock、指定 revision、receipt／來源／包 digest、固定 fixture、命令與原始結果；不發布私密原文。每個已發布 target 有 fresh reader 證據，至少五份文件可核對原文，八類故障、兩次切段重現與日誌 sentinel 皆有結果。
 
 本輪 Windows 設計不等於 Windows 實測通過；Linux／macOS 明確未測。模型下載成功也不代表 004 真實 CPU 50 題、兩後端來源品質／插話／文字 timeout 已驗收。完成這兩腳本後才用實際素材續做 004 的待辦，不能在此提前結案。
+
+本次設計同步後，先執行 speckit-tasks 更新既有任務，再以 speckit-analyze 檢查；本輪不改 tasks.md 或宣稱實作／驗收已通過。
