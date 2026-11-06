@@ -4,7 +4,7 @@
 **Branch**: `feat/005-prepare-rag-assets` | **Date**: 2026-11-06
 **Prerequisites**: 依 2026-11-06 最新 plan／data-model／CLI 與 [source-window-v1](contracts/source-window-v1.md) 重新同步；004 v1 包與 reader 拒絕條件不變。
 **Tests**: 依 spec 的驗收情境／SC、plan 的明確驗證要求及專案憲章產生必要測試；先驗失敗再實作，不為每個薄函式另寫鏡像測試。
-**Organization**: Setup → Foundation → US1(P1) → US2(P1) → US3(P2) → Cross-cutting。依 quickstart.md 的實際證據更新；38／42 完成，真實素材與整體結案仍待驗，核取方塊不代表規格品質審查結果。
+**Organization**: Setup → Foundation → US1(P1) → US2(P1) → US3(P2) → Cross-cutting。依 quickstart.md 的實際證據更新；39／42 完成，真實素材與整體結案仍待驗，核取方塊不代表規格品質審查結果。
 
 ## Format and paths
 
@@ -50,7 +50,7 @@
 - [X] T016 [US1] 在 `src/reachy_mini_conversation_app/document_prepare_worker.py` 實作共享 encoder 的模型驗證，固定 reference「這份文件主要說明什麼？」及「1024 維 normalized finite embedding」；由該 worker 呼叫 `src/reachy_mini_conversation_app/document_assets.py` 寫 candidate model-receipt.json，reference 向量不經 IPC。payload 清單不含 receipt，自有 runtime 使用實際完整版本；模型驗證與前後 hash 核對後正常退出，不以欄位宣告替代真實檢查。
 - [X] T017 [US1] 在 `src/reachy_mini_conversation_app/download_document_model.py` 串接完整下載→離線驗證→程序退出→共用發布與結果處理；依 CLI 合約處理 0／2／3／4／5／6／7／8／130 及固定錯誤碼，中文 CLI 可顯示指定路徑／revision，診斷不含 provider body／token／私密例外。不改 .env／App 設定或自行安裝依賴。
 - [X] T018 [US1] 跑 T012～T017 的正常／重用／中斷／缺檔／寫入失敗回歸，於 `specs/005-prepare-rag-assets/quickstart.md` 記 fake 驗證與限制，確認不需要索引或 US2 即可單獨展示 US1；不得宣稱已下載真實安全模型。
-- [ ] T019 [US1] 在 `tests/test_download_document_model.py` 建立明確 opt-in 真實指定安全 revision 驗收並依授權執行：下載、離線載入、receipt 與模型完整性、同完整版本重跑零下載；於 `specs/005-prepare-rag-assets/quickstart.md` 記 revision／主機／runtime／digest／原始結果。未提供信任 revision 或下載範圍保持未完成，不自選未合併 PR；不阻擋其他故事的離線工作。
+- [X] T019 [US1] 在 `tests/test_download_document_model.py` 建立明確 opt-in 真實指定安全 revision 驗收並依授權執行：下載、離線載入、receipt 與模型完整性、同完整版本重跑零下載；於 `specs/005-prepare-rag-assets/quickstart.md` 記 revision／主機／runtime／digest／原始結果。未提供信任 revision 或下載範圍保持未完成，不自選未合併 PR；不阻擋其他故事的離線工作。
 
 **Checkpoint**: T018 是離線 MVP，T019 才是實際模型證據；兩者分開，不以 fake 代替下載成功。
 
@@ -174,10 +174,16 @@ T001 → T002 → T003
 
 ## Task Summary
 
-共 42 項：Setup 3、Foundation 8、US1 8、US2 10、US3 6、Cross-cutting 7。已同步發布前／後失敗界線、published／ready／取消結果、worker／IPC 歸屬、來源最後核對與固定切段 golden fixtures。10 項 `[P]` 僅涵蓋不同檔案工作群。所有任務含連續 ID、checkbox 與具體路徑；只有故事階段標記 `[USn]`。本輪離線實作與 gate 已通過，證據見 quickstart.md；T019／T029／T039／T042 保持未完成，不宣稱真實安全模型下載、真實 BGE-M3 產包或整體結案。
+共 42 項：Setup 3、Foundation 8、US1 8、US2 10、US3 6、Cross-cutting 7。已同步發布前／後失敗界線、published／ready／取消結果、worker／IPC 歸屬、來源最後核對與固定切段 golden fixtures。10 項 `[P]` 僅涵蓋不同檔案工作群。所有任務含連續 ID、checkbox 與具體路徑；只有故事階段標記 `[USn]`。本輪離線實作與 gate 已通過，證據見 quickstart.md；T029／T039／T042 保持未完成，T019 真實安全模型下載已補驗通過；不宣稱真實 BGE-M3 文件產包或整體結案。
 
 ## 實作進度（2026-11-06）
 
-38／42 完成。T019 的測試入口已建立，但使用者指定的 `5617a9f61b028005a4858fdac845db406aefb181` 缺 `model.safetensors`，公開 metadata 與實際 CLI 均確認在權重下載前拒絕；未轉換 bin 或另選 revision。T029 的實際驗收入口亦已建立，但沒有合規本機模型，使用者確認尚未校準門檻；`example.md` 只確認 UTF-8／摘要，沒有產包。T039 因此未完成，T042 保留整體未結案。
+首次離線交付為 38／42；以下保留舊 revision 的狀態，現行 T019 見文末補驗。T019 的測試入口已建立，但使用者指定的 `5617a9f61b028005a4858fdac845db406aefb181` 缺 `model.safetensors`，公開 metadata 與實際 CLI 均確認在權重下載前拒絕；未轉換 bin 或另選 revision。T029 的實際驗收入口亦已建立，但沒有合規本機模型，使用者確認尚未校準門檻；`example.md` 只確認 UTF-8／摘要，沒有產包。T039 因此未完成，T042 保留整體未結案。
 
 requirements.md 維持原有 16／16；004 任務未更動；未啟動 App、雲端對話、相機、記憶或機器人。完整 gate 939 passed／19 skipped，另行明確執行的真實 Chroma 合成向量與假 encoder 產包結果不能當成真實 BGE-M3 證據。
+
+### T019 真實模型補驗（2026-11-06）
+
+使用者另提供並信任 `50f9396f75618b3389c1fd1068a1ff58dc7b5b26`，公開預檢十檔齊全。首次 Xet 原生傳輸於 Windows 存取違例；保留原始紀錄。以當次行程 `HF_HUB_DISABLE_XET=1`、同一 revision 及一般匿名 HTTP 重新驗收，1 passed／1 個 pytest cache 權限警告；完整下載、離線 CPU 載入／reference／前後完整性與同版本零網路重用均通過，T019 已勾選。沒有變更版本／依賴或放寬安全格式。模型位置與 receipt 摘要見 quickstart.md。
+
+目前僅 T029／T039／T042 未完成；合規模型已備妥，使用者仍回覆門檻尚未準備，因此未產生 example.md 索引、未進行真實五份文件產包或整體結案。

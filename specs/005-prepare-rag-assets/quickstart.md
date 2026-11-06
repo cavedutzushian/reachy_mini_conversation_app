@@ -1,6 +1,6 @@
 # Validation Guide: 模型下載與單文件離線產包
 
-**階段**：離線實作已完成；下列命令可用。實際證據及未完成項目見文末；尚未完成真實安全模型下載或真實 BGE-M3 產包，不代表整體結案。
+**階段**：離線實作已完成；下列命令可用。實際證據及未完成項目見文末；真實安全模型下載已補驗通過，真實 BGE-M3 文件產包仍未完成，不代表整體結案。
 
 ## 前置條件
 
@@ -103,22 +103,34 @@ wheel 測試要涵蓋兩 CLI help、runtime receipt schema 與本功能 schema �
 
 ### 真實素材待驗
 
-使用者指定 revision：`5617a9f61b028005a4858fdac845db406aefb181`。匿名公開 metadata 回同一 SHA，列出 pytorch_model.bin，但沒有 model.safetensors；實際下載 CLI 回 unsupported_revision，在權重下載前拒絕，隔離目的地未發布。沒有轉換、選用 PR／另一個 commit 或下載不被接受的權重。T019 的成功驗收仍未完成。
+使用者指定 revision：`5617a9f61b028005a4858fdac845db406aefb181`。匿名公開 metadata 回同一 SHA，列出 pytorch_model.bin，但沒有 model.safetensors；實際下載 CLI 回 unsupported_revision，在權重下載前拒絕，隔離目的地未發布。沒有轉換、選用 PR／另一個 commit 或下載不被接受的權重。此舊 revision 的成功驗收未完成；其後使用者另提供的合規 revision 已通過 T019，詳見下節。
 
 指定來源 `example.md`：62213 bytes、UTF-8-sig 解碼 25453 code points，SHA-256 `d1696eed28fa4043645b256ac587f63a7cd1d722e40d13eb6144aef4effb3c07`。僅做指定檔案編碼／摘要檢查；未複製或建立真實索引，來源與模型／索引不入 Git。使用者明確回覆「尚未校準」，因此沒有代填 max-distance。
 
-T029／T039 尚缺合規本機模型與已校準門檻；T042 保留整體未結案。真實驗收入口已建立，需部署者明確選用：下載使用 RUN_DOCUMENT_MODEL_ACCEPTANCE=1 與 DOCUMENT_MODEL_REVISION；本機產包使用 RUN_DOCUMENT_PACKAGE_ACCEPTANCE=1、DOCUMENT_MODEL_PATH、DOCUMENT_MAX_DISTANCE。這些是測試行程變數，不是 App 設定；未提供有效素材不得勾完成。Linux／macOS 未測，004 真實 CPU／雙後端／語音／品質任務未更動。
+合規本機模型已依下節補驗備妥；T029／T039 尚缺已校準門檻，T042 保留整體未結案。真實驗收入口已建立，需部署者明確選用：下載使用 RUN_DOCUMENT_MODEL_ACCEPTANCE=1 與 DOCUMENT_MODEL_REVISION；本機產包使用 RUN_DOCUMENT_PACKAGE_ACCEPTANCE=1、DOCUMENT_MODEL_PATH、DOCUMENT_MAX_DISTANCE。這些是測試行程變數，不是 App 設定；未提供有效素材不得勾完成。Linux／macOS 未測，004 真實 CPU／雙後端／語音／品質任務未更動。
 
 | 需求 | 證據／尚缺項目 |
 |---|---|
-| FR-001～004 | 兩 CLI、固定 revision／allowlist、receipt／hash、CWD／wheel 路徑與零網路重用；真實安全模型成功下載待 T019。 |
+| FR-001～004 | 兩 CLI、固定 revision／allowlist、receipt／hash、CWD／wheel 路徑與零網路重用；真實安全模型下載已依下節 T019 補驗通過。 |
 | FR-005～008 | 單文件格式／識別／門檻拒絕、原文 golden fixtures、離線 producer／來源一致性；真實模型編碼待 T029。 |
 | FR-009～010 | 真實 Chroma 小包 gate、五份合成文件與既有 reader 全量／關閉後不變性；未擴增平台，真實 BGE-M3 待 T029。 |
 | FR-011～013 | 分界取消／rollback／cleanup／hard-crash、跨程序排他、危險路徑與 IPC／日誌 sentinel；來源不修改、沒有 App 行程控制。 |
 | FR-014 | README／Mermaid／wheel／全 gate／lock，無新依賴，既有 HF／Tool／相機／記憶設定不變。 |
-| SC-001 | fake 下載與合成 CLI 產包分別通過；真實兩步完整交接待 T019／T029／T039。 |
+| SC-001 | fake 下載與合成 CLI 產包分別通過；真實下載已通過；完整交接待 T029／T039。 |
 | SC-002 | 五份合成文件通過原文／位置／格式；真實模型同組文件待 T029。 |
 | SC-003 | 編碼、格式、revision、完整性、傳輸、未授權覆寫、危險路徑、發布前驗證與發布後清理／中斷有分界保護證據。 |
-| SC-004 | fake Hub 同版本零 metadata／下載；五份合成產包禁止網路；真實模型重用待 T019。 |
+| SC-004 | fake Hub 同版本零 metadata／下載；五份合成產包禁止網路；真實模型同版本零網路重用已依下節通過。 |
 | SC-005 | 真實 Chroma＋假 encoder fresh reader／全量邏輯／HNSW 不變，僅 Windows；真實模型包待 T029。 |
 | SC-006 | 純原文切段重建一致、兩次 producer／CLI 文件識別與段落數一致、sentinel／IPC 保護；真實模型完整重現待 T029／T039。 |
+
+## T019 補驗通過（2026-11-06）
+
+- 使用者明確指定的新 revision：`50f9396f75618b3389c1fd1068a1ff58dc7b5b26`。匿名 metadata 解析至同一 SHA，十個必要安全 payload 齊全；舊 revision 的缺檔結果仍保留。
+- 第一次實際下載在 hf_xet 原生傳輸階段發生 Windows access violation，沒有發布可用模型。原始 log：`cache/005-prepare-rag-assets/approved-model-50f9396f.log`；沒有依此失敗自動換版本、模型或格式。當時的操作殘留位於同名隔離測試根，未自動破鎖或清除。
+- 使用套件支援的當次行程設定 `HF_HUB_DISABLE_XET=1`，在新隔離目錄以一般匿名 HTTP 下載同一 snapshot。此設定不修改 .env、依賴或模型，不是自動模型替代。
+- 實際執行 `RUN_DOCUMENT_MODEL_ACCEPTANCE=1`、`DOCUMENT_MODEL_REVISION=<上述 SHA>` 的 `tests/test_download_document_model.py::test_approved_snapshot_loads_offline_and_reuses_without_network`，結果 **1 passed，152.23 秒**；另有 1 個 pytest cache 權限警告，沒有模型驗證錯誤。模型通過離線 CPU 載入、1024 維 normalized finite reference、前後 hash 一致性、receipt 及第二次呼叫零 metadata／下載／覆寫檢查。
+- Payload 共 10 檔、2,293,234,427 bytes；根目錄精確 11 檔（含 receipt）。receipt SHA-256：`841e6563d296d012d5be146a11df8084980db4e25d99844c38630522a08fd2d7`；實際 runtime 為 ST 6.2.0／torch 2.15.0+cpu／transformers 5.21.0。
+- 已保留模型位置：`cache/005-prepare-rag-assets/approved-model-http-50f9396f/test_approved_snapshot_loads_o0/model/`。這是隔離驗收目錄，不是 App 已啟用的設定；後續可明確以此作為 --model。沒有自動搬移模型或改 App 設定，素材仍不入 Git。
+- 原始結果：`approved-model-http-50f9396f.log`／`.xml`；不含向量的本機摘要：`approved-model-http-summary.json`，皆在同一工作區 cache 根。
+
+本次僅更新驗收證據與傳輸方式說明，沒有程式或依賴變更；前輪完整 gate 939 passed／19 skipped 仍保留，這次另外明確執行的真實模型測試補足其中一項 opt-in。不能將本次 reference 向量驗證當成文件檢索品質、CPU 50 題或語音驗收通過。使用者仍明確表示門檻尚未準備，T029／T039／T042 保持未完成，進度 39／42；example.md 未產包、未修改或外送。

@@ -125,6 +125,8 @@ python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_S
 
 命令變數須由部署者提供：`BGE_M3_REVISION` 是信任的 `BAAI/bge-m3` 完整 40 位小寫 commit SHA，且該版本必須已含 `model.safetensors`；不接受 main／tag，不自動採用未合併 PR，也不轉換 bin 權重。`RAG_SOURCE_FILE` 是唯一一份 UTF-8（可含 BOM）的 `.txt`／`.md`／`.markdown`；`RAG_MAX_DISTANCE` 是使用者已校準的有限值（0～2），沒有通用預設或自動校準。以上只是命令變數，不是新增 App 設定。
 
+Windows 若遇到 `hf_xet` 原生傳輸錯誤，可在啟動下載命令前於當次行程設定 `$env:HF_HUB_DISABLE_XET="1"`，使用同一固定 revision 的一般 HTTP 傳輸。本機實際模型驗收採此方式；不需更換模型、權重格式或依賴。
+
 模型與包分別預設在 source checkout 的 `external_content/bge-m3-model/`、`external_content/document-package/`，不隨工作目錄改變。可用 `--output` 指定其他本機目的地，產包另有 `--model`；只有安裝 wheel、沒有 checkout 時須明確提供路徑。自訂 repo 內輸出必須事先被 Git 忽略；不要把來源、模型或索引提交至 Git。
 
 下載先核對 revision／安全檔案清單，再下載，最後在獨立離線 CPU 程序驗證並寫入 `model-receipt.json`。相同完整 revision 重跑會先離線核對，成功即零網路返回。產包全程離線，禁止缺模型時自動下載；不解析或執行 Markdown 的連結、圖片、HTML 或程式碼。原文與行尾保留，固定切段採 400 content token 候選、50 token 起點重疊規則，每片含特殊 tokens 不超過 512；完整規則與定位範例見 [source-window-v1](specs/005-prepare-rag-assets/contracts/source-window-v1.md)。包通過獨立 reader／全量資料與持久索引不變性檢查後才發布。
