@@ -76,3 +76,10 @@ external_content/installed_tool_spaces.json
 external_content/profile_toolsets.json
 external_content/document-package/
 external_content/bge-m3-model/
+external_content/.bge-m3-model.stage-*/
+external_content/.bge-m3-model.backup-*/
+external_content/.bge-m3-model.lock/
+external_content/.document-package.stage-*/
+external_content/.document-package.backup-*/
+external_content/.document-package.lock/
+/example.md

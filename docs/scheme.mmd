@@ -40,6 +40,12 @@ flowchart TB
     Retrieval -- private pipes --> Encoder["BGE-M3 on CPU<br/>local model only"]
     Retrieval -- query work copy --> Document["One prebuilt Chroma document<br/>no runtime indexing"]
     Document -- bounded passages and citations --> Handlers
+    Operator["Deployment operator<br/>manual preparation, App stopped"] -- pinned commit --> Download["Model download CLI<br/>anonymous safe snapshot only"]
+    Hub["Public BAAI/bge-m3 snapshot"] -- allowlisted payload --> Download
+    Download -- offline verification and receipt --> Encoder
+    Operator -- one TXT or Markdown and calibrated threshold --> Build["Offline package CLI<br/>CPU producer and fresh verifier"]
+    Encoder -- matching local model --> Build
+    Build -- validated sealed package --> Document
 
     UI -- same-page local key controls --> Credentials["Instance credential manager<br/>source selection + reconnect gate"]
     Credentials -- minimal setup only --> Validation["Gemini Live validation<br/>no conversation, media or tools"]

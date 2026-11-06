@@ -3,21 +3,24 @@ import sys
 import json
 import math
 import shutil
-import hashlib
 import platform
 from pathlib import Path
 from importlib.metadata import version
 from importlib.resources import files
 
 import numpy as np
-import torch
 import chromadb
 from jsonschema import Draft202012Validator
-from numpy.typing import NDArray
 from chromadb.config import Settings
 from chromadb.errors import ChromaError
-from sentence_transformers import SentenceTransformer
 
+from reachy_mini_conversation_app.document_model import (
+    DocumentModel,
+    DocumentModelNotReadyError,
+    read_json,
+    object_value,
+    verify_files,
+)
 from reachy_mini_conversation_app.document_retrieval import (
     CitationPassage,
     DocumentSuccess,
@@ -27,10 +30,6 @@ from reachy_mini_conversation_app.document_retrieval import (
     validate_document_query,
     validate_document_result,
 )
-
-
-class DocumentModelNotReadyError(RuntimeError):
-    """Identify a missing or unusable local model without exposing its path."""
 
 
 def runtime_target() -> dict[str, str]:
@@ -43,85 +42,22 @@ def runtime_target() -> dict[str, str]:
     }
 
 
-def _object(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
-        raise ValueError("Expected an object")
-    return dict(value)
-
-
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("Duplicate JSON key")
-        result[key] = value
-    return result
-
-
-def _read_json(path: Path) -> object:
-    with path.open("rb") as handle:
-        payload = handle.read(16 * 1024 * 1024 + 1)
-    if len(payload) > 16 * 1024 * 1024 or payload.startswith(b"\xef\xbb\xbf"):
-        raise ValueError("Unsupported JSON encoding or size")
-    return json.loads(payload.decode("utf-8"), object_pairs_hook=_unique_object)
-
-
-def _verify_files(root: Path, entries: object) -> None:
-    if not root.is_dir() or root.is_symlink() or root.is_junction() or not isinstance(entries, list):
-        raise ValueError("Invalid package directory")
-    expected: dict[str, str] = {}
-    aliases: set[str] = set()
-    for entry in entries:
-        record = _object(entry)
-        relative, digest = record.get("path"), record.get("sha256")
-        if not isinstance(relative, str) or not isinstance(digest, str):
-            raise ValueError("Invalid inventory entry")
-        if any(part in ("", ".", "..") for part in relative.split("/")) or "\\" in relative or ":" in relative:
-            raise ValueError("Invalid package path")
-        candidate = root / relative
-        if not candidate.resolve().is_relative_to(root.resolve()) or relative in expected:
-            raise ValueError("Duplicate or escaped package path")
-        alias = "/".join(part.rstrip(" .").casefold() for part in relative.split("/"))
-        if runtime_target()["os"] == "windows" and alias in aliases:
-            raise ValueError("Colliding package paths")
-        aliases.add(alias)
-        expected[relative] = digest
-    actual: set[str] = set()
-    for directory, folders, filenames in os.walk(root, followlinks=False):
-        for name in [*folders, *filenames]:
-            item = Path(directory) / name
-            if item.is_symlink() or item.is_junction():
-                raise ValueError("Linked package files are not supported")
-        for name in filenames:
-            item = Path(directory) / name
-            relative = item.relative_to(root).as_posix()
-            actual.add(relative)
-            if relative not in expected:
-                raise ValueError("Unlisted package file")
-            with item.open("rb") as handle:
-                digest = hashlib.file_digest(handle, "sha256").hexdigest()
-            if digest != expected[relative]:
-                raise ValueError("Package checksum mismatch")
-    if actual != set(expected):
-        raise ValueError("Missing package files")
-
-
 class DocumentIndex:
     """Read one sealed document package with a matching local CPU encoder."""
 
     def __init__(self, package_path: Path, model_path: Path, work_path: Path) -> None:
         """Validate the whole package before permitting evidence retrieval."""
-        manifest = _object(_read_json(package_path / "manifest.json"))
+        manifest = object_value(read_json(package_path / "manifest.json"))
         schema = json.loads(
             files("reachy_mini_conversation_app").joinpath("document_manifest.schema.json").read_text(encoding="utf-8")
         )
         if list(Draft202012Validator(schema).iter_errors(manifest)):
             raise ValueError("Invalid document manifest")
-        self.identity = _object(manifest["document"])
+        self.identity = object_value(manifest["document"])
         if not valid_display_text(self.identity["title"], 160):
             raise ValueError("Invalid document title")
         self.index_version = str(manifest["index_version"])
-        embedding, engine = _object(manifest["embedding"]), _object(manifest["engine"])
+        embedding, engine = object_value(manifest["embedding"]), object_value(manifest["engine"])
         targets = manifest["validated_targets"]
         if not isinstance(targets, list) or runtime_target() not in targets:
             raise ValueError("Package platform is not validated")
@@ -134,82 +70,29 @@ class DocumentIndex:
         ):
             if version(package_name) != embedding[key]:
                 raise ValueError("Embedding runtime version mismatch")
-        _verify_files(package_path / "chroma", manifest["files"])
+        verify_files(package_path / "chroma", manifest["files"])
         inventory = manifest["files"]
         if not isinstance(inventory, list) or any(
-            str(_object(entry)["path"]).endswith(("-wal", "-shm", "-journal")) for entry in inventory
+            str(object_value(entry)["path"]).endswith(("-wal", "-shm", "-journal")) for entry in inventory
         ):
             raise ValueError("Snapshot still contains a database journal")
-        if not model_path.is_dir():
-            raise DocumentModelNotReadyError("Local model is unavailable")
-        _verify_files(model_path, embedding["files"])
-        modules = _read_json(model_path / "modules.json")
-        if not isinstance(modules, list) or [_object(module).get("type") for module in modules] != [
-            "sentence_transformers.models.Transformer",
-            "sentence_transformers.models.Pooling",
-            "sentence_transformers.models.Normalize",
-        ]:
-            raise ValueError("Unsupported model modules")
-        if [_object(module).get("path") for module in modules] != ["", "1_Pooling", "2_Normalize"]:
-            raise ValueError("Unsupported model module paths")
-        pooling = _object(_read_json(model_path / "1_Pooling/config.json"))
-        if pooling.get("pooling_mode_cls_token") is not True or any(
-            bool(value)
-            for key, value in pooling.items()
-            if key.startswith("pooling_mode_") and key != "pooling_mode_cls_token"
-        ):
-            raise ValueError("Unsupported pooling")
-        encoder_config = _object(_read_json(model_path / "sentence_bert_config.json"))
-        if encoder_config.get("max_seq_length") != 8192 or encoder_config.get("do_lower_case") is not False:
-            raise ValueError("Unsupported tokenizer settings")
-        inventory = embedding["files"]
-        if not isinstance(inventory, list):
-            raise ValueError("Missing model inventory")
-        model_files = [str(_object(entry)["path"]) for entry in inventory]
-        if not any(name.endswith(".safetensors") for name in model_files) or any(
-            name.endswith((".py", ".pkl", ".pickle", ".pt", ".pth", ".bin")) for name in model_files
-        ):
-            raise ValueError("Only built-in modules and safe model weights are supported")
-        torch.set_num_threads(2)
-        torch.set_num_interop_threads(1)
-        try:
-            self.encoder = SentenceTransformer(
-                str(model_path),
-                device="cpu",
-                local_files_only=True,
-                trust_remote_code=False,
-                model_kwargs={"torch_dtype": torch.float32, "use_safetensors": True},
-            )
-        except (OSError, RuntimeError) as error:
-            raise DocumentModelNotReadyError(type(error).__name__) from None
-        if self.encoder.max_seq_length != 8192:
-            raise ValueError("Encoder length mismatch")
-        reference = _object(manifest["reference"])
-        reference_query = validate_document_query(reference["query"])
-        if reference_query is None:
-            raise ValueError("Invalid reference question")
-        reference_vector = np.asarray(reference["embedding"], dtype=np.float32)
-        if not np.isfinite(reference_vector).all() or abs(float(np.linalg.norm(reference_vector)) - 1) > 1e-4:
-            raise ValueError("Invalid reference vector")
-        if abs(1 - float(np.dot(self.encode(reference_query), reference_vector))) > 1e-5:
-            raise ValueError("Reference embedding mismatch")
-        _verify_files(model_path, embedding["files"])
+        self.model = DocumentModel(model_path, embedding, object_value(manifest["reference"]))
         snapshot = work_path / "chroma"
         shutil.copytree(package_path / "chroma", snapshot)
-        _verify_files(snapshot, manifest["files"])
+        verify_files(snapshot, manifest["files"])
         self.client = chromadb.PersistentClient(
             path=str(snapshot), settings=Settings(migrations="validate", anonymized_telemetry=False, allow_reset=False)
         )
         if len(self.client.list_collections()) != 1:
             raise ValueError("Expected exactly one document collection")
         self.collection = self.client.get_collection(name=str(engine["collection"]), embedding_function=None)
-        configuration = _object(self.collection.configuration)
-        if _object(configuration.get("hnsw")).get("space") != "cosine":
+        configuration = object_value(self.collection.configuration)
+        if object_value(configuration.get("hnsw")).get("space") != "cosine":
             raise ValueError("Collection metric mismatch")
         self.chunk_count = self.collection.count()
         if self.chunk_count != manifest["chunk_count"] or self.chunk_count <= 0:
             raise ValueError("Collection count mismatch")
-        max_distance = _object(manifest["retrieval"])["max_distance"]
+        max_distance = object_value(manifest["retrieval"])["max_distance"]
         if not isinstance(max_distance, (int, float)) or isinstance(max_distance, bool):
             raise ValueError("Invalid distance limit")
         self.max_distance = float(max_distance)
@@ -242,24 +125,8 @@ class DocumentIndex:
         if len(seen) != self.chunk_count:
             raise ValueError("Incomplete document collection")
 
-    def encode(self, question: str) -> NDArray[np.float32]:
-        """Encode a question with the same validated normalized dense pipeline."""
-        values = np.asarray(
-            self.encoder.encode(
-                [question], prompt="", normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False
-            ),
-            dtype=np.float32,
-        )
-        if (
-            values.shape != (1, 1024)
-            or not np.isfinite(values).all()
-            or abs(float(np.linalg.norm(values[0])) - 1) > 1e-4
-        ):
-            raise ValueError("Invalid query vector")
-        return np.asarray(values[0], dtype=np.float32)
-
     def _passage(self, identifier: object, text: object, metadata: object) -> CitationPassage:
-        source = _object(metadata)
+        source = object_value(metadata)
         locator = source.get("locator")
         if (
             source.get("document_id") != self.identity["id"]
@@ -281,7 +148,7 @@ class DocumentIndex:
         if normalized is None:
             return {"error": "document_invalid_query"}
         matches = self.collection.query(
-            query_embeddings=[self.encode(normalized).tolist()],
+            query_embeddings=[self.model.encode(normalized).tolist()],
             n_results=min(3, self.chunk_count),
             include=["documents", "metadatas", "distances"],
         )
@@ -355,7 +222,7 @@ def main() -> int:
         try:
             if len(line) > 65536 or not line.endswith(b"\n"):
                 raise ValueError("Invalid request size")
-            request = _object(json.loads(line))
+            request = object_value(json.loads(line))
             if request.get("version") != 1 or request.get("type") != "query":
                 raise ValueError("Invalid request protocol")
             request_id = request.get("request_id")

@@ -62,6 +62,7 @@ def document_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     module_name = "reachy_mini_conversation_app.document_worker"
+    monkeypatch.delitem(sys.modules, "reachy_mini_conversation_app.document_model", raising=False)
     monkeypatch.delitem(sys.modules, module_name, raising=False)
     worker = importlib.import_module(module_name)
     monkeypatch.setattr(worker, "version", lambda name: "1.5.9" if name == "chromadb" else "0.0.0")
@@ -139,6 +140,7 @@ def document_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         settings=settings,
     )
     sys.modules.pop(module_name, None)
+    sys.modules.pop("reachy_mini_conversation_app.document_model", None)
 
 
 def test_existing_package_returns_bounded_original_text(document_index) -> None:

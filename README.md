@@ -111,8 +111,29 @@ Supply a complete `manifest.json` and `chroma/` directory conforming to the
 [manifest schema](specs/004-single-document-rag/contracts/index-manifest.schema.json).
 An external preparation step must supply all chunks, source locators, dense normalized
 1024-dimensional vectors, file checksums, exact runtime versions, a matching reference
-embedding and a calibrated cosine distance limit. The app has no index builder or uploader.
+embedding and a calibrated cosine distance limit. The running app never builds an index or uploads a source document.
 Only the stated document and version are searchable; other files and URLs are not tool inputs.
+
+### 手動準備本機文件素材
+
+先安裝鎖定依賴：`uv sync --frozen --extra rag --group dev`。以下兩個模組只由部署者手動執行，不會在 App 啟動、對話或工具呼叫時執行。
+
+```powershell
+python -m reachy_mini_conversation_app.download_document_model --revision $env:BGE_M3_REVISION
+python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_SOURCE_FILE --document-id manual --title "文件手冊" --document-version v1 --index-version build-1 --max-distance $env:RAG_MAX_DISTANCE
+```
+
+命令變數須由部署者提供：`BGE_M3_REVISION` 是信任的 `BAAI/bge-m3` 完整 40 位小寫 commit SHA，且該版本必須已含 `model.safetensors`；不接受 main／tag，不自動採用未合併 PR，也不轉換 bin 權重。`RAG_SOURCE_FILE` 是唯一一份 UTF-8（可含 BOM）的 `.txt`／`.md`／`.markdown`；`RAG_MAX_DISTANCE` 是使用者已校準的有限值（0～2），沒有通用預設或自動校準。以上只是命令變數，不是新增 App 設定。
+
+模型與包分別預設在 source checkout 的 `external_content/bge-m3-model/`、`external_content/document-package/`，不隨工作目錄改變。可用 `--output` 指定其他本機目的地，產包另有 `--model`；只有安裝 wheel、沒有 checkout 時須明確提供路徑。自訂 repo 內輸出必須事先被 Git 忽略；不要把來源、模型或索引提交至 Git。
+
+下載先核對 revision／安全檔案清單，再下載，最後在獨立離線 CPU 程序驗證並寫入 `model-receipt.json`。相同完整 revision 重跑會先離線核對，成功即零網路返回。產包全程離線，禁止缺模型時自動下載；不解析或執行 Markdown 的連結、圖片、HTML 或程式碼。原文與行尾保留，固定切段採 400 content token 候選、50 token 起點重疊規則，每片含特殊 tokens 不超過 512；完整規則與定位範例見 [source-window-v1](specs/005-prepare-rag-assets/contracts/source-window-v1.md)。包通過獨立 reader／全量資料與持久索引不變性檢查後才發布。
+
+目的地預設不得覆寫；替換前先停止 App，再明確加 `--replace`。兩腳本不會替你停止／啟動 App、改 `.env`、讀憑證或調整相機／記憶。成功時只顯示既有模型／索引路徑設定建議；準備完成不等於已啟用工具或通過語音／品質驗收。
+
+發布前普通失敗保留或恢復舊資料；Windows 替換時目的地可暫移至同父目錄 backup，不保證路徑全程存在。已驗證 stage 移至正式位置後即完成發布；之後清理失敗會保留新版並回報「已發布，清理未完成」（exit 8），不得自動重跑或回復。突然終止時，先確認沒有準備程序，再核對 `.目的地.lock/operation.json` 的 UUID／basename、實際 stage／backup／目的地及雜湊，人工恢復完整版本後只清理該次自有殘留；不要只刪 lock 或依 PID／時間強制破鎖。
+
+結束碼：0 完成／已就緒；2 參數／文件／門檻無效；3 模型或 revision 不相容；4 目的地已存在／忙碌／路徑不安全；5 下載不可用；6 驗證／封存失敗；7 I/O 失敗；8 需人工恢復或已發布待清理；130 發布前安全取消。發布後取消清理仍為 8。僅宣告實測通過的平台；本機驗收範圍為 Windows，Linux／macOS 未測。完整介面見 [CLI 合約](specs/005-prepare-rag-assets/contracts/preparation-cli.md)。
 
 The first query starts a local CPU worker and can report not ready; ask again after loading.
 The original query, including whitespace, is limited to 500 Unicode characters. Results

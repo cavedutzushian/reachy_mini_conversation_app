@@ -338,7 +338,22 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
                 encoding="utf-8"
             )
         )
-        for module in ("document_retrieval.py", "document_worker.py", "tools/search_document.py"):
+        receipt_schema = "reachy_mini_conversation_app/document_model_receipt.schema.json"
+        assert json.loads(archive.read(receipt_schema)) == json.loads(
+            (project_root / "specs/005-prepare-rag-assets/contracts/model-receipt.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for module in (
+            "document_retrieval.py",
+            "document_worker.py",
+            "tools/search_document.py",
+            "document_assets.py",
+            "document_model.py",
+            "document_prepare_worker.py",
+            "download_document_model.py",
+            "build_document_package.py",
+        ):
             assert "reachy_mini_conversation_app/" + module in archive.namelist()
 
     subprocess.run(
@@ -349,7 +364,11 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
             "import sys,json; from importlib.resources import files; "
             "sys.path.insert(0,sys.argv[1]); import reachy_mini_conversation_app.document_retrieval; "
             "assert not {'chromadb','torch','sentence_transformers'} & set(sys.modules); "
-            "json.loads(files('reachy_mini_conversation_app').joinpath('document_manifest.schema.json').read_text())",
+            "json.loads(files('reachy_mini_conversation_app').joinpath('document_manifest.schema.json').read_text(encoding='utf-8')); "
+            "import reachy_mini_conversation_app.download_document_model; "
+            "import reachy_mini_conversation_app.build_document_package; "
+            "assert not {'chromadb','torch','sentence_transformers','reachy_mini_conversation_app.config'} & set(sys.modules); "
+            "json.loads(files('reachy_mini_conversation_app').joinpath('document_model_receipt.schema.json').read_text(encoding='utf-8'))",
             str(wheel_files[0]),
         ],
         cwd=tmp_path,

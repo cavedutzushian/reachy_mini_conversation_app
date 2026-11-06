@@ -1,6 +1,6 @@
 # Validation Guide: 模型下載與單文件離線產包
 
-**階段**：Phase 1 設計。以下新增入口／測試尚未實作，命令供後續實作驗證，不是本輪已執行結果。本輪沒有下載模型或建立索引。
+**階段**：離線實作已完成；下列命令可用。實際證據及未完成項目見文末；尚未完成真實安全模型下載或真實 BGE-M3 產包，不代表整體結案。
 
 ## 前置條件
 
@@ -10,7 +10,7 @@
 - App 保持停止，相機／記憶不變；兩腳本不啟動機器人、不讀日常 .env／憑證。真實模型下載只有部署者明確執行下載腳本才開始。
 - 本功能沿用兩個已忽略正式目錄；實作需加入預設 sibling stage／backup／lock 的狹窄忽略規則。自訂輸出放 repo 外或事先自行管理忽略。
 
-## 兩個正常準備步驟（實作後）
+## 兩個正常準備步驟
 
 在已安裝本專案的環境，先由使用者在當次行程設定 BGE_M3_REVISION、RAG_SOURCE_FILE、RAG_MAX_DISTANCE；這些是示範命令變數，不是新增 App 設定。值分別為信任完整 SHA、本機文件路徑及明確已校準數值，不能直接使用占位字串。
 
@@ -50,7 +50,7 @@ python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_S
 
 若任何合法小文件情境不能以公開 API 產出合規包，**停止交付並回報**。不加假段落、不修改 Chroma 私有表或 004 schema、不刪 journal 掩蓋，不把目前研究當成功證據。
 
-## 自動化驗證命令（實作後）
+## 自動化驗證命令
 
 ```text
 python -m pytest tests/test_document_assets.py tests/test_document_model.py tests/test_download_document_model.py tests/test_build_document_package.py tests/test_document_prepare_worker.py -v
@@ -72,4 +72,53 @@ wheel 測試要涵蓋兩 CLI help、runtime receipt schema 與本功能 schema �
 
 本輪 Windows 設計不等於 Windows 實測通過；Linux／macOS 明確未測。模型下載成功也不代表 004 真實 CPU 50 題、兩後端來源品質／插話／文字 timeout 已驗收。完成這兩腳本後才用實際素材續做 004 的待辦，不能在此提前結案。
 
-本次設計同步後，先執行 speckit-tasks 更新既有任務，再以 speckit-analyze 檢查；本輪不改 tasks.md 或宣稱實作／驗收已通過。
+
+
+## 已取得證據（2026-11-06）
+
+範圍為個人客製化、Windows 11 x86_64／Python 3.12.12。使用既有鎖檔，以 `uv sync --frozen --extra rag --group dev --offline --cache-dir cache/uv` 從工作區快取補齊依賴，未改 pyproject.toml／uv.lock、未新增依賴。實際版本：Chroma 1.5.9、Sentence Transformers 6.2.0、torch 2.15.0+cpu、transformers 5.21.0。所有合成資料在 `cache/005-prepare-rag-assets/`；未讀日常 .env／憑證或私人 HF cache，未啟動 App／provider 對話／機器人。
+
+| 驗證 | 結果與範圍 |
+|---|---|
+| T004／T005 Chroma gate | 10 個真實 Chroma 案例通過，另含忽略規則測試共 11 項。1／2／3／5／超過 API batch 且最後餘一段；原包 hash、全部 rows／向量／count、副本所有持久 HNSW hash 與 query／close 後不變性核對。 |
+| 封存方法 | 1 段資料只 close 的負向對照確實改寫 data_level0.bin／length.bin；正式流程 batch_size=2、sync_threshold=2、num_threads=2，最後對最後一筆真實 row 做一次相同內容的公開 update，再 close／退出。未使用假段落、私有 API、刪 journal 或修改 loader 合約。 |
+| 五份離線文件 | 中文、英文、否定、表格、程式碼／連結：假 encoder＋真實 Chroma、獨立 producer／verifier 共 5 項通過。audit hook 禁止 socket.connect／getaddrinfo；全量邏輯摘要、原包與持久索引不變。這不是 BGE-M3 語意品質證據。 |
+| CLI 串接／來源失敗 | 同一合成中文文件再經實際 builder CLI、隔離私有管道及新工作程序完成驗證／發布，與第一次文件識別／段落數一致；來源修改拒絕發布；無效 UTF-8 回 invalid_document／exit 2，不留可用目的地。最終針對新增無效編碼分支的複驗 1 passed。 |
+| 切段 | 正式常數的原文／ID／CRLF／零 offset／非單調計數 golden fixtures、非法映射與重建一致性通過，不比較 Chroma 二進位重現。 |
+| 發布／IPC | 發布前各階段取消保留舊版、第二個 rename 失敗復原、發布後清理／記錄失敗及取消維持新版並回 exit 8；跨程序 busy、硬中斷殘留、無法確認 worker 退出時保留素材均通過。私有管道不接受內容型結果，測試 sentinel 不進診斷；模型環境清除憑證並使用獨立 cache／offline。 |
+| 下載 | fake Hub／worker 完整準備與同版本重用通過，重用不呼叫 metadata。公開 endpoint、token=False、精確十檔 allowlist、LFS／Git blob hash、傳輸失敗保留舊資料及 provider body 遮蔽均有檢查。 |
+| Wheel／文件 | 兩 CLI／共用模型／worker／runtime receipt schema 進 wheel，schema 與合約相同；從 wheel import 輕量入口不載 inference／config。root README 已同步；scheme.mmd 重新產生 SVG，另渲染 PNG 視覺檢查，未手改 SVG。 |
+| 完整 gate | Ruff check／format 通過；strict mypy：64 source files 無錯誤；pytest：939 passed、19 skipped；uv lock --check --offline 通過。 |
+
+19 項略過包含 15 項需明確啟用的 Chroma／合成產包測試、2 項真實模型／產包 opt-in，以及 2 項既有 opt-in。前 15 項已另外明確執行，其中 Chroma gate 與五份合成文件的原始 XML／log 留在工作區快取；不把一般 gate 的 skip 算成實際通過。
+
+主要結果檔：`cache/005-prepare-rag-assets/probe-confirmed.xml`、`package-close-and-mutation.xml`、`package-cli-final.xml`、`cli-invalid-encoding-final.xml`、`verified-final-gate.xml`（及對應 log）。測試程序使用自有工作區 basetemp，uv 使用工作區 cache，不修改電腦網路或系統服務。
+
+### 保留的首次失敗與修正
+
+- 初次基線使用系統 tmp 產生環境錯誤；改工作區 basetemp 後基線為 896 passed／2 skipped，唯一 wheel 失敗是工作區外 uv cache 權限；改工作區離線 cache 單獨複驗通過。
+- 初次忽略規則測試受 Windows CRLF stdin 影響，改 Git 的 NUL 分隔介面；一段 close-only 的 HNSW 不變性失敗保留為負向對照，正式 producer 依已證明的 public update 方法封存。
+- 初次合成產包把 atime 納入來源 stat 比較而誤拒絕；改核對 dev／ino／size／mtime_ns 與最終串流 hash。來源變更測試仍明確拒絕。
+- 一輪完整 gate 為 916 passed／17 skipped，wheel 測試以 CP950 讀含中文 receipt schema 失敗；測試明定 UTF-8 後單獨複驗及最終完整 gate 通過，產品原有 UTF-8 讀取未放寬。
+
+### 真實素材待驗
+
+使用者指定 revision：`5617a9f61b028005a4858fdac845db406aefb181`。匿名公開 metadata 回同一 SHA，列出 pytorch_model.bin，但沒有 model.safetensors；實際下載 CLI 回 unsupported_revision，在權重下載前拒絕，隔離目的地未發布。沒有轉換、選用 PR／另一個 commit 或下載不被接受的權重。T019 的成功驗收仍未完成。
+
+指定來源 `example.md`：62213 bytes、UTF-8-sig 解碼 25453 code points，SHA-256 `d1696eed28fa4043645b256ac587f63a7cd1d722e40d13eb6144aef4effb3c07`。僅做指定檔案編碼／摘要檢查；未複製或建立真實索引，來源與模型／索引不入 Git。使用者明確回覆「尚未校準」，因此沒有代填 max-distance。
+
+T029／T039 尚缺合規本機模型與已校準門檻；T042 保留整體未結案。真實驗收入口已建立，需部署者明確選用：下載使用 RUN_DOCUMENT_MODEL_ACCEPTANCE=1 與 DOCUMENT_MODEL_REVISION；本機產包使用 RUN_DOCUMENT_PACKAGE_ACCEPTANCE=1、DOCUMENT_MODEL_PATH、DOCUMENT_MAX_DISTANCE。這些是測試行程變數，不是 App 設定；未提供有效素材不得勾完成。Linux／macOS 未測，004 真實 CPU／雙後端／語音／品質任務未更動。
+
+| 需求 | 證據／尚缺項目 |
+|---|---|
+| FR-001～004 | 兩 CLI、固定 revision／allowlist、receipt／hash、CWD／wheel 路徑與零網路重用；真實安全模型成功下載待 T019。 |
+| FR-005～008 | 單文件格式／識別／門檻拒絕、原文 golden fixtures、離線 producer／來源一致性；真實模型編碼待 T029。 |
+| FR-009～010 | 真實 Chroma 小包 gate、五份合成文件與既有 reader 全量／關閉後不變性；未擴增平台，真實 BGE-M3 待 T029。 |
+| FR-011～013 | 分界取消／rollback／cleanup／hard-crash、跨程序排他、危險路徑與 IPC／日誌 sentinel；來源不修改、沒有 App 行程控制。 |
+| FR-014 | README／Mermaid／wheel／全 gate／lock，無新依賴，既有 HF／Tool／相機／記憶設定不變。 |
+| SC-001 | fake 下載與合成 CLI 產包分別通過；真實兩步完整交接待 T019／T029／T039。 |
+| SC-002 | 五份合成文件通過原文／位置／格式；真實模型同組文件待 T029。 |
+| SC-003 | 編碼、格式、revision、完整性、傳輸、未授權覆寫、危險路徑、發布前驗證與發布後清理／中斷有分界保護證據。 |
+| SC-004 | fake Hub 同版本零 metadata／下載；五份合成產包禁止網路；真實模型重用待 T019。 |
+| SC-005 | 真實 Chroma＋假 encoder fresh reader／全量邏輯／HNSW 不變，僅 Windows；真實模型包待 T029。 |
+| SC-006 | 純原文切段重建一致、兩次 producer／CLI 文件識別與段落數一致、sentinel／IPC 保護；真實模型完整重現待 T029／T039。 |
