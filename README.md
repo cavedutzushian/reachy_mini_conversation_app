@@ -250,6 +250,8 @@ Gemini voice precedence is saved Gemini voice, compatible personality voice,
 `GEMINI_VOICE`, then `Kore`. A personality with an incompatible voice requires a saved
 Gemini voice selection. Changing the Gemini voice never rewrites the HF startup voice.
 
+原始文件工具結果不寫入診斷日誌，固定的本機錯誤提示仍會顯示。
+
 The selected service receives microphone audio, requested camera snapshots, and enabled
 shared saved memories. Camera use is on demand; no continuous video is sent. Global camera
 controls and `--no-camera` apply. Existing memory storage, retention and deletion are shared.

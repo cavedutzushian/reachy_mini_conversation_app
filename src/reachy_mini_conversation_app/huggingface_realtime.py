@@ -183,10 +183,11 @@ class ToolInvocation:
 class DocumentOutput(AdditionalOutputs):
     """Keep queued document text bound to its original conversation turn."""
 
-    def __init__(self, invocation: ToolInvocation, text: str) -> None:
+    def __init__(self, invocation: ToolInvocation, text: str, *, local_notice: bool = False) -> None:
         """Attach ownership without exposing it in the displayed message."""
         super().__init__({"role": "assistant", "content": text})
         self.invocation = invocation
+        self.local_notice = local_notice
 
 
 class DocumentResponse(dict[str, object]):
@@ -319,7 +320,9 @@ class RealtimeConversationHandler(ConversationHandler):
             invocation.answer_retired = True
             if not invocation.timeout_notice_sent:
                 invocation.timeout_notice_sent = True
-                self.output_queue.put_nowait(DocumentOutput(invocation, "文件查詢已逾時，請稍後再試。"))
+                self.output_queue.put_nowait(
+                    DocumentOutput(invocation, "文件查詢已逾時，請稍後再試。", local_notice=True)
+                )
         runtime = self.deps.document_retrieval
         if (
             validated
@@ -333,6 +336,7 @@ class RealtimeConversationHandler(ConversationHandler):
                 DocumentOutput(
                     invocation,
                     "此文件索引為舊版，請停止 App，使用離線產包腳本重新產生新版索引包。",
+                    local_notice=True,
                 )
             )
         return result

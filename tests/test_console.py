@@ -35,7 +35,11 @@ from reachy_mini_conversation_app.personality_routes import (
     build_personality_ops,
 )
 from reachy_mini_conversation_app.conversation_handler import ConversationHandler
-from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, HuggingFaceRealtimeHandler
+from reachy_mini_conversation_app.huggingface_realtime import (
+    DocumentOutput,
+    ToolInvocation,
+    HuggingFaceRealtimeHandler,
+)
 
 
 CredentialClient = tuple[TestClient, LocalStream, GeminiCredentials, FakeVault]
@@ -1593,6 +1597,38 @@ async def test_play_loop_logs_text_outputs() -> None:
 
     await stream.play_loop()
 
+    robot.media.push_audio_sample.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level", ["INFO", "DEBUG"])
+async def test_play_loop_redacts_raw_document_outputs(caplog: pytest.LogCaptureFixture, level: str) -> None:
+    """Raw document tool text cannot enter diagnostics through the console consumer."""
+    handler = MagicMock()
+    stream = LocalStream(handler, _audio_robot(push_audio_sample=MagicMock()))
+    output = DocumentOutput(ToolInvocation("search_document"), '{"text":"document-private-sentinel"}')
+    handler.emit = AsyncMock(side_effect=_stop_after(stream, output))
+    with caplog.at_level(level, logger=console_mod.__name__):
+        await stream.play_loop()
+    assert "document-private-sentinel" not in caplog.text
+    assert output.args[0]["content"] == '{"text":"document-private-sentinel"}'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "notice",
+    ["文件查詢已逾時，請稍後再試。", "此文件索引為舊版，請停止 App，使用離線產包腳本重新產生新版索引包。"],
+)
+async def test_play_loop_keeps_document_local_notices(caplog: pytest.LogCaptureFixture, notice: str) -> None:
+    """Privacy redaction keeps required local error messages visible without TTS."""
+    handler = MagicMock()
+    robot = _audio_robot(push_audio_sample=MagicMock())
+    stream = LocalStream(handler, robot)
+    output = DocumentOutput(ToolInvocation("search_document"), notice, local_notice=True)
+    handler.emit = AsyncMock(side_effect=_stop_after(stream, output))
+    with caplog.at_level("INFO", logger=console_mod.__name__):
+        await stream.play_loop()
+    assert caplog.text.count(notice) == 1
     robot.media.push_audio_sample.assert_not_called()
 
 

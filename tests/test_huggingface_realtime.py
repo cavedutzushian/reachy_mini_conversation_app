@@ -1226,6 +1226,7 @@ async def test_document_timeout_notice_does_not_wait_for_network_or_speak(monkey
     await asyncio.sleep(0)
     notice = await handler.emit()
     assert "逾時" in str(notice.args)
+    assert isinstance(notice, hf_mod.DocumentOutput) and notice.local_notice
     assert not task.done()
     blocked.set()
     await task
@@ -1828,6 +1829,7 @@ async def test_legacy_local_notice_keeps_hf_generic_error_completion(monkeypatch
     assert sum(
         "此文件索引為舊版" in str(output.args) for output in outputs if isinstance(output, AdditionalOutputs)
     ) == int(legacy)
+    assert sum(isinstance(output, hf_mod.DocumentOutput) and output.local_notice for output in outputs) == int(legacy)
     sent = handler.connection.conversation.item.create.call_args.kwargs["item"]
     assert json.loads(sent["output"]) == {"error": "document_unavailable"}
     runtime.close()

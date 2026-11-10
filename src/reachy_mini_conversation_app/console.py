@@ -62,7 +62,10 @@ from reachy_mini_conversation_app.settings_store import (
     apply_settings_to_runtime,
     load_settings_into_runtime,
 )
-from reachy_mini_conversation_app.gemini_realtime import GeminiConnectionError, validate_gemini_candidate
+from reachy_mini_conversation_app.gemini_realtime import (
+    GeminiConnectionError,
+    validate_gemini_candidate,
+)
 from reachy_mini_conversation_app.language_routes import LanguageScope, register_language_methods
 from reachy_mini_conversation_app.audio.resampling import AudioResampler
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
@@ -79,6 +82,7 @@ from reachy_mini_conversation_app.conversation_handler import VADStatus, AudioFr
 from reachy_mini_conversation_app.huggingface_realtime import (
     CLOSE_TIMEOUT_S,
     SETUP_TIMEOUT_S,
+    DocumentOutput,
     RealtimeSessionState,
     RealtimeConversationHandler,
 )
@@ -1601,7 +1605,9 @@ class LocalStream:
             if isinstance(handler, RealtimeConversationHandler) and not handler._owns_connection():
                 continue
 
-            if isinstance(handler_output, AdditionalOutputs):
+            if isinstance(handler_output, DocumentOutput) and not handler_output.local_notice:
+                logger.info("Document tool output received [redacted]")
+            elif isinstance(handler_output, AdditionalOutputs):
                 for msg in handler_output.args:
                     content = msg.get("content", "")
                     if isinstance(content, str):
