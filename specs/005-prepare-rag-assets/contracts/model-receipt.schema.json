@@ -1,28 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Pinned BGE-M3 local model receipt v1",
+  "title": "Pinned embedding/reranker local model receipt v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "model_id", "revision", "resolved_revision", "files", "runtime", "verification"],
+  "required": ["schema_version", "role", "model_id", "revision", "resolved_revision", "files", "runtime", "verification"],
   "properties": {
-    "schema_version": {"const": 1},
-    "model_id": {"const": "BAAI/bge-m3"},
+    "schema_version": {"const": 2},
+    "model_id": {"enum": ["BAAI/bge-m3", "BAAI/bge-reranker-base"]},
     "revision": {"$ref": "#/$defs/revision"},
     "resolved_revision": {"$ref": "#/$defs/revision"},
     "files": {
-      "type": "array", "minItems": 10, "maxItems": 10, "uniqueItems": true,
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 10,
+      "uniqueItems": true,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["path", "size_bytes", "sha256"],
         "properties": {
-          "path": {"enum": ["config.json", "config_sentence_transformers.json", "modules.json", "sentence_bert_config.json", "1_Pooling/config.json", "sentencepiece.bpe.model", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json", "model.safetensors"]},
+          "path": {
+            "enum": [
+              "config.json",
+              "config_sentence_transformers.json",
+              "modules.json",
+              "sentence_bert_config.json",
+              "1_Pooling/config.json",
+              "sentencepiece.bpe.model",
+              "special_tokens_map.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "model.safetensors"
+            ]
+          },
           "size_bytes": {"type": "integer", "minimum": 1},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       }
     },
     "runtime": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["sentence_transformers_version", "torch_version", "transformers_version"],
       "properties": {
         "sentence_transformers_version": {"$ref": "#/$defs/packageVersion"},
@@ -30,17 +48,113 @@
         "transformers_version": {"$ref": "#/$defs/packageVersion"}
       }
     },
-    "verification": {
-      "type": "object", "additionalProperties": false,
-      "required": ["query", "embedding"],
-      "properties": {
-        "query": {"const": "這份文件主要說明什麼？"},
-        "embedding": {"type": "array", "minItems": 1024, "maxItems": 1024, "items": {"type": "number"}}
-      }
-    }
+    "verification": {"oneOf": [{"$ref": "#/$defs/embeddingVerification"}, {"$ref": "#/$defs/rerankerVerification"}]},
+    "role": {"enum": ["embedding", "reranker"]}
   },
   "$defs": {
     "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "packageVersion": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[0-9][a-zA-Z0-9.+_-]*$"}
-  }
+    "packageVersion": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[0-9][a-zA-Z0-9.+_-]*$"},
+    "embeddingVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "query", "embedding", "device", "precision"],
+      "properties": {
+        "query": {"const": "這份文件主要說明什麼？"},
+        "embedding": {"type": "array", "minItems": 1024, "maxItems": 1024, "items": {"type": "number"}},
+        "kind": {"const": "embedding"},
+        "device": {"const": "cpu"},
+        "precision": {"const": "float32"}
+      }
+    },
+    "rerankerVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "query", "passage", "logit", "activation", "max_pair_tokens", "device", "precision"],
+      "properties": {
+        "kind": {"const": "reranker"},
+        "query": {"const": "這份文件主要說明什麼？"},
+        "passage": {"const": "這是一份提供文件查詢的示範說明。"},
+        "logit": {"type": "number"},
+        "activation": {"const": "identity"},
+        "max_pair_tokens": {"const": 512},
+        "device": {"const": "cpu"},
+        "precision": {"const": "float32"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"role": {"const": "embedding"}}, "required": ["role"]},
+      "then": {
+        "properties": {
+          "model_id": {"const": "BAAI/bge-m3"},
+          "revision": {"const": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26"},
+          "resolved_revision": {"const": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26"},
+          "files": {
+            "minItems": 10,
+            "maxItems": 10,
+            "items": {
+              "properties": {
+                "path": {
+                  "enum": [
+                    "config.json",
+                    "config_sentence_transformers.json",
+                    "modules.json",
+                    "sentence_bert_config.json",
+                    "1_Pooling/config.json",
+                    "sentencepiece.bpe.model",
+                    "special_tokens_map.json",
+                    "tokenizer.json",
+                    "tokenizer_config.json",
+                    "model.safetensors"
+                  ]
+                }
+              }
+            },
+            "allOf": [
+              {"contains": {"properties": {"path": {"const": "config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "config_sentence_transformers.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "modules.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "sentence_bert_config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "1_Pooling/config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "sentencepiece.bpe.model"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "special_tokens_map.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "tokenizer.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "tokenizer_config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "model.safetensors"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1}
+            ]
+          },
+          "verification": {"$ref": "#/$defs/embeddingVerification"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"role": {"const": "reranker"}}, "required": ["role"]},
+      "then": {
+        "properties": {
+          "model_id": {"const": "BAAI/bge-reranker-base"},
+          "revision": {"const": "2cfc18c9415c912f9d8155881c133215df768a70"},
+          "resolved_revision": {"const": "2cfc18c9415c912f9d8155881c133215df768a70"},
+          "files": {
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "properties": {
+                "path": {"enum": ["config.json", "model.safetensors", "sentencepiece.bpe.model", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json"]}
+              }
+            },
+            "allOf": [
+              {"contains": {"properties": {"path": {"const": "config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "model.safetensors"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "sentencepiece.bpe.model"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "special_tokens_map.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "tokenizer.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1},
+              {"contains": {"properties": {"path": {"const": "tokenizer_config.json"}}, "required": ["path"]}, "minContains": 1, "maxContains": 1}
+            ]
+          },
+          "verification": {"$ref": "#/$defs/rerankerVerification"}
+        }
+      }
+    }
+  ]
 }

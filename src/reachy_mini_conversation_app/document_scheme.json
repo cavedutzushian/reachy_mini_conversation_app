@@ -1,0 +1,105 @@
+{
+  "strategy": {
+    "id": "chapter-alias-hybrid-bge-base-v1",
+    "chunking_version": "chapter-source-v1",
+    "source_context_version": "source-title-alias-v1",
+    "selection_version": "rerank-budget-then-distance-v1"
+  },
+  "chunking": {
+    "target_tokens": 300,
+    "overlap_tokens": 30,
+    "embedding_input_max_tokens": 512,
+    "heading_context_max_tokens": 64,
+    "alias_context_max_tokens": 48,
+    "heading_levels": 3,
+    "txt_without_headings": "single-document-paragraphs",
+    "aliases": "optional-user-supplied-source-verified"
+  },
+  "bm25": {
+    "tokenizer_version": "ascii-cjk23-v1",
+    "k1": 1.2,
+    "b": 0.75,
+    "idf": "log1p-positive",
+    "query_term_frequency": "unique",
+    "document_text": "model_text",
+    "statistics": "prebuilt"
+  },
+  "retrieval": {
+    "dense_top_k": 10,
+    "dense_method": "exact-parent-cosine",
+    "lexical_top_k": 10,
+    "lexical_positive_only": true,
+    "fusion": "rrf",
+    "rrf_k": 60,
+    "dense_weight": 1,
+    "lexical_weight": 1,
+    "rerank_candidates": 5,
+    "max_distance": 0.58,
+    "distance_stage": "after-rerank-selection-and-text-budget",
+    "top1_over_distance": "no-evidence",
+    "additional_over_distance": "remove-no-refill",
+    "same_parent_required": false,
+    "minimum_group_margin": 0
+  },
+  "reranking": {
+    "model_id": "BAAI/bge-reranker-base",
+    "revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+    "device": "cpu",
+    "precision": "float32",
+    "activation": "identity",
+    "max_pair_tokens": 512,
+    "batch_size": 4,
+    "input": "query-full-parent-model-text",
+    "truncation": "preserve-query-source-right-prefix",
+    "min_logit": 3.486859679222107,
+    "maximum_additional_logit_drop": 4,
+    "maximum_passages": 3,
+    "maximum_total_codepoints": 2000,
+    "tie_break": "chunk-id-ascending"
+  },
+  "embedding": {
+    "model_id": "BAAI/bge-m3",
+    "revision": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26",
+    "mode": "dense",
+    "dimension": 1024,
+    "precision": "float32",
+    "pooling": "cls",
+    "normalize": true,
+    "query_prefix": "",
+    "document_prefix": "",
+    "max_seq_length": 8192,
+    "metric": "cosine",
+    "device": "cpu"
+  },
+  "provenance": {
+    "scheme_id": "bge-base-final-selection-20261109",
+    "selection": "explicit-user-choice",
+    "quality_gate_passed": false,
+    "data_role": "200-exposed-replay-not-blind",
+    "experiment_source_sha256": "e623baa45cf2d31a72d964b6f5beaaddb082dfa81671e4b8cc466e7994bdf57e",
+    "observed": {
+      "positive_supported": 84,
+      "positive_total": 100,
+      "negative_false_accepts": 2,
+      "negative_total": 100,
+      "supported_passages": 127,
+      "accepted_passages": 131
+    },
+    "records": [
+      {
+        "name": "final-scheme.json",
+        "sha256": "3a3ce834463b5998a3e8a48b6a5b1ff8283c8607e7e9e35f2711400a50579b2d"
+      },
+      {
+        "name": "report.md",
+        "sha256": "c467755a0754def11355daea2d97a6b4d22c4004161e513ab1d747c5ce6b378c"
+      }
+    ],
+    "known_limits": [
+      "200題均已曝光，不是新盲測；原品質阻擋標準未通過。",
+      "0.58只為本方案選段與字元預算後的父cosine上限，不是獨立可信度或新文件校準證明。",
+      "已發生負例誤放行：錦和量具品牌／型號／校正日期、中和／Team399交流確切時刻。",
+      "新文件、通用章節切段與人工別名不自動繼承example.md的歷史品質；288段不是產包常數。"
+    ]
+  }
+}

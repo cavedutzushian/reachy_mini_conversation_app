@@ -99,43 +99,57 @@ Windows and Linux. Model files and document indexes are supplied separately and 
 downloaded by this command. The retrieval tool is not enabled by installing the extra.
 Without the extra, normal conversation does not require these dependencies.
 Document retrieval reads `REACHY_MINI_DOCUMENT_INDEX_PATH` (one complete prebuilt Chroma
-package) and `REACHY_MINI_DOCUMENT_MODEL_PATH` (the matching local BGE-M3 model directory)
-at startup. Relative paths resolve from the launch directory. Both default to unset;
+package), `REACHY_MINI_DOCUMENT_MODEL_PATH` (the matching local BGE-M3 model directory),
+and `REACHY_MINI_DOCUMENT_RERANKER_PATH` (the matching local BGE-base reranker directory)
+at startup. Relative paths resolve from the launch directory. All three default to unset;
 URLs are rejected. Stop the app before replacing a complete package, then restart.
 Changing the environment during a conversation does not replace the selected document.
 
 Enable `search_document` for the selected personality under Tools → Tool access. It is
 optional and disabled by default; ordinary conversation still works without a document.
-Supply a complete `manifest.json` and `chroma/` directory conforming to the
+Supply a complete `manifest.json`, `chroma/` and prebuilt `retrieval/` directory conforming to the
 [index package contract](specs/004-single-document-rag/contracts/index-package.md) and
 [manifest schema](specs/004-single-document-rag/contracts/index-manifest.schema.json).
 An external preparation step must supply all chunks, source locators, dense normalized
 1024-dimensional vectors, file checksums, exact runtime versions, a matching reference
-embedding and a calibrated cosine distance limit. The running app never builds an index or uploads a source document.
+embedding, prebuilt BM25 data, a matching reranker and the explicitly selected fixed retrieval scheme. The running app never builds an index or uploads a source document.
 Only the stated document and version are searchable; other files and URLs are not tool inputs.
+文件對話會要求模型保留完整問題、照原值引用書名／版本／定位，並保留數值及名稱的限定語意；
+這些指令不能保證模型遵循，仍須核對實際回覆與返回原文。
 
 ### 手動準備本機文件素材
 
-先安裝鎖定依賴：`uv sync --frozen --extra rag --group dev`。以下兩個模組只由部署者手動執行，不會在 App 啟動、對話或工具呼叫時執行。
+先安裝鎖定依賴：`uv sync --frozen --extra rag --group dev`。停止 App 後，以兩次模型準備及一次離線產包完成三步；這些 CLI 不會由 App 或工具自動執行。
 
 ```powershell
-python -m reachy_mini_conversation_app.download_document_model --revision $env:BGE_M3_REVISION
-python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_SOURCE_FILE --document-id manual --title "文件手冊" --document-version v1 --index-version build-1 --max-distance $env:RAG_MAX_DISTANCE
+python -m reachy_mini_conversation_app.download_document_model --role embedding --revision 50f9396f75618b3389c1fd1068a1ff58dc7b5b26
+python -m reachy_mini_conversation_app.download_document_model --role reranker --revision 2cfc18c9415c912f9d8155881c133215df768a70
+python -m reachy_mini_conversation_app.build_document_package --input $env:RAG_SOURCE_FILE --document-id manual --title "文件手冊" --document-version v1 --index-version build-2 --scheme bge-base-final-selection-20261109
 ```
 
-命令變數須由部署者提供：`BGE_M3_REVISION` 是信任的 `BAAI/bge-m3` 完整 40 位小寫 commit SHA，且該版本必須已含 `model.safetensors`；不接受 main／tag，不自動採用未合併 PR，也不轉換 bin 權重。`RAG_SOURCE_FILE` 是唯一一份 UTF-8（可含 BOM）的 `.txt`／`.md`／`.markdown`；`RAG_MAX_DISTANCE` 是使用者已校準的有限值（0～2），沒有通用預設或自動校準。以上只是命令變數，不是新增 App 設定。
+下載每次必須明確指定角色及其固定 revision，只接受上述 BGE-M3／BGE-base 安全權重版本。匿名下載不使用日常憑證／私人快取；不接受 main、tag、其他 commit、權重轉換或自動換模型。發布前在獨立離線 CPU 程序驗證角色、完整檔案、雜湊、實際套件版本及向量／有限原始 logit，寫入 v2 `model-receipt.json`。同角色完整版本可離線重用；舊 v1 receipt 須明確重新準備，替換需加 `--replace`。
 
-Windows 若遇到 `hf_xet` 原生傳輸錯誤，可在啟動下載命令前於當次行程設定 `$env:HF_HUB_DISABLE_XET="1"`，使用同一固定 revision 的一般 HTTP 傳輸。本機實際模型驗收採此方式；不需更換模型、權重格式或依賴。
+`RAG_SOURCE_FILE` 是唯一一份本機 UTF-8（可含 BOM）的 `.txt`／`.md`／`.markdown`。產包要求明確選取 `--scheme`，不接受單獨 `--max-distance` 或參數覆寫，不自動校準。無標題 TXT 使用檔名及真實行號；Markdown 保留原有 ATX 標題，排除程式碼區塊內假標題。原文與行尾不重寫，所有文件向量、BM25 統計及索引都在此離線預建；沒有下載、雲端處理、連結展開或執行文件指令。
 
-模型與包分別預設在 source checkout 的 `external_content/bge-m3-model/`、`external_content/document-package/`，不隨工作目錄改變。可用 `--output` 指定其他本機目的地，產包另有 `--model`；只有安裝 wheel、沒有 checkout 時須明確提供路徑。自訂 repo 內輸出必須事先被 Git 忽略；不要把來源、模型或索引提交至 Git。
+可用 `--aliases <json-file>` 提供同文件／版本的人工別名與原文證據、章節範圍；缺省為空清單，不自動生成。固定章節切段目標為 300 content tokens、重疊 30、標題／別名脈絡各最多 64／48 tokens，完整嵌入輸入含特殊 tokens 最多 512。來源字元、ID、定位與 BM25 可重現，詳見 [章節與來源合約](specs/005-prepare-rag-assets/contracts/chapter-source-v1.md)。
 
-下載先核對 revision／安全檔案清單，再下載，最後在獨立離線 CPU 程序驗證並寫入 `model-receipt.json`。相同完整 revision 重跑會先離線核對，成功即零網路返回。產包全程離線，禁止缺模型時自動下載；不解析或執行 Markdown 的連結、圖片、HTML 或程式碼。原文與行尾保留，固定切段採 400 content token 候選、50 token 起點重疊規則，每片含特殊 tokens 不超過 512；完整規則與定位範例見 [source-window-v1](specs/005-prepare-rag-assets/contracts/source-window-v1.md)。包通過獨立 reader／全量資料與持久索引不變性檢查後才發布。
+選用方案為 exact dense 前十與 BM25 正分前十、等權 RRF60、最多五個完整候選由 BGE-base 重排；最低 raw logit=3.486859679222107、附加分差最多4、最多三段／2000字元。之後才套父段落 cosine 上限0.58：第一名超限整次無依據，附加超限刪除，不補段或改選。只回傳實際評分可見的原文前綴及真實定位。0.58是使用者選定組合的實務上限，未通過原品質阻擋標準，不是獨立可信度、dense-only通用門檻或新文件已校準的證明；200題歷史資料已曝光。
 
-目的地預設不得覆寫；替換前先停止 App，再明確加 `--replace`。兩腳本不會替你停止／啟動 App、改 `.env`、讀憑證或調整相機／記憶。成功時只顯示既有模型／索引路徑設定建議；準備完成不等於已啟用工具或通過語音／品質驗收。
+預設素材位於 source checkout 的 `external_content/bge-m3-model/`、`external_content/bge-reranker-base-model/`、`external_content/document-package/`，不隨工作目錄改變。下載可指定 `--output`；產包可指定 `--model`、`--reranker-model`、`--output`。只有 wheel、無 checkout 時須明確提供三個產包路徑；repo 內自訂輸出須事先被 Git 忽略。來源、模型與索引不加入 Git。
 
-發布前普通失敗保留或恢復舊資料；Windows 替換時目的地可暫移至同父目錄 backup，不保證路徑全程存在。已驗證 stage 移至正式位置後即完成發布；之後清理失敗會保留新版並回報「已發布，清理未完成」（exit 8），不得自動重跑或回復。突然終止時，先確認沒有準備程序，再核對 `.目的地.lock/operation.json` 的 UUID／basename、實際 stage／backup／目的地及雜湊，人工恢復完整版本後只清理該次自有殘留；不要只刪 lock 或依 PID／時間強制破鎖。
+候選包必須由獨立 v2 reader 載入兩模型，完整執行混合檢索／重排，再確認原文、向量、BM25、全部邏輯資料與持久索引不變性後才發布。只有實際通過的平台可列入包；新版拒絕 v1 包，須使用原文件離線重新產包。素材完整性與整合測試不代表品質、CPU時限或語音驗收通過；實際雙模型驗收進度見 [驗收指南](specs/005-prepare-rag-assets/quickstart.md)。
 
-結束碼：0 完成／已就緒；2 參數／文件／門檻無效；3 模型或 revision 不相容；4 目的地已存在／忙碌／路徑不安全；5 下載不可用；6 驗證／封存失敗；7 I/O 失敗；8 需人工恢復或已發布待清理；130 發布前安全取消。發布後取消清理仍為 8。僅宣告實測通過的平台；本機驗收範圍為 Windows，Linux／macOS 未測。完整介面見 [CLI 合約](specs/005-prepare-rag-assets/contracts/preparation-cli.md)。
+Windows 若遇 `hf_xet` 原生傳輸錯誤，可在當次行程設定 `$env:HF_HUB_DISABLE_XET="1"`，改用同一固定 revision 的一般 HTTP 傳輸，不更換模型、格式或依賴。
+
+目的地預設不得覆寫；明確加 `--replace` 才替換。兩模型依規範路徑排序取鎖，最後鎖包；忙碌即退出，不按時間或 PID 破鎖。CLI 不停止／啟動 App、不改 `.env`、一般設定或憑證庫。完成後只顯示 `REACHY_MINI_DOCUMENT_MODEL_PATH`、`REACHY_MINI_DOCUMENT_RERANKER_PATH`、`REACHY_MINI_DOCUMENT_INDEX_PATH` 的設定建議，由使用者明確配置並重新啟動。
+
+發布前普通失敗保留或恢復舊內容；Windows 替換不保證目的地路徑全程存在。已驗證 stage 移至正式目的地後，清理失敗保留新版並回報「已發布，清理未完成」（exit 8），不自動重跑或回復。硬中斷或未確認工作程序退出時保留自有鎖／暫存；先人工確認沒有準備程序，再核對操作記錄、實際目錄及雜湊，恢復完整版本後只清理本次殘留，不只刪鎖或停止其他 App。
+
+結束碼：0 完成／已就緒；2 參數／文件／方案／別名無效；3 模型或 revision 不相容；4 目的地已存在／忙碌／路徑不安全；5 下載不可用；6 驗證／封存失敗；7 I/O 失敗；8 需人工恢復或已發布待清理；130 發布前安全取消。發布後取消仍為8。本機驗收以 Windows為範圍，Linux／macOS 未實測，既有跨平台 CI 保留。完整介面見 [CLI 合約](specs/005-prepare-rag-assets/contracts/preparation-cli.md)。
+
+確認為 v1 舊包時，公開結果仍是 `document_unavailable`，另在本機顯示「此文件索引為舊版，請停止 App，使用離線產包腳本重新產生新版索引包。」每次有效呼叫最多一次；插話、取消、停用或換對話後丟棄提示。原因不送供應商，也不新增語音；一般錯誤回覆行為不變。
+
+CPU 驗收先固定同文件的 50 題可答性、必要資訊及原文證據，執行後另做人工核對；未判讀或不確定不計成功，人工耗時不混入工具延遲。測試支援只更新人工核對報表而不重跑查詢，所有資料放工作區 cache，不是 App 查詢快取。操作與目前未完成的正式驗收見 [004 驗收指南](specs/004-single-document-rag/quickstart.md)。
 
 The first query starts a local CPU worker and can report not ready; ask again after loading.
 The original query, including whitespace, is limited to 500 Unicode characters. Results

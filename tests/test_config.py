@@ -10,22 +10,24 @@ from reachy_mini_conversation_app import config
 
 
 def test_document_paths_default_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Document retrieval requires two explicitly configured local paths."""
+    """Document retrieval requires three explicitly configured local paths."""
     monkeypatch.delenv("REACHY_MINI_DOCUMENT_INDEX_PATH", raising=False)
     monkeypatch.delenv("REACHY_MINI_DOCUMENT_MODEL_PATH", raising=False)
-    assert config.resolve_document_paths() == (None, None)
+    monkeypatch.delenv("REACHY_MINI_DOCUMENT_RERANKER_PATH", raising=False)
+    assert config.resolve_document_paths() == (None, None, None)
 
 
-@pytest.mark.parametrize("missing", ["INDEX", "MODEL"])
+@pytest.mark.parametrize("missing", ["INDEX", "MODEL", "RERANKER"])
 def test_document_paths_preserve_missing_configuration(
     missing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Partial configuration remains incomplete rather than supplying an implicit path."""
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_INDEX_PATH", str(tmp_path / "package"))
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_MODEL_PATH", str(tmp_path / "model"))
+    monkeypatch.setenv("REACHY_MINI_DOCUMENT_RERANKER_PATH", str(tmp_path / "reranker"))
     monkeypatch.delenv(f"REACHY_MINI_DOCUMENT_{missing}_PATH")
     paths = config.resolve_document_paths()
-    assert paths[0 if missing == "INDEX" else 1] is None
+    assert paths[{"INDEX": 0, "MODEL": 1, "RERANKER": 2}[missing]] is None
 
 
 def test_document_paths_resolve_once_at_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,13 +35,19 @@ def test_document_paths_resolve_once_at_startup(tmp_path: Path, monkeypatch: pyt
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_INDEX_PATH", "designated-package")
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_MODEL_PATH", "local-model")
+    monkeypatch.setenv("REACHY_MINI_DOCUMENT_RERANKER_PATH", "local-reranker")
     paths = config.resolve_document_paths()
-    assert paths == (tmp_path / "designated-package", tmp_path / "local-model")
+    assert paths == (tmp_path / "designated-package", tmp_path / "local-model", tmp_path / "local-reranker")
     monkeypatch.setattr(config.config, "DOCUMENT_INDEX_PATH", paths[0], raising=False)
     monkeypatch.setattr(config.config, "DOCUMENT_MODEL_PATH", paths[1], raising=False)
+    monkeypatch.setattr(config.config, "DOCUMENT_RERANKER_PATH", paths[2], raising=False)
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_INDEX_PATH", "another-package")
     config.refresh_runtime_config_from_env()
-    assert (config.config.DOCUMENT_INDEX_PATH, config.config.DOCUMENT_MODEL_PATH) == paths
+    assert (
+        config.config.DOCUMENT_INDEX_PATH,
+        config.config.DOCUMENT_MODEL_PATH,
+        config.config.DOCUMENT_RERANKER_PATH,
+    ) == paths
 
 
 @pytest.mark.parametrize("value", ["https://example.test/index", "file:///private/index", "ssh://host/index"])
@@ -49,7 +57,8 @@ def test_document_paths_reject_urls_without_logging_path(
     """Remote document locations are rejected without disclosing their contents."""
     monkeypatch.setenv("REACHY_MINI_DOCUMENT_INDEX_PATH", value)
     monkeypatch.delenv("REACHY_MINI_DOCUMENT_MODEL_PATH", raising=False)
-    assert config.resolve_document_paths() == (None, None)
+    monkeypatch.delenv("REACHY_MINI_DOCUMENT_RERANKER_PATH", raising=False)
+    assert config.resolve_document_paths() == (None, None, None)
     assert value not in caplog.text
 
 

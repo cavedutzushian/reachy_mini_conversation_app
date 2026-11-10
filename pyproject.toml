@@ -88,6 +88,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 reachy_mini_conversation_app = [
   "*.schema.json",
+  "document_scheme.json",
   "static/**/*",
   "templates/*.html",
   ".env.example",

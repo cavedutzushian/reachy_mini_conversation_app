@@ -329,6 +329,7 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
     assert len(wheel_files) == 1, f"Expected exactly one built wheel in {dist_dir}, found: {wheel_files}"
 
     with zipfile.ZipFile(wheel_files[0]) as archive:
+        assert not any("document_cpu_evaluation" in name for name in archive.namelist())
         archived_paths = [PurePosixPath(info.filename) for info in archive.infolist() if not info.is_dir()]
         assert "reachy_mini_conversation_app/templates/gemini-key.html" not in archive.namelist()
         assert "reachy_mini_conversation_app/static/js/gemini-key.js" in archive.namelist()
@@ -338,6 +339,16 @@ def test_wheel_file_paths_stay_within_windows_budget(tmp_path: Path) -> None:
                 encoding="utf-8"
             )
         )
+        scheme_path = "reachy_mini_conversation_app/document_scheme.json"
+        assert json.loads(archive.read(scheme_path)) == json.loads(
+            (project_root / "src/reachy_mini_conversation_app/document_scheme.json").read_text(encoding="utf-8")
+        )
+        scheme = json.loads(archive.read(scheme_path))
+        assert scheme["provenance"]["quality_gate_passed"] is False
+        assert scheme["provenance"]["data_role"] == "200-exposed-replay-not-blind"
+        assert {record["name"] for record in scheme["provenance"]["records"]} == {"final-scheme.json", "report.md"}
+        assert scheme["retrieval"]["max_distance"] == 0.58
+        assert scheme["reranking"]["min_logit"] == 3.486859679222107
         receipt_schema = "reachy_mini_conversation_app/document_model_receipt.schema.json"
         assert json.loads(archive.read(receipt_schema)) == json.loads(
             (project_root / "specs/005-prepare-rag-assets/contracts/model-receipt.schema.json").read_text(

@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Single-document prebuilt Chroma package manifest v1",
+  "title": "Single-document prebuilt hybrid/rerank Chroma package manifest v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "index_version", "document", "engine", "producer", "validated_targets", "snapshot_complete", "chunk_count", "files", "embedding", "retrieval", "reference"],
+  "required": ["schema_version", "index_version", "document", "engine", "producer", "validated_targets", "snapshot_complete", "chunk_count", "files", "embedding", "retrieval", "reference", "strategy", "chunking", "assets", "bm25", "reranking", "provenance"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "index_version": {"$ref": "#/$defs/identifier"},
     "document": {
       "type": "object",
@@ -29,17 +29,22 @@
       }
     },
     "producer": {"$ref": "#/$defs/target"},
-    "validated_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/target"}},
+    "validated_targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/target"}
+    },
     "snapshot_complete": {"const": true},
     "chunk_count": {"type": "integer", "minimum": 1},
     "files": {"$ref": "#/$defs/fileInventory"},
     "embedding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model_id", "revision", "files", "sentence_transformers_version", "torch_version", "transformers_version", "mode", "dimension", "precision", "pooling", "normalize", "query_prefix", "document_prefix", "max_seq_length", "metric"],
+      "required": ["model_id", "revision", "files", "sentence_transformers_version", "torch_version", "transformers_version", "mode", "dimension", "precision", "pooling", "normalize", "query_prefix", "document_prefix", "max_seq_length", "metric", "device"],
       "properties": {
         "model_id": {"const": "BAAI/bge-m3"},
-        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "revision": {"const": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26"},
         "files": {"$ref": "#/$defs/fileInventory"},
         "sentence_transformers_version": {"$ref": "#/$defs/packageVersion"},
         "torch_version": {"$ref": "#/$defs/packageVersion"},
@@ -52,14 +57,31 @@
         "query_prefix": {"const": ""},
         "document_prefix": {"const": ""},
         "max_seq_length": {"const": 8192},
-        "metric": {"const": "cosine"}
+        "metric": {"const": "cosine"},
+        "device": {"const": "cpu"}
       }
     },
     "retrieval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["max_distance"],
-      "properties": {"max_distance": {"type": "number", "minimum": 0, "maximum": 2}}
+      "required": ["dense_top_k", "dense_method", "lexical_top_k", "lexical_positive_only", "fusion", "rrf_k", "dense_weight", "lexical_weight", "rerank_candidates", "max_distance", "distance_stage", "top1_over_distance", "additional_over_distance", "same_parent_required", "minimum_group_margin"],
+      "properties": {
+        "dense_top_k": {"const": 10},
+        "dense_method": {"const": "exact-parent-cosine"},
+        "lexical_top_k": {"const": 10},
+        "lexical_positive_only": {"const": true},
+        "fusion": {"const": "rrf"},
+        "rrf_k": {"const": 60},
+        "dense_weight": {"const": 1},
+        "lexical_weight": {"const": 1},
+        "rerank_candidates": {"const": 5},
+        "max_distance": {"const": 0.58},
+        "distance_stage": {"const": "after-rerank-selection-and-text-budget"},
+        "top1_over_distance": {"const": "no-evidence"},
+        "additional_over_distance": {"const": "remove-no-refill"},
+        "same_parent_required": {"const": false},
+        "minimum_group_margin": {"const": 0}
+      }
     },
     "reference": {
       "type": "object",
@@ -67,7 +89,144 @@
       "required": ["query", "embedding"],
       "properties": {
         "query": {"type": "string", "minLength": 1, "maxLength": 500},
-        "embedding": {"type": "array", "minItems": 1024, "maxItems": 1024, "items": {"type": "number"}}
+        "embedding": {
+          "type": "array",
+          "minItems": 1024,
+          "maxItems": 1024,
+          "items": {"type": "number"}
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "chunking_version", "source_context_version", "selection_version"],
+      "properties": {
+        "id": {"const": "chapter-alias-hybrid-bge-base-v1"},
+        "chunking_version": {"const": "chapter-source-v1"},
+        "source_context_version": {"const": "source-title-alias-v1"},
+        "selection_version": {"const": "rerank-budget-then-distance-v1"}
+      }
+    },
+    "chunking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_tokens", "overlap_tokens", "embedding_input_max_tokens", "heading_context_max_tokens", "alias_context_max_tokens", "heading_levels", "txt_without_headings", "aliases"],
+      "properties": {
+        "target_tokens": {"const": 300},
+        "overlap_tokens": {"const": 30},
+        "embedding_input_max_tokens": {"const": 512},
+        "heading_context_max_tokens": {"const": 64},
+        "alias_context_max_tokens": {"const": 48},
+        "heading_levels": {"const": 3},
+        "txt_without_headings": {"const": "single-document-paragraphs"},
+        "aliases": {"const": "optional-user-supplied-source-verified"}
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"enum": ["chunks.jsonl", "bm25.json"]},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    },
+    "bm25": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokenizer_version", "k1", "b", "idf", "query_term_frequency", "document_text", "statistics"],
+      "properties": {
+        "tokenizer_version": {"const": "ascii-cjk23-v1"},
+        "k1": {"const": 1.2},
+        "b": {"const": 0.75},
+        "idf": {"const": "log1p-positive"},
+        "query_term_frequency": {"const": "unique"},
+        "document_text": {"const": "model_text"},
+        "statistics": {"const": "prebuilt"}
+      }
+    },
+    "reranking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_id", "revision", "files", "sentence_transformers_version", "torch_version", "transformers_version", "device", "precision", "activation", "max_pair_tokens", "batch_size", "input", "truncation", "min_logit", "maximum_additional_logit_drop", "maximum_passages", "maximum_total_codepoints", "tie_break"],
+      "properties": {
+        "model_id": {"const": "BAAI/bge-reranker-base"},
+        "revision": {"const": "2cfc18c9415c912f9d8155881c133215df768a70"},
+        "files": {"$ref": "#/$defs/fileInventory"},
+        "sentence_transformers_version": {"$ref": "#/$defs/packageVersion"},
+        "torch_version": {"$ref": "#/$defs/packageVersion"},
+        "transformers_version": {"$ref": "#/$defs/packageVersion"},
+        "device": {"const": "cpu"},
+        "precision": {"const": "float32"},
+        "activation": {"const": "identity"},
+        "max_pair_tokens": {"const": 512},
+        "batch_size": {"const": 4},
+        "input": {"const": "query-full-parent-model-text"},
+        "truncation": {"const": "preserve-query-source-right-prefix"},
+        "min_logit": {"const": 3.486859679222107},
+        "maximum_additional_logit_drop": {"const": 4},
+        "maximum_passages": {"const": 3},
+        "maximum_total_codepoints": {"const": 2000},
+        "tie_break": {"const": "chunk-id-ascending"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme_id", "selection", "quality_gate_passed", "data_role", "experiment_source_sha256", "records", "observed", "known_limits"],
+      "properties": {
+        "scheme_id": {"const": "bge-base-final-selection-20261109"},
+        "selection": {"const": "explicit-user-choice"},
+        "quality_gate_passed": {"const": false},
+        "data_role": {"const": "200-exposed-replay-not-blind"},
+        "experiment_source_sha256": {"const": "e623baa45cf2d31a72d964b6f5beaaddb082dfa81671e4b8cc466e7994bdf57e"},
+        "records": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sha256"],
+            "properties": {
+              "name": {"enum": ["final-scheme.json", "report.md"]},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["positive_supported", "positive_total", "negative_false_accepts", "negative_total", "supported_passages", "accepted_passages"],
+          "properties": {
+            "positive_supported": {"const": 84},
+            "positive_total": {"const": 100},
+            "negative_false_accepts": {"const": 2},
+            "negative_total": {"const": 100},
+            "supported_passages": {"const": 127},
+            "accepted_passages": {"const": 131}
+          }
+        },
+        "known_limits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     }
   },

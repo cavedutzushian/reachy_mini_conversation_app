@@ -10,7 +10,13 @@ import pytest
 from httpx import ConnectError
 
 from reachy_mini_conversation_app import download_document_model as download
-from reachy_mini_conversation_app.document_assets import PAYLOAD_FILES, file_inventory
+from reachy_mini_conversation_app.document_assets import (
+    PAYLOAD_FILES,
+    MODEL_REVISION,
+    RERANKER_REVISION,
+    RERANKER_PAYLOAD_FILES,
+    file_inventory,
+)
 
 
 def test_download_help_does_not_import_inference_or_configuration() -> None:
@@ -31,20 +37,28 @@ def test_floating_revision_is_rejected_before_network() -> None:
     """An unpinned revision cannot reach Hub preflight or create asset directories."""
     command = """
 from reachy_mini_conversation_app.download_document_model import main
-assert main(["--revision", "main"]) == 2
+assert main(["--role", "embedding", "--revision", "main"]) == 2
 """
     subprocess.run([sys.executable, "-c", command], check=True, capture_output=True)
 
 
+@pytest.mark.parametrize("role", ["embedding", "reranker"])
 def test_download_validates_then_reuses_the_same_complete_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:
     """Anonymous allowlisted transport and worker validation precede publication and zero-network reuse."""
-    revision = "a" * 40
-    payloads = dict.fromkeys(PAYLOAD_FILES, b"synthetic safe payload, never loaded")
+    revision = MODEL_REVISION if role == "embedding" else RERANKER_REVISION
+    model_id = "BAAI/bge-m3" if role == "embedding" else "BAAI/bge-reranker-base"
+    names = PAYLOAD_FILES if role == "embedding" else RERANKER_PAYLOAD_FILES
+    payloads = dict.fromkeys(names, b"synthetic safe payload, never loaded")
     payloads["modules.json"] = json.dumps([{"path": ""}, {"path": "1_Pooling"}, {"path": "2_Normalize"}]).encode()
     payloads["1_Pooling/config.json"] = b'{"pooling_mode_cls_token":true}'
     payloads["sentence_bert_config.json"] = b'{"max_seq_length":8192}'
+    if role == "reranker":
+        payloads = {name: payloads[name] for name in names}
+        payloads["config.json"] = (
+            b'{"model_type":"xlm-roberta","architectures":["XLMRobertaForSequenceClassification"]}'
+        )
     requests: list[str] = []
 
     def fake_api(**kwargs):
@@ -66,7 +80,7 @@ def test_download_validates_then_reuses_the_same_complete_snapshot(
         )
 
     def provide_file(repo_id, filename, **kwargs):
-        assert repo_id == "BAAI/bge-m3" and kwargs["token"] is False and kwargs["revision"] == revision
+        assert repo_id == model_id and kwargs["token"] is False and kwargs["revision"] == revision
         assert kwargs["endpoint"] == "https://huggingface.co"
         path = kwargs["local_dir"] / filename
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,15 +89,16 @@ def test_download_validates_then_reuses_the_same_complete_snapshot(
         return str(path)
 
     def fake_snapshot(repo_id, **kwargs):
-        assert kwargs.pop("allow_patterns") == list(PAYLOAD_FILES)
-        for name in PAYLOAD_FILES:
+        assert kwargs.pop("allow_patterns") == list(names)
+        for name in names:
             provide_file(repo_id, name, **kwargs)
 
     def fake_worker(request, operation):
         stage = operation.stage
         receipt = {
-            "schema_version": 1,
-            "model_id": "BAAI/bge-m3",
+            "schema_version": 2,
+            "role": role,
+            "model_id": model_id,
             "revision": revision,
             "resolved_revision": revision,
             "files": [
@@ -94,8 +109,25 @@ def test_download_validates_then_reuses_the_same_complete_snapshot(
                 "torch_version": "2.15.0+cpu",
                 "transformers_version": "5.21.0",
             },
-            "verification": {"query": "這份文件主要說明什麼？", "embedding": [1.0] + [0.0] * 1023},
+            "verification": {
+                "kind": "embedding",
+                "device": "cpu",
+                "precision": "float32",
+                "query": "這份文件主要說明什麼？",
+                "embedding": [1.0] + [0.0] * 1023,
+            },
         }
+        if role == "reranker":
+            receipt["verification"] = {
+                "kind": "reranker",
+                "device": "cpu",
+                "precision": "float32",
+                "query": "這份文件主要說明什麼？",
+                "passage": "這是一份提供文件查詢的示範說明。",
+                "logit": -3.25,
+                "activation": "identity",
+                "max_pair_tokens": 512,
+            }
         (stage / "model-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
         return {"status": "ok", "verified": True}
 
@@ -104,7 +136,7 @@ def test_download_validates_then_reuses_the_same_complete_snapshot(
     monkeypatch.setattr(download, "hf_hub_download", provide_file)
     monkeypatch.setattr(download, "snapshot_download", fake_snapshot)
     monkeypatch.setattr(download, "run_preparation_worker", fake_worker)
-    arguments = ["--revision", revision, "--output", str(tmp_path / "model")]
+    arguments = ["--role", role, "--revision", revision, "--output", str(tmp_path / "model")]
     assert download.main(arguments) == 0
     calls = requests.copy()
     assert download.main(arguments) == 0 and requests == calls
@@ -121,10 +153,12 @@ def test_snapshot_without_safe_weights_is_rejected_before_file_download(
         download,
         "HfApi",
         lambda **kwargs: SimpleNamespace(
-            model_info=lambda *args, **options: SimpleNamespace(sha="a" * 40, siblings=[])
+            model_info=lambda *args, **options: SimpleNamespace(sha=MODEL_REVISION, siblings=[])
         ),
     )
-    assert download.main(["--revision", "a" * 40, "--output", str(tmp_path / "model")]) == 3
+    assert (
+        download.main(["--role", "embedding", "--revision", MODEL_REVISION, "--output", str(tmp_path / "model")]) == 3
+    )
     assert not (tmp_path / "model").exists()
 
 
@@ -144,7 +178,7 @@ def test_interrupted_download_preserves_previous_bytes_and_redacts_provider_body
         "HfApi",
         lambda **kwargs: SimpleNamespace(
             model_info=lambda *args, **options: SimpleNamespace(
-                sha="a" * 40, siblings=[SimpleNamespace(rfilename=name) for name in PAYLOAD_FILES]
+                sha=MODEL_REVISION, siblings=[SimpleNamespace(rfilename=name) for name in PAYLOAD_FILES]
             )
         ),
     )
@@ -153,7 +187,10 @@ def test_interrupted_download_preserves_previous_bytes_and_redacts_provider_body
         raise ConnectError("private-provider-body-sentinel")
 
     monkeypatch.setattr(download, "hf_hub_download", fail_transport)
-    assert download.main(["--revision", "a" * 40, "--output", str(destination), "--replace"]) == 5
+    assert (
+        download.main(["--role", "embedding", "--revision", MODEL_REVISION, "--output", str(destination), "--replace"])
+        == 5
+    )
     assert (destination / "old").read_bytes() == b"old bytes"
     assert "private-provider-body-sentinel" not in capsys.readouterr().out + caplog.text
     assert not (tmp_path / ".model.lock").exists()
@@ -170,12 +207,13 @@ def test_source_checkout_default_is_independent_of_working_directory(tmp_path: P
 
 
 @pytest.mark.skipif(os.environ.get("RUN_DOCUMENT_MODEL_ACCEPTANCE") != "1", reason="Explicit approved model download")
+@pytest.mark.parametrize("role", ["embedding", "reranker"])
 def test_approved_snapshot_loads_offline_and_reuses_without_network(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str
 ) -> None:
     """A deployment-approved immutable snapshot must pass the actual CPU worker before reuse."""
-    revision = os.environ["DOCUMENT_MODEL_REVISION"]
-    arguments = ["--revision", revision, "--output", str(tmp_path / "model")]
+    revision = MODEL_REVISION if role == "embedding" else RERANKER_REVISION
+    arguments = ["--role", role, "--revision", revision, "--output", str(tmp_path / "model")]
     assert download.main(arguments) == 0
     before = file_inventory(tmp_path / "model")
 
@@ -185,3 +223,17 @@ def test_approved_snapshot_loads_offline_and_reuses_without_network(
     monkeypatch.setattr(download, "HfApi", unexpected_network)
     assert download.main(arguments) == 0
     assert file_inventory(tmp_path / "model") == before
+
+
+@pytest.mark.parametrize("role,revision", [("embedding", "a" * 40), ("reranker", MODEL_REVISION)])
+def test_wrong_role_revision_fails_before_any_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, revision: str
+) -> None:
+    """A valid-looking SHA from the wrong role never reaches the public hub."""
+
+    def unexpected_transport(**kwargs):
+        pytest.fail("Invalid fixed role/version reached transport")
+
+    monkeypatch.setattr(download, "HfApi", unexpected_transport)
+    assert download.main(["--role", role, "--revision", revision, "--output", str(tmp_path / "model")]) == 3
+    assert not (tmp_path / "model").exists()

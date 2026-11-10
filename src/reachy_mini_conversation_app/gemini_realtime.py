@@ -236,7 +236,6 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                                 break
                     if not self._owns_connection():
                         return
-                    self._ready = True
                     self.session_state.context_state = "resumed" if handle else "new"
                     output_rate = self.deps.reachy_mini.media.get_output_audio_samplerate()
                     self._output_rate = output_rate if isinstance(output_rate, int) and output_rate > 0 else 24000
@@ -249,7 +248,15 @@ class GeminiRealtimeHandler(RealtimeConversationHandler):
                             self.paced_playback = False
                     self.tool_manager.start_up(tool_callbacks=[self._handle_tool_result])
                     if not handle:
-                        await self.say(get_session_greeting_prompt())
+                        await self._send(
+                            {
+                                "clientContent": {
+                                    "turns": [{"role": "user", "parts": [{"text": get_session_greeting_prompt()}]}],
+                                    "turnComplete": True,
+                                }
+                            }
+                        )
+                    self._ready = True
                     while self._owns_connection():
                         timeout = max(0, self._barrier_deadline - time.monotonic()) if self._draining else None
                         try:

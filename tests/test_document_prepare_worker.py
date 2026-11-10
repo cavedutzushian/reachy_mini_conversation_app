@@ -75,11 +75,13 @@ print(json.dumps({"count": count, "mode": mode}))
 PACKAGE_PROBE = """
 import sys
 import json
+import hashlib
 from pathlib import Path
 import numpy as np
 from types import ModuleType
 sentence = ModuleType("sentence_transformers")
 sentence.SentenceTransformer = object
+sentence.CrossEncoder = object
 sys.modules["sentence_transformers"] = sentence
 
 def deny_network(event, arguments):
@@ -89,7 +91,7 @@ def deny_network(event, arguments):
 sys.addaudithook(deny_network)
 from reachy_mini_conversation_app import document_prepare_worker as worker
 from reachy_mini_conversation_app import document_worker as reader
-from reachy_mini_conversation_app.document_assets import PAYLOAD_FILES
+from reachy_mini_conversation_app.document_assets import PAYLOAD_FILES, RERANKER_PAYLOAD_FILES
 
 class SyntheticEncoder:
     def __init__(self, *arguments):
@@ -101,12 +103,21 @@ class SyntheticEncoder:
     def encoded_count(self, text):
         return len(text)+2
 
+class SyntheticReranker:
+    def __init__(self, *arguments):
+        pass
+    def score(self, question, passages):
+        return [4.5] * len(passages)
+    def score_passages(self, question, passages):
+        return [(ordinal, 4.5, text, False) for ordinal, (_model_text, text) in enumerate(passages)]
 worker.DocumentModel = SyntheticEncoder
 reader.DocumentModel = SyntheticEncoder
+worker.DocumentReranker = SyntheticReranker
+reader.DocumentReranker = SyntheticReranker
 root = Path(sys.argv[2])
 request_path = root / "request.json"
 if sys.argv[1] == "produce":
-    source = root / "source.md"
+    source = root / (sys.argv[4] if len(sys.argv)>4 else "source.md")
     source.write_bytes(sys.argv[3].encode("utf-8"))
     model = root / "model"
     model.mkdir()
@@ -114,12 +125,26 @@ if sys.argv[1] == "produce":
         path = model / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"synthetic placeholder, never loaded")
-    worker.verify_model(model, "a"*40)
+    worker.verify_model(model, "50f9396f75618b3389c1fd1068a1ff58dc7b5b26", "embedding")
+    reranker = root / "reranker"
+    reranker.mkdir()
+    for name in RERANKER_PAYLOAD_FILES:
+        (reranker / name).write_bytes(b"synthetic reranker; never loaded")
+    worker.verify_model(reranker, "2cfc18c9415c912f9d8155881c133215df768a70", "reranker")
     stage = root / ".package.stage-test"
     stage.mkdir()
     (root / ".package.lock").mkdir()
     request = {"source": str(source), "model": str(model), "stage": str(stage), "document_id": "manual",
-        "title": "Synthetic manual", "document_version": "v1", "index_version": "build-1", "max_distance": 0.3}
+        "title": "Synthetic manual", "document_version": "v1", "index_version": "build-1",
+        "reranker_model": str(reranker), "scheme": "bge-base-final-selection-20261109", "policy": "chapter-source-v1"}
+    if len(sys.argv)>5 and sys.argv[5]=="yes":
+        original = source.read_text(encoding="utf-8")
+        first = original.index("紫色風車")
+        alias_path = root/"aliases.json"
+        alias_path.write_text(json.dumps({"schema_version":1,"document_id":"manual","document_version":"v1",
+            "source_sha256":hashlib.sha256(source.read_bytes()).hexdigest(),"aliases":[{"text":"紫色風車",
+            "evidence_start":first,"evidence_end":first+4,"scope_start":0,"scope_end":len(original)}]}),encoding="utf-8")
+        request["aliases"] = str(alias_path)
     request_path.write_text(json.dumps(request), encoding="utf-8")
     result = worker.produce_package(request)
 else:
@@ -194,23 +219,26 @@ def test_real_chroma_snapshot_is_sealed(tmp_path: Path, count: int, identical_up
 
 @pytest.mark.skipif(os.environ.get("RUN_DOCUMENT_CHROMA_PROBE") != "1", reason="Explicit real Chroma gate")
 @pytest.mark.parametrize(
-    "source",
+    "source,filename,aliases",
     [
-        "繁體中文原文。",
-        "An English manual.",
-        "不可按紅色按鈕。",
-        "| 名稱 | 數值 |\r\n| A | 1 |",
-        "```python\nprint('do not run')\n```\nhttps://example.invalid",
+        ("繁體中文原文。", "source.md", False),
+        ("An English manual.", "source.md", False),
+        ("不可按紅色按鈕。", "source.md", False),
+        ("| 名稱 | 數值 |\r\n| A | 1 |", "source.md", False),
+        ("```python\nprint('do not run')\n```\nhttps://example.invalid", "source.md", False),
+        ("# TXT保留原字\r\n純文字內容\r尾端", "manual.txt", False),
+        ("前言\n# 紫色風車\n正文\n## 子節\n內容\n# 其他\n尾文", "source.md", True),
+        ("前言\n# 同名\n```\n# 假標題\n```\n正文\n# 同名\n尾文", "source.md", False),
     ],
-    ids=["zh", "en", "negation", "table", "code"],
+    ids=["zh", "en", "negation", "table", "code", "txt", "aliases", "duplicate-headings"],
 )
 def test_real_package_producer_and_fresh_reader_preserve_source(
-    tmp_path: Path, source: str, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, source: str, filename: str, aliases: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Synthetic inference exercises the real format and engine across independent processes."""
     environment = {**os.environ, "HF_HUB_OFFLINE": "1", "SKIP_DOTENV": "1", "ANONYMIZED_TELEMETRY": "False"}
     produced = subprocess.run(
-        [sys.executable, "-c", PACKAGE_PROBE, "produce", str(tmp_path), source],
+        [sys.executable, "-c", PACKAGE_PROBE, "produce", str(tmp_path), source, filename, "yes" if aliases else "no"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -231,7 +259,38 @@ def test_real_package_producer_and_fresh_reader_preserve_source(
     )
     assert json.loads(verified.stdout)["verified"] is True
     assert snapshot_inventory(tmp_path / ".package.stage-test") == before
-    assert (tmp_path / "source.md").read_bytes() == source.encode("utf-8")
+    assert (tmp_path / filename).read_bytes() == source.encode("utf-8")
+    rebuilt = tmp_path / "rebuild"
+    rebuilt.mkdir()
+    subprocess.run(
+        [sys.executable, "-c", PACKAGE_PROBE, "produce", str(rebuilt), source, filename, "yes" if aliases else "no"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=environment,
+        check=True,
+        timeout=120,
+    )
+    for name in ("chunks.jsonl", "bm25.json"):
+        assert (tmp_path / ".package.stage-test/retrieval" / name).read_bytes() == (
+            rebuilt / ".package.stage-test/retrieval" / name
+        ).read_bytes()
+    if aliases:
+        work = (tmp_path / ".package.lock/verify-work").resolve()
+        assert work.is_relative_to(tmp_path.resolve())
+        shutil.rmtree(work)
+        (tmp_path / "aliases.json").write_text("{}", encoding="utf-8")
+        rejected = subprocess.run(
+            [sys.executable, "-c", PACKAGE_PROBE, "verify", str(tmp_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=environment,
+            check=False,
+            timeout=120,
+        )
+        assert rejected.returncode != 0 and "invalid_aliases" in rejected.stderr
+        assert snapshot_inventory(tmp_path / ".package.stage-test") == before
     if source == "繁體中文原文。":
         work = (tmp_path / ".package.lock/verify-work").resolve()
         assert work.is_relative_to(tmp_path.resolve())
@@ -275,8 +334,10 @@ def test_real_package_producer_and_fresh_reader_preserve_source(
                     "v1",
                     "--index-version",
                     "build-1",
-                    "--max-distance",
-                    "0.3",
+                    "--reranker-model",
+                    str(tmp_path / "reranker"),
+                    "--scheme",
+                    "bge-base-final-selection-20261109",
                 ]
             )
             == 0
@@ -304,8 +365,10 @@ def test_real_package_producer_and_fresh_reader_preserve_source(
                     "v1",
                     "--index-version",
                     "build-1",
-                    "--max-distance",
-                    "0.3",
+                    "--reranker-model",
+                    str(tmp_path / "reranker"),
+                    "--scheme",
+                    "bge-base-final-selection-20261109",
                 ]
             )
             == 2

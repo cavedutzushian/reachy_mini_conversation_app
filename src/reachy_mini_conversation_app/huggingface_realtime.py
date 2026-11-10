@@ -177,6 +177,7 @@ class ToolInvocation:
     uncertainty_reported: bool = False
     answer_retired: bool = False
     timeout_notice_sent: bool = False
+    legacy_notice_sent: bool = False
 
 
 class DocumentOutput(AdditionalOutputs):
@@ -303,12 +304,14 @@ class RealtimeConversationHandler(ConversationHandler):
             invocation.status = "cancelled"
             invocation.answer_retired = True
             return None
+        validated = True
         try:
             result = validate_document_result(
                 {"error": notification.error} if notification.error is not None else notification.result
             )
         except ValueError:
             logger.warning("Document tool result rejected: document_unavailable")
+            validated = False
             result = {"error": "document_unavailable"}
         invocation.result = result
         invocation.status = "completed"
@@ -317,6 +320,21 @@ class RealtimeConversationHandler(ConversationHandler):
             if not invocation.timeout_notice_sent:
                 invocation.timeout_notice_sent = True
                 self.output_queue.put_nowait(DocumentOutput(invocation, "文件查詢已逾時，請稍後再試。"))
+        runtime = self.deps.document_retrieval
+        if (
+            validated
+            and result.get("error") == "document_unavailable"
+            and runtime is not None
+            and runtime.unavailable_reason == "legacy_package"
+            and not invocation.legacy_notice_sent
+        ):
+            invocation.legacy_notice_sent = True
+            self.output_queue.put_nowait(
+                DocumentOutput(
+                    invocation,
+                    "此文件索引為舊版，請停止 App，使用離線產包腳本重新產生新版索引包。",
+                )
+            )
         return result
 
     async def emit(self) -> tuple[int, NDArray[np.int16]] | AdditionalOutputs | None:

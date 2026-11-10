@@ -16,8 +16,10 @@ from reachy_mini_conversation_app.config import config, get_default_voice, refre
 from reachy_mini_conversation_app.console import LocalStream
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_conversation_app.document_retrieval import DocumentRuntime
 from reachy_mini_conversation_app.conversation_handler import VADStatus
 from reachy_mini_conversation_app.huggingface_realtime import HuggingFaceRealtimeHandler
+from reachy_mini_conversation_app.tools.search_document import SearchDocument
 from reachy_mini_conversation_app.tools.background_tool_manager import ToolState, ToolNotification
 
 
@@ -1795,3 +1797,37 @@ async def test_credential_retirement_fences_shared_handler_output(monkeypatch: p
     assert stream.session_state.resumption_handle is None
     assert not stream.session_state.invocations
     handler.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_legacy_local_notice_keeps_hf_generic_error_completion(monkeypatch, legacy: bool) -> None:
+    """A local migration hint does not alter HF's ordinary unavailable response contract."""
+    runtime = DocumentRuntime(None, None)
+    monkeypatch.setattr(runtime, "_unavailable_reason", "legacy_package" if legacy else None)
+    handler = _plain_handler()
+    handler.deps.document_retrieval = runtime
+    handler.connection = _FakeConnection()
+    monkeypatch.setattr(hf_mod.core_tools, "get_tools", lambda: {"search_document": SearchDocument()})
+    handler.session_state.invocations["doc"] = hf_mod.ToolInvocation("search_document", "running")
+    handler._in_flight_tool_calls.add("doc")
+    handler._wait_for_response_done_before_tool_result = AsyncMock(return_value=True)
+    handler._safe_response_create = AsyncMock()
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_unavailable",
+        )
+    )
+    handler._safe_response_create.assert_not_awaited()
+    assert handler._pending_responses.qsize() == 1
+    outputs = _drain(handler)
+    assert sum(
+        "此文件索引為舊版" in str(output.args) for output in outputs if isinstance(output, AdditionalOutputs)
+    ) == int(legacy)
+    sent = handler.connection.conversation.item.create.call_args.kwargs["item"]
+    assert json.loads(sent["output"]) == {"error": "document_unavailable"}
+    runtime.close()

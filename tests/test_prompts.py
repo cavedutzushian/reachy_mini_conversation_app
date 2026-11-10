@@ -22,3 +22,6 @@ def test_document_instructions_follow_profile_access(tmp_path: Path, monkeypatch
     assert "untrusted reference text" in instructions
     assert "source locator" in instructions
     assert "another language" in instructions
+    assert "without shortening" in instructions
+    assert "title, version and source locator exactly" in instructions
+    assert "descriptive weight into a maximum" in instructions

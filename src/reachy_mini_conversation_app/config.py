@@ -348,10 +348,14 @@ def normalize_conversation_backend(value: object) -> str | None:
     return None
 
 
-def resolve_document_paths() -> tuple[Path | None, Path | None]:
-    """Resolve the two local retrieval paths without opening document or model files."""
+def resolve_document_paths() -> tuple[Path | None, Path | None, Path | None]:
+    """Resolve the three local retrieval paths without opening document or model files."""
     paths: list[Path | None] = []
-    for name in ("REACHY_MINI_DOCUMENT_INDEX_PATH", "REACHY_MINI_DOCUMENT_MODEL_PATH"):
+    for name in (
+        "REACHY_MINI_DOCUMENT_INDEX_PATH",
+        "REACHY_MINI_DOCUMENT_MODEL_PATH",
+        "REACHY_MINI_DOCUMENT_RERANKER_PATH",
+    ):
         configured = os.getenv(name, "").strip()
         if not configured:
             paths.append(None)
@@ -365,7 +369,7 @@ def resolve_document_paths() -> tuple[Path | None, Path | None]:
         except (OSError, ValueError, RuntimeError):
             logger.warning("Document retrieval path could not be resolved for %s", name)
             paths.append(None)
-    return paths[0], paths[1]
+    return paths[0], paths[1], paths[2]
 
 
 class Config:
@@ -377,7 +381,7 @@ class Config:
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live").strip()
     GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Kore").strip()
     GEMINI_VOICE_OVERRIDE: str | None = None
-    DOCUMENT_INDEX_PATH, DOCUMENT_MODEL_PATH = resolve_document_paths()
+    DOCUMENT_INDEX_PATH, DOCUMENT_MODEL_PATH, DOCUMENT_RERANKER_PATH = resolve_document_paths()
 
     HF_REALTIME_CONNECTION_MODE = (
         normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode

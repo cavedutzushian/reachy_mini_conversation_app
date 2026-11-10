@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import math
@@ -6,10 +7,13 @@ import uuid
 import shutil
 import hashlib
 import logging
+import argparse
 import subprocess
+from typing import NoReturn
 from pathlib import Path
 from dataclasses import dataclass
 from importlib.util import find_spec
+from importlib.metadata import PackageNotFoundError, version
 from importlib.resources import files
 
 from jsonschema import Draft202012Validator
@@ -17,6 +21,10 @@ from jsonschema import Draft202012Validator
 
 logger = logging.getLogger(__name__)
 MODEL_ID = "BAAI/bge-m3"
+MODEL_REVISION = "50f9396f75618b3389c1fd1068a1ff58dc7b5b26"
+RERANKER_ID = "BAAI/bge-reranker-base"
+RERANKER_REVISION = "2cfc18c9415c912f9d8155881c133215df768a70"
+REFERENCE_PASSAGE = "這是一份提供文件查詢的示範說明。"
 REFERENCE_QUERY = "這份文件主要說明什麼？"
 PAYLOAD_FILES = (
     "config.json",
@@ -30,6 +38,24 @@ PAYLOAD_FILES = (
     "tokenizer_config.json",
     "model.safetensors",
 )
+
+RERANKER_PAYLOAD_FILES = (
+    "config.json",
+    "model.safetensors",
+    "sentencepiece.bpe.model",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+)
+
+
+class PreparationArgumentParser(argparse.ArgumentParser):
+    """Keep preparation argument failures localized without echoing untrusted argument values."""
+
+    def error(self, message: str) -> NoReturn:
+        """Explain rejected arguments using a fixed Traditional Chinese diagnostic."""
+        self.print_usage(sys.stderr)
+        self.exit(2, "???????? --help ????????????\n")
 
 
 @dataclass(frozen=True)
@@ -66,10 +92,28 @@ class PreparationError(RuntimeError):
         self.exit_code = exit_code
 
 
+def load_preparation_scheme() -> dict[str, object]:
+    """Read the bundled complete selection without depending on experiment cache paths."""
+    value = json.loads(files("reachy_mini_conversation_app").joinpath("document_scheme.json").read_text("utf-8"))
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"strategy", "chunking", "bm25", "retrieval", "reranking", "embedding", "provenance"}
+        or any(not isinstance(item, dict) for item in value.values())
+    ):
+        raise PreparationError("invalid_scheme", 2)
+    json.dumps(value, allow_nan=False)
+    return dict(value)
+
+
 def read_object(path: Path) -> dict[str, object]:
     """Read bounded, finite UTF-8 JSON without duplicate keys or a BOM."""
     with path.open("rb") as stream:
         payload = stream.read(16 * 1024 * 1024 + 1)
+    return parse_object(payload)
+
+
+def parse_object(payload: bytes) -> dict[str, object]:
+    """Parse a bounded byte snapshot without rereading a mutable source file."""
     if len(payload) > 16 * 1024 * 1024 or payload.startswith(b"\xef\xbb\xbf"):
         raise PreparationError("validation_failed", 6)
     result = json.loads(payload.decode("utf-8"), object_pairs_hook=_unique_pairs)
@@ -86,6 +130,25 @@ def _unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise PreparationError("validation_failed", 6)
         result[key] = value
     return result
+
+
+def source_line_numbers(text: str) -> list[int]:
+    """Count only original CRLF, CR and LF endings without rewriting source characters."""
+    line_numbers: list[int] = []
+    line = 1
+    for position, character in enumerate(text):
+        line_numbers.append(line)
+        if character == "\n" or character == "\r" and text[position + 1 : position + 2] != "\n":
+            line += 1
+    return line_numbers
+
+
+def lexical_terms(text: str) -> list[str]:
+    """Tokenize fixed ASCII words and original CJK adjacent pairs and triples."""
+    terms = re.findall(r"[a-z0-9]+", text.casefold())
+    for run in re.findall(r"[\u3400-\u9fff]+", text):
+        terms.extend(run[start : start + width] for width in (2, 3) for start in range(len(run) - width + 1))
+    return terms
 
 
 def write_object(path: Path, value: dict[str, object]) -> None:
@@ -184,9 +247,23 @@ def validate_receipt(directory: Path) -> dict[str, object]:
         raise PreparationError("model_incompatible", 3)
     if receipt["revision"] != receipt["resolved_revision"]:
         raise PreparationError("model_incompatible", 3)
+    runtime = receipt["runtime"]
+    if not isinstance(runtime, dict):
+        raise PreparationError("model_incompatible", 3)
+    try:
+        for package, key in (
+            ("sentence-transformers", "sentence_transformers_version"),
+            ("torch", "torch_version"),
+            ("transformers", "transformers_version"),
+        ):
+            if version(package) != runtime[key]:
+                raise PreparationError("model_incompatible", 3)
+    except PackageNotFoundError:
+        raise PreparationError("model_not_ready", 3) from None
     entries = receipt["files"]
     if not isinstance(entries, list):
         raise PreparationError("model_incompatible", 3)
+    payload_files = PAYLOAD_FILES if receipt["role"] == "embedding" else RERANKER_PAYLOAD_FILES
     expected: dict[str, object] = {}
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
@@ -196,15 +273,24 @@ def validate_receipt(directory: Path) -> dict[str, object]:
             raise PreparationError("model_incompatible", 3)
         expected[name] = entry["sha256"]
     actual = {entry["path"]: entry["sha256"] for entry in file_inventory(directory)}
-    if set(actual) != {*PAYLOAD_FILES, "model-receipt.json"} or set(expected) != set(PAYLOAD_FILES):
+    if set(actual) != {*payload_files, "model-receipt.json"} or set(expected) != set(payload_files):
         raise PreparationError("model_incompatible", 3)
     if any(actual[name] != digest for name, digest in expected.items()):
         raise PreparationError("model_incompatible", 3)
     verification = receipt["verification"]
-    if not isinstance(verification, dict) or not isinstance(verification.get("embedding"), list):
+    if not isinstance(verification, dict):
+        raise PreparationError("model_incompatible", 3)
+    if receipt["role"] == "reranker":
+        score = verification.get("logit")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+            raise PreparationError("model_incompatible", 3)
+        return receipt
+    if not isinstance(verification.get("embedding"), list):
         raise PreparationError("model_incompatible", 3)
     vector = verification["embedding"]
-    if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector):
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector
+    ):
         raise PreparationError("model_incompatible", 3)
     if abs(math.sqrt(sum(value * value for value in vector)) - 1) > 1e-4:
         raise PreparationError("model_incompatible", 3)
@@ -342,10 +428,32 @@ class AssetOperation:
             raise PreparationError("cleanup_incomplete" if self.published else "recovery_required", 8) from None
 
 
-def run_preparation_worker(request: dict[str, object], operation: AssetOperation) -> dict[str, object]:
-    """Run isolated inference over private JSON streams and confirm release before cleanup."""
+def report_preparation_failure(code: str, exit_code: int, operation: AssetOperation | None) -> int:
+    """Report a safe CLI failure without confusing completed publication with a retryable failure."""
+    published = operation is not None and operation.published
+    if published:
+        code, exit_code = "cleanup_incomplete", 8
+    status = "recovery_required" if exit_code == 8 else "busy" if code == "destination_busy" else "failed"
+    print(PreparationResult(status, published, True if published else None, code, exit_code).describe())
+    logger.warning("Preparation outcome: %s", code)
+    if code == "model_not_ready":
+        print("請依 README 確認既有 rag extra 與本機模型；不會自動安裝或下載缺少項目。")
+    if operation is not None and exit_code == 8:
+        if published:
+            print(f"已發布，清理未完成：{operation.destination}；請核對 {operation.lock} 與目的地，不要自動重跑。")
+        else:
+            print(f"請先確認本次工作程序已停止，再核對 {operation.lock} 及自有暫存；不要只刪除鎖或自動重跑。")
+    return exit_code
+
+
+def validate_preparation_request(request: dict[str, object]) -> None:
+    """Reject content-bearing or untyped private requests before launching inference."""
     allowed = {
         "operation",
+        "role",
+        "reranker_model",
+        "scheme",
+        "aliases",
         "model",
         "source",
         "stage",
@@ -353,12 +461,25 @@ def run_preparation_worker(request: dict[str, object], operation: AssetOperation
         "title",
         "document_version",
         "index_version",
-        "max_distance",
         "revision",
         "policy",
     }
     if set(request) - allowed or request.get("operation") not in ("verify-model", "produce", "verify-package"):
         raise PreparationError("invalid_arguments", 2)
+    if any(not isinstance(value, str) for value in request.values()):
+        raise PreparationError("invalid_arguments", 2)
+    if request["operation"] == "verify-model":
+        role = request.get("role")
+        if role not in ("embedding", "reranker") or not isinstance(request.get("model"), str):
+            raise PreparationError("invalid_arguments", 2)
+        revision = MODEL_REVISION if role == "embedding" else RERANKER_REVISION
+        if request.get("revision") != revision:
+            raise PreparationError("invalid_arguments", 2)
+
+
+def run_preparation_worker(request: dict[str, object], operation: AssetOperation) -> dict[str, object]:
+    """Run isolated inference over private JSON streams and confirm release before cleanup."""
+    validate_preparation_request(request)
     if any(find_spec(package) is None for package in ("chromadb", "torch", "sentence_transformers")):
         raise PreparationError("model_not_ready", 3)
     environment = dict(os.environ)
@@ -395,17 +516,17 @@ def run_preparation_worker(request: dict[str, object], operation: AssetOperation
     try:
         stdout, _stderr = process.communicate(json.dumps(request, allow_nan=False).encode("utf-8"))
     except BaseException:
-        process.terminate()
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
+            process.terminate()
             try:
-                process.wait(timeout=2)
+                process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                operation.preserve = True
-                logger.error("Preparation worker termination was not confirmed")
-                raise PreparationError("recovery_required", 8) from None
+                process.kill()
+                process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+            operation.preserve = True
+            logger.error("Preparation worker termination was not confirmed: %s", type(error).__name__)
+            raise PreparationError("recovery_required", 8) from None
         raise
     if len(stdout) > 65536:
         raise PreparationError("validation_failed", 6)
@@ -421,6 +542,8 @@ def run_preparation_worker(request: dict[str, object], operation: AssetOperation
         failures = {
             "invalid_arguments": 2,
             "invalid_document": 2,
+            "invalid_scheme": 2,
+            "invalid_aliases": 2,
             "model_not_ready": 3,
             "model_incompatible": 3,
             "snapshot_incomplete": 6,

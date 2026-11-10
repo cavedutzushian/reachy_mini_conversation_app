@@ -165,7 +165,7 @@ def run(
 
     # After the .env: what the user changed through the UI wins over it.
     load_settings_into_runtime(instance_path)
-    config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH = resolve_document_paths()
+    config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH, config.DOCUMENT_RERANKER_PATH = resolve_document_paths()
 
     logger.info(
         "Configured Hugging Face realtime backend, connection mode: %s",
@@ -210,7 +210,9 @@ def run(
         instance_path=instance_path,
         # --no-camera is a hard off; otherwise the persisted vision.* switch decides.
         camera_enabled=not args.no_camera and config.CAMERA_ENABLED,
-        document_retrieval=DocumentRuntime(config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH),
+        document_retrieval=DocumentRuntime(
+            config.DOCUMENT_INDEX_PATH, config.DOCUMENT_MODEL_PATH, config.DOCUMENT_RERANKER_PATH
+        ),
     )
 
     credential_scope = (

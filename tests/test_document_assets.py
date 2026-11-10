@@ -22,7 +22,7 @@ def test_preparation_directories_are_ignored_without_hiding_product_sources() ->
     repository = Path(__file__).resolve().parents[1]
     ignored = [
         f"external_content/{name}/probe"
-        for stem in ("bge-m3-model", "document-package")
+        for stem in ("bge-m3-model", "bge-reranker-base-model", "document-package")
         for name in (stem, f".{stem}.stage-operation", f".{stem}.backup-operation", f".{stem}.lock")
     ]
     visible = [
@@ -86,10 +86,11 @@ def test_receipt_verifies_all_payload_bytes_and_rejects_tampering(tmp_path: Path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"synthetic model payload, never loaded")
     receipt = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "role": "embedding",
         "model_id": "BAAI/bge-m3",
-        "revision": "a" * 40,
-        "resolved_revision": "a" * 40,
+        "revision": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26",
+        "resolved_revision": "50f9396f75618b3389c1fd1068a1ff58dc7b5b26",
         "files": [
             {**entry, "size_bytes": (tmp_path / str(entry["path"])).stat().st_size}
             for entry in file_inventory(tmp_path)
@@ -99,10 +100,16 @@ def test_receipt_verifies_all_payload_bytes_and_rejects_tampering(tmp_path: Path
             "torch_version": "2.15.0+cpu",
             "transformers_version": "5.21.0",
         },
-        "verification": {"query": "這份文件主要說明什麼？", "embedding": [1.0] + [0.0] * 1023},
+        "verification": {
+            "kind": "embedding",
+            "device": "cpu",
+            "precision": "float32",
+            "query": "這份文件主要說明什麼？",
+            "embedding": [1.0] + [0.0] * 1023,
+        },
     }
     (tmp_path / "model-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
-    assert validate_receipt(tmp_path)["revision"] == "a" * 40
+    assert validate_receipt(tmp_path)["revision"] == "50f9396f75618b3389c1fd1068a1ff58dc7b5b26"
     (tmp_path / "model.safetensors").write_bytes(b"tampered")
     with pytest.raises(PreparationError, match="model_incompatible"):
         validate_receipt(tmp_path)
@@ -320,3 +327,161 @@ with AssetOperation(Path(sys.argv[1]), "package", True) as operation:
     with pytest.raises(PreparationError, match="destination_busy"):
         with AssetOperation(destination, "package", replace=True):
             pytest.fail("A hard-crashed operation was automatically recovered")
+
+
+@pytest.mark.parametrize("role", ["embedding", "reranker"])
+def test_role_receipts_reject_legacy_identity_and_inventory_changes(tmp_path: Path, role: str) -> None:
+    """Only a complete fixed-role v2 receipt can establish offline readiness."""
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "specs/005-prepare-rag-assets/contracts/model-receipt.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    branch = schema["allOf"][0 if role == "embedding" else 1]["then"]["properties"]
+    payload_names = branch["files"]["items"]["properties"]["path"]["enum"]
+    for name in payload_names:
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"synthetic payload; never inference")
+    verification = {"kind": role, "query": "這份文件主要說明什麼？", "device": "cpu", "precision": "float32"}
+    if role == "embedding":
+        verification["embedding"] = [1.0] + [0.0] * 1023
+    else:
+        verification.update(
+            passage="這是一份提供文件查詢的示範說明。", logit=-1.25, activation="identity", max_pair_tokens=512
+        )
+    receipt = {
+        "schema_version": 2,
+        "role": role,
+        "model_id": branch["model_id"]["const"],
+        "revision": branch["revision"]["const"],
+        "resolved_revision": branch["revision"]["const"],
+        "runtime": {
+            "sentence_transformers_version": "6.2.0",
+            "torch_version": "2.15.0+cpu",
+            "transformers_version": "5.21.0",
+        },
+        "files": [
+            {**entry, "size_bytes": (tmp_path / entry["path"]).stat().st_size} for entry in file_inventory(tmp_path)
+        ],
+        "verification": verification,
+    }
+    receipt_path = tmp_path / "model-receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    assert validate_receipt(tmp_path)["role"] == role
+    mutations = [
+        {"schema_version": 1},
+        {"role": "reranker" if role == "embedding" else "embedding"},
+        {"revision": "a" * 40},
+        {"unexpected": True},
+        {"files": [receipt["files"][0]] * len(payload_names)},
+        {"files": receipt["files"][:-1]},
+    ]
+    for field, value in (("size_bytes", 0), ("size_bytes", True), ("sha256", "A" * 64), ("path", "unsafe.bin")):
+        mutations.append({"files": [{**receipt["files"][0], field: value}, *receipt["files"][1:]]})
+    mutations.append({"runtime": {**receipt["runtime"], "torch_version": "0.0.0"}})
+    mutations.append({"resolved_revision": "b" * 40})
+    for mutation in mutations:
+        receipt_path.write_text(json.dumps({**receipt, **mutation}), encoding="utf-8")
+        with pytest.raises(PreparationError, match="model_incompatible"):
+            validate_receipt(tmp_path)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    (tmp_path / "unlisted").write_bytes(b"extra")
+    with pytest.raises(PreparationError, match="model_incompatible"):
+        validate_receipt(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "payload", [b"{}", b"\xef\xbb\xbf{}", b'{"role":1,"role":2}', b'{"score":NaN}', b'{"score":Infinity}']
+)
+def test_invalid_receipt_json_is_rejected(tmp_path: Path, payload: bytes) -> None:
+    """Malformed or non-finite receipt JSON never establishes model readiness."""
+    (tmp_path / "model-receipt.json").write_bytes(payload)
+    with pytest.raises((PreparationError, ValueError)):
+        validate_receipt(tmp_path)
+
+
+@pytest.mark.parametrize("payload", [b"null", b"{}" + b" " * (16 * 1024 * 1024)], ids=["null", "oversized"])
+def test_receipt_size_and_object_bounds(tmp_path: Path, payload: bytes) -> None:
+    """Oversized or non-object receipts fail before any payload is trusted."""
+    (tmp_path / "model-receipt.json").write_bytes(payload)
+    with pytest.raises(PreparationError):
+        validate_receipt(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"embedding": [1.0]},
+        {"role": ["embedding"]},
+        {"model": {"private": "source-sentinel"}},
+        {"source": None},
+        {"max_distance": True},
+        {"max_distance": float("nan")},
+    ],
+)
+def test_untyped_or_content_bearing_requests_never_launch_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict[str, object]
+) -> None:
+    """Private IPC is limited to scalar metadata and already validated paths."""
+
+    def unexpected_process(*args, **kwargs):
+        pytest.fail("Invalid request launched a worker")
+
+    with AssetOperation(tmp_path / "package", "package", replace=False) as operation:
+        monkeypatch.setattr("reachy_mini_conversation_app.document_assets.subprocess.Popen", unexpected_process)
+        with pytest.raises(PreparationError, match="invalid_arguments"):
+            run_preparation_worker({"operation": "produce", **payload}, operation)
+
+
+def test_fixed_lexical_tokenizer_uses_original_cjk_and_casefolded_ascii() -> None:
+    """The prebuilt and query tokenizers retain the frozen word and CJK n-gram rules."""
+    from reachy_mini_conversation_app.document_assets import lexical_terms
+
+    assert lexical_terms("Reachy REACHY 12 繁體中文") == [
+        "reachy",
+        "reachy",
+        "12",
+        "繁體",
+        "體中",
+        "中文",
+        "繁體中",
+        "體中文",
+    ]
+
+
+@pytest.mark.parametrize("failure", ["terminate", "kill", "wait", "second_interrupt"])
+def test_interrupted_shutdown_retains_ownership_when_exit_cannot_be_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """A failed termination syscall or another interruption must never authorize cleanup."""
+    monkeypatch.setattr("reachy_mini_conversation_app.document_assets.find_spec", lambda name: object())
+
+    def interrupted(payload):
+        raise KeyboardInterrupt
+
+    def terminate():
+        if failure == "terminate":
+            raise PermissionError("synthetic termination failure")
+
+    def kill():
+        if failure == "kill":
+            raise PermissionError("synthetic kill failure")
+
+    def wait(timeout):
+        if failure == "wait":
+            raise OSError("synthetic wait failure")
+        if failure == "second_interrupt":
+            raise KeyboardInterrupt
+        raise subprocess.TimeoutExpired("synthetic worker", timeout)
+
+    with pytest.raises(PreparationError, match="recovery_required"):
+        with AssetOperation(tmp_path / "package", "package", replace=False) as operation:
+            monkeypatch.setattr(
+                "reachy_mini_conversation_app.document_assets.subprocess.Popen",
+                lambda *args, **kwargs: SimpleNamespace(
+                    communicate=interrupted, terminate=terminate, kill=kill, wait=wait
+                ),
+            )
+            run_preparation_worker({"operation": "produce"}, operation)
+    assert operation.preserve and operation.stage.is_dir() and operation.lock.is_dir()

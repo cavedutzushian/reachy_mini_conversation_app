@@ -1,8 +1,8 @@
 # Research: 單一預建文件 RAG 工具
 
-**Date**: 2026-11-05 | **Spec**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md)
+**Date**: 2026-11-09 | **Spec**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md)
 
-研究採既有程式唯讀檢查及官方文件；未安裝套件、下載模型、打開實際文件包或量測 CPU。下列選擇完成設計澄清，實作驗證不可省略。
+本輪採既有程式唯讀檢查、官方 CrossEncoder 文件及已保存的離線選案紀錄，未安裝套件、下載／載入模型、開啟真實索引引擎或重新量測 CPU。以下舊日期證據保留；涉及 dense-only、門檻校準及 48／50 的舊決策已由第 10～13 節取代，不代表歷史失敗變成通過。
 
 ## 1. Chroma 既有持久化索引
 
@@ -18,7 +18,7 @@
 
 ## 2. CPU dense BGE-M3
 
-**Decision**: Sentence Transformers、本機完整 BAAI/bge-m3 snapshot、CPU float32、原模型 CLS pooling 後 L2 normalization，1024 維；不加 query prefix，不啟用 sparse／ColBERT／rerank。`local_files_only=True`、`trust_remote_code=False`；模型目錄需事先供應，使用安全權重格式，不允許任意 pickle／自訂模組執行。
+**Decision**: Sentence Transformers、本機完整 BAAI/bge-m3 snapshot、CPU float32、原模型 CLS pooling 後 L2 normalization，1024 維；不加 query prefix，不啟用 BGE-M3 sparse／ColBERT；另以 BGE-base 重排。`local_files_only=True`、`trust_remote_code=False`；模型目錄需事先供應，使用安全權重格式，不允許任意 pickle／自訂模組執行。
 
 **Rationale**: 官方模型支援 multilingual dense retrieval，提供 Sentence Transformers 用法。官方 modules 是 Transformer → Pooling → Normalize，pooling 設定是 CLS，不能隨意換成 mean。文件與問題必須同一 revision、tokenizer、pipeline、precision 及 cosine 設定。1024 維相同仍可能完全不相容，因此額外使用檔案雜湊與固定參考向量檢查。
 
@@ -48,11 +48,11 @@
 
 此證據只證明該 Windows 組合的套件 wheel／import 可共存，尚未證明模型、索引、CPU 延遲或其他平台相容；產品 `uv.lock` 會沿用既有可相容鎖定版本，因此以 T003 產生的產品鎖檔為實際交付準據，不能把本隔離解析所有版本當成產品已升級。
 
-**Decision**: 包含 manifest、完整 Chroma 目錄與 checksums；每段有原文、文件 ID／版本、段落 ID 及真實 locator。使用相同模型的 normalized dense embeddings 與 cosine distance。manifest 的門檻由外部校準後固定，最多取三段；低於支援程度的問題如實拒答。
+**Decision**: 包含 manifest、完整 Chroma 目錄與 checksums；每段有原文、文件 ID／版本、段落 ID 及真實 locator。使用相同模型的 normalized dense embeddings 與 cosine distance。新版方案固定實驗選值及其來源，最多回三段；數值不是充分作答保證，沒有原文支持仍不得猜測。
 
 **Rationale**: 只有向量無法還原可引用原文；文件名稱不等於版本身分。Chroma 距離不是答案機率，模型還要判斷段落能否支持回答。唯一定義的 chunk 與穩定 locator 是可核對引用的最小資料。
 
-**Alternatives considered**: 運行時讀 PDF／OCR 或自動建置被排除；只依文件名篩選混合集合不能保證只有唯一文件；更大的 top-k、混合檢索、reranker 增加延遲及調參範圍。本功能不交付產包工具，但提供外部建置者可遵循的合約。
+**Alternatives considered**: 運行時讀 PDF／OCR 或自動建置被排除；只依文件名篩選混合集合不能保證只有唯一文件；混合檢索／重排原先因延遲與範圍被排除，2026-11-09 使用者已明確納入，並保留其成本與失敗限制。本功能不交付產包工具，但提供外部建置者可遵循的合約。
 
 **Sources**: [Chroma add data](https://docs.trychroma.com/docs/collections/add-data)、[query results](https://docs.trychroma.com/docs/querying-collections/query-and-get)、上述 BGE 模型卡。
 
@@ -84,7 +84,7 @@
 
 ## Resolved unknowns and remaining evidence
 
-包格式、啟動配置、model pipeline、worker 所有權、固定錯誤碼、回傳上限、來源／日誌邊界均已定義；下列補充決策同步 2026-11-05 澄清。仍須實作取得的證據：依賴鎖定共存、真實包不變性／平台、模型 snapshot 與實際 CPU 資源、標註題門檻及服務／現場驗收。這些不是已通過結果；不能以文件檢查取代它們。
+包格式、啟動配置、model pipeline、worker 所有權、固定錯誤碼、回傳上限、來源／日誌邊界均已定義；下列補充決策同步 2026-11-05 澄清。仍須實作取得的證據：依賴鎖定共存、真實包不變性／平台、模型 snapshot 與實際 CPU 資源、新方案回放一致性與非阻擋品質量測及服務／現場驗收。這些不是已通過結果；不能以文件檢查取代它們。
 
 ## 7. 外部包的完整資料格式（U1）
 
@@ -108,10 +108,62 @@
 
 ## 9. 固定關閉與驗收／輸入規則（A1／A2／I1）
 
-**Decision**: 遵使用者 A 選擇，以 monotonic 總九秒限制 worker 關閉，分段最多 5／2／2 秒；未確認退出就保留副本、記錄清理未完成，不無限 join。不把 RAG 期限擴張為整個 App 關閉保證。輸入先計原始字串（含空白）<=500 code points 再 trim；固定效能 50 題至少 48 題五秒內取得段落，所有快速失敗皆不計成功且分母不減。
+**Decision**: 遵使用者 A 選擇，以 monotonic 總九秒限制 worker 關閉，分段最多 5／2／2 秒；未確認退出就保留副本、記錄清理未完成，不無限 join。不把 RAG 期限擴張為整個 App 關閉保證。輸入先計原始字串（含空白）<=500 code points 再 trim；固定效能 50 題的分母不減，快速失敗不算成功；原 48／50 要求已改為觀察，見第 12 節。
 
 **Rationale**: 固定時限才能驗證退出；在 child 仍可能持有檔案時刪副本會引起清理競態。原始輸入長度與 schema maxLength 一致可避免雙後端差異；成功率是取回段落而非完成回傳任意錯誤，不能用低延遲失敗美化 p95。
 
-**Alternatives considered**: 四秒／二十秒已由使用者選擇九秒取代；先 trim 才限長與原始 schema 不一致；只計成功樣本的 latency percentile 會掩蓋失敗，故 percentile 僅作額外觀察，硬門檻為 48／50 與全部 <=10 秒。
+**Alternatives considered**: 四秒／二十秒已由使用者選擇九秒取代；先 trim 才限長與原始 schema 不一致；只計成功樣本的 latency percentile 會掩蓋失敗，故 percentile 僅作額外觀察，原 48／50 已不作阻擋，全部 <=10 秒完成或明確逾時與晚到退役仍保留。
 
-**Validation boundary**: 以上五項分析問題在 Phase 0／1 設計已明確化，不代表舊 tasks 已同步，也不代表 shutdown、模型／索引或雙後端語音已測；下次 tasks 必須補上述測試與 FR-016 對應後再 analyze。
+**Validation boundary**: 以上五項分析問題在 Phase 0／1 設計已明確化，不代表舊 tasks 已同步，也不代表 shutdown、模型／索引或雙後端語音已測；上述原始待辦已納入新版tasks；本輪U1／U2新增設計仍須同步任務再analyze，舊結果不當新版證據。
+
+## 10. 最終選案與驗收語意（2026-11-09）
+
+**Decision**: 以 [final-scheme.json](../../cache/005-prepare-rag-assets/calibration/bge-base-final-selection-20261109/final-scheme.json) 及同目錄 [report.md](../../cache/005-prepare-rag-assets/calibration/bge-base-final-selection-20261109/report.md) 為選案依據，採章節／來源別名、精確 dense10＋正分 BM25 top10、等權 RRF60、完整五候選 BGE-base 重排。固定 raw logit 3.486859679222107、附加分差4、三段／2000字元，再套 cosine 0.58，不限制同父章節、無群組分差。完整順序見包契約。
+
+**Rationale**: 使用者明確選取先前最佳實驗組合並取消檢索品質比例選用阻擋。0.58 由所需最大距離約0.5759704113006592向上取兩位小數，保留既有84個正例命中及131個回傳段落。200題全部已曝光，84／100正例、2／100負例誤放行、127／131段落支持只屬回放結果，非盲測、非原驗收通過。288段與實驗別名屬該版 example.md，不能成為所有文件的常數。
+
+**Alternatives considered**: dense-only、短段落重排、其他模型及充分性規則／模型均不是本輪最終方案；不因品質門檻取消加入雲端審核或允許回答捏造。保留全部舊實驗資料與分母。
+
+## 11. 可重現計算與依賴
+
+**Decision**: 沿用 rag extra 的 Chroma1.5.9／Sentence Transformers6.2.0 及產品 CPU torch；CrossEncoder 已在既有套件，BM25 以標準庫 Counter／math／re 運算，無新直接依賴。模型固定 BGE-M3 `50f9396f75618b3389c1fd1068a1ff58dc7b5b26` 及 BGE-base `2cfc18c9415c912f9d8155881c133215df768a70`；CPU float32、兩 intra-op／一 inter-op，執行緒設定移至 worker 入口一次，不因兩模型重複設定 inter-op。
+
+**Rationale**: 本機選案腳本 `cache/005-prepare-rag-assets/calibration/bge-base-best-retest-20261109/rerun_once.py` 用 `1-vectors@query` 的精確 cosine，而非 Chroma ANN。因此 worker 從已核對集合讀取既有向量並計算 exact dense10，包含 lexical-only 候選距離；讀矩陣與打分不建立新索引。BM25 預建 TF／DF／長度／avgdl，runtime 只 tokenize query 與打分。Tokenizer 為 casefold ASCII字母數字與 CJK U+3400..U+9FFF 二／三字組，query terms去重，k1=1.2、b=.75、正 log1p IDF；所有排名同分以穩定 ID。
+
+BGE-base 使用 Identity activation 的原始 logit，pair最大512 tokens、batch4、保留query與來源右側前綴的offset對照；完整候選不拆成多個短窗取最大值。評分未看到的原文不能引用，裁切明示。兩模型均 local_files_only、trust_remote_code=False、安全權重，無自訂模組與pickle fallback。套件 API 設計由 [官方 CrossEncoder 文件](https://sbert.net/docs/package_reference/cross_encoder/model.html) 支持；本輪精確 revision 的供應證據以既有離線紀錄／receipt 為準，未重新連線下載驗證。
+
+**Alternatives considered**: Chroma ANN 直接取10會改變候選且未重校準；rank-bm25 或 FlagEmbedding 增加不必要依賴；跨多短窗最高分、量化、GPU、其他模型不是選定組合。API 可用性仍需既有鎖檔的隔離回歸，文件不能取代安裝測試。
+
+## 12. 新包、模型配置與可觀察效能
+
+**Decision**: schema_version=2、單一新版讀取路徑；v1明確拒絕並請離線重產，不自動轉換。保留原嵌入／索引路徑，新增 REACHY_MINI_DOCUMENT_RERANKER_PATH，任一缺漏 not_ready、一般對話不受影響。v2包完整保存來源範圍／章節、可選人工別名證據與明示空清單、預建BM25、兩模型固定版本、完整設定／策略與選值來源。005分角色準備兩模型後離線產包，共三步；必須明確選取版本化方案，不能默認套用或要求品質合格證明。
+
+**Rationale**: 舊schema與reader無法驗證混合檢索設定，不能僅將max_distance改為0.58。別名只用原有標題及可核對同文件／版本／範圍的人工清單；TXT無標題按單範圍與真實段落／行號處理。新版來源與BM25資產缺漏時 unavailable，不讀原文補建或降級。
+
+**Alternatives considered**: 維護雙reader增加未選用舊流程；共用模型根目錄迫使搬移現有模型；自動擷取別名增加使用者未選取的推測。五秒／95%改為完整50題固定主機的觀察，不是阻擋；p50／p95／max、各失敗數與RSS分開記錄。十秒文字逾時、退役、單工作、九秒回收、來源與隱私仍是安全要求。
+
+## 13. 設計後檢查與待取得證據
+
+**Decision**: v2選案設計與004／005基礎tasks已同步；產品仍v1，本輪新增U1／U2的設計與後續任務須分開追蹤。先協調兩功能契約，再新增實作任務，重跑analyze及必要完整gate。無未解決的使用者決策或憲章例外。
+
+**Rationale**: 可重用舊worker／Tool／退役控制，但舊離線通過與已曝光模型試驗不證明新版包、雙後端引用、完整流水線CPU或私密資料外送已驗收。新增測試應對準v1拒絕、三路徑／雙模型、候選順序與邊界、可見原文及不變性，不能用改分母改寫舊失敗。
+
+**Alternatives considered**: 本輪啟動App、下載、直接改產品schema或勾完任務均超出plan範圍。Linux／macOS保持使用者要求略過及未驗證限制，程式跨平台與既有CI不變。
+
+## 14. CPU樣本的人工支持判讀（U1，2026-11-09）
+
+**Decision**: 測前固定50題問題、可答性、必要資訊與原文證據／定位，綁定文件版本／digest及題組識別；測後人工只依實際回傳且評分可見的原文判斷全部必要資訊是否齊全。不足／無法確定不算成功。格式、凍結／更正規則與結果欄位見 [cpu-evaluation](contracts/cpu-evaluation.md)。工具延遲在執行時以monotonic固定，人工核對時間另列，不進查詢延遲。
+
+**Rationale**: 成功工具形狀與分數不能判斷原文充分性；沒有測前證據會讓成功分母隨觀察結果改變。人工標註屬離線驗收，不是執行期規則、另一模型或雲端審核。全部50題保留；五秒／比例仍僅觀察，不恢復舊門檻。
+
+**Alternatives considered**: 只在測後自由判讀較難重現；用chunk_id命中當作足夠會漏掉裁切和多資訊問題；自動充分性模型超出使用者決策。錯標註如實標為不可判定，保留原run／分母；修訂題組另版另run，不能覆寫舊失敗。
+
+## 15. 舊包本機提示與私密原因（U2，2026-11-09）
+
+**Decision**: worker確認manifest整數schema_version=1時，於開Chroma前回私密failure reason=legacy_package及document_unavailable；runtime以宣告的typed本機屬性快取，對外query與模型結果仍只有六碼。共享handler從deps.document_retrieval取得此原因，僅真實有效的unavailable通知可經既有DocumentOutput／AdditionalOutputs顯示固定舊包文字；每invocation獨立legacy_notice_sent，與timeout_notice_sent分開。初始化thread不直接發提示；首問not_ready後非同步載入失敗不復活舊回合，下次明確有效查詢才可提示。
+
+**Rationale**: 本機 `_document_result()` 已持有invocation generation／response_epoch，`emit()`會丟棄失效的DocumentOutput；Gemini繼承共享行為。既有通用unavailable不含格式原因，不能靠模型猜或把所有故障都說成v1。小型typed私密原因避免更動Tool API與provider協定。
+
+**Alternatives considered**: 新增公開錯誤碼、把reason塞進工具結果、傳原始例外／路徑、啟動thread直接推UI、依字串猜舊版，均不採用。無效query／工具停用／通用故障／結果驗證合成的unavailable不得誤發提示。固定文字不新增TTS或response.create，不另追加逐字稿；一般unavailable對話行為不變，timeout專用消音規則也不變。
+
+**Repository evidence**: 唯讀檢查document_worker.py::main、DocumentRuntime::_run_worker/query、huggingface_realtime.py::ToolInvocation/_document_result/emit。這是設計推導，不是本輪實作或雙後端驗收。無新依賴／SDK變更／憲章例外；無待使用者決定事項。

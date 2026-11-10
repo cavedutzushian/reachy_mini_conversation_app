@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from numpy.typing import NDArray
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from reachy_mini_conversation_app.document_retrieval import validate_document_query
 
@@ -116,8 +116,6 @@ class DocumentModel:
             name.endswith((".py", ".pkl", ".pickle", ".pt", ".pth", ".bin")) for name in model_files
         ):
             raise ValueError("Only built-in modules and safe model weights are supported")
-        torch.set_num_threads(2)
-        torch.set_num_interop_threads(1)
         try:
             self.encoder = SentenceTransformer(
                 str(model_path),
@@ -181,3 +179,123 @@ class DocumentModel:
         if not isinstance(identifiers, list):
             raise ValueError("Invalid tokenizer output")
         return len(identifiers)
+
+
+class DocumentReranker:
+    """Score checked local question/passage pairs with raw CPU float32 logits."""
+
+    def __init__(self, model_path: Path, configuration: dict[str, object]) -> None:
+        """Reject unsafe payloads before loading the fixed local sequence classifier."""
+        if not model_path.is_dir():
+            raise DocumentModelNotReadyError("Local reranker is unavailable")
+        verify_files(model_path, configuration["files"])
+        model_config = object_value(read_json(model_path / "config.json"))
+        if (
+            model_config.get("model_type") != "xlm-roberta"
+            or model_config.get("architectures") != ["XLMRobertaForSequenceClassification"]
+            or model_config.get("auto_map")
+        ):
+            raise ValueError("Unsupported reranker configuration")
+        inventory = configuration["files"]
+        if not isinstance(inventory, list):
+            raise ValueError("Missing reranker inventory")
+        names = [str(object_value(entry)["path"]) for entry in inventory]
+        if "model.safetensors" not in names or any(
+            name.endswith((".py", ".pkl", ".pickle", ".pt", ".pth", ".bin")) for name in names
+        ):
+            raise ValueError("Only safe model weights are supported")
+        try:
+            self.encoder = CrossEncoder(
+                str(model_path),
+                device="cpu",
+                local_files_only=True,
+                trust_remote_code=False,
+                max_length=512,
+                activation_fn=torch.nn.Identity(),
+                model_kwargs={"torch_dtype": torch.float32, "use_safetensors": True},
+            )
+        except (OSError, RuntimeError) as error:
+            raise DocumentModelNotReadyError(type(error).__name__) from None
+        if self.encoder.num_labels != 1:
+            raise ValueError("Expected a single raw logit")
+        verify_files(model_path, configuration["files"])
+
+    def score(self, question: str, passages: list[str]) -> list[float]:
+        """Return one finite Identity logit for each supplied passage in order."""
+        if not passages:
+            return []
+        scores = np.asarray(
+            self.encoder.predict(
+                [(question, passage) for passage in passages],
+                batch_size=4,
+                activation_fn=torch.nn.Identity(),
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            ),
+            dtype=np.float32,
+        )
+        if scores.shape != (len(passages),) or not np.isfinite(scores).all():
+            raise ValueError("Invalid reranker output")
+        return [float(score) for score in scores]
+
+    def score_passages(self, question: str, passages: list[tuple[str, str]]) -> list[tuple[int, float, str, bool]]:
+        """Score only visible source prefixes while preserving the complete question."""
+        tokenizer = self.encoder.tokenizer
+        if not tokenizer.is_fast:
+            raise ValueError("A fast pair tokenizer is required")
+        query_ids = tokenizer(question, "", add_special_tokens=True, truncation=False)["input_ids"]
+        if not isinstance(query_ids, list):
+            raise ValueError("Invalid pair tokenizer output")
+        if len(query_ids) >= 512:
+            return []
+        inputs: list[str] = []
+        visible: list[tuple[int, str, bool]] = []
+        for ordinal, (model_text, original) in enumerate(passages):
+            if not original or not model_text.endswith(original):
+                raise ValueError("Invalid original source mapping")
+            encoded = tokenizer(model_text, add_special_tokens=False, truncation=False, return_offsets_mapping=True)
+            mapping = encoded["offset_mapping"]
+            if not isinstance(mapping, list):
+                raise ValueError("Invalid pair source mapping")
+            previous = (0, 0)
+            for interval in mapping:
+                if not isinstance(interval, (tuple, list)) or len(interval) != 2:
+                    raise ValueError("Invalid pair source mapping")
+                first, last = interval
+                if (
+                    type(first) is not int
+                    or type(last) is not int
+                    or not 0 <= first <= last <= len(model_text)
+                    or first < previous[0]
+                    or last < previous[1]
+                ):
+                    raise ValueError("Invalid pair source mapping")
+                previous = (first, last)
+            budget = 512 - len(query_ids)
+            end = (
+                len(model_text)
+                if len(mapping) <= budget
+                else max((last for first, last in mapping[:budget]), default=0)
+            )
+            prefix_length = len(model_text) - len(original)
+            while end > prefix_length:
+                if model_text[end - 1 : end + 1] == "\r\n":
+                    end -= 1
+                    continue
+                pair_ids = tokenizer(question, model_text[:end], add_special_tokens=True, truncation=False)[
+                    "input_ids"
+                ]
+                if not isinstance(pair_ids, list):
+                    raise ValueError("Invalid pair tokenizer output")
+                if len(pair_ids) <= 512:
+                    break
+                end -= 1
+            if end <= prefix_length:
+                continue
+            inputs.append(model_text[:end])
+            visible.append((ordinal, original[: end - prefix_length], end < len(model_text)))
+        scores = self.score(question, inputs)
+        return [
+            (ordinal, score, text, truncated)
+            for (ordinal, text, truncated), score in zip(visible, scores, strict=True)
+        ]

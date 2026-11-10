@@ -83,3 +83,10 @@ external_content/.document-package.stage-*/
 external_content/.document-package.backup-*/
 external_content/.document-package.lock/
 /example.md
+/example_backup.md
+
+
+external_content/bge-reranker-base-model/
+external_content/.bge-reranker-base-model.stage-*/
+external_content/.bge-reranker-base-model.backup-*/
+external_content/.bge-reranker-base-model.lock/

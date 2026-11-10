@@ -11,9 +11,11 @@ import logging
 import tempfile
 import threading
 import subprocess
-from typing import TypedDict
+from typing import Literal, TypedDict
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from concurrent.futures import Future
+
+from reachy_mini_conversation_app.document_assets import PreparationError, parse_object
 
 
 DOCUMENT_ERRORS = frozenset(
@@ -143,12 +145,18 @@ def validate_document_result(payload: object) -> dict[str, object]:
 class DocumentRuntime:
     """Own one local retrieval process without queuing additional CPU requests."""
 
-    def __init__(self, index_path: Path | None, model_path: Path | None) -> None:
+    def __init__(self, index_path: Path | None, model_path: Path | None, reranker_path: Path | None = None) -> None:
         """Freeze local paths without opening files or importing retrieval dependencies."""
         self._index_path = index_path
         self._model_path = model_path
-        self._state = "dormant" if index_path is not None and model_path is not None else "unconfigured"
+        self._reranker_path = reranker_path
+        self._state = (
+            "dormant"
+            if index_path is not None and model_path is not None and reranker_path is not None
+            else "unconfigured"
+        )
         self._error = "document_not_ready"
+        self._unavailable_reason: Literal["legacy_package"] | None = None
         self._lock = threading.RLock()
         self._closing = threading.Event()
         self._started = threading.Event()
@@ -167,6 +175,12 @@ class DocumentRuntime:
         with self._lock:
             return self._state
 
+    @property
+    def unavailable_reason(self) -> Literal["legacy_package"] | None:
+        """Expose only the verified local cause without adding provider result fields."""
+        with self._lock:
+            return self._unavailable_reason
+
     async def query(self, query: object) -> dict[str, object]:
         """Return evidence or a fixed error within the local request deadline."""
         normalized = validate_document_query(query)
@@ -177,6 +191,7 @@ class DocumentRuntime:
                 return {"error": "document_not_ready"}
             if self._state == "dormant":
                 self._state = "loading"
+                self._unavailable_reason = None
                 self._startup_timer = threading.Timer(INITIALIZATION_TIMEOUT_S, self._expire_initialization)
                 self._startup_timer.daemon = True
                 self._startup_timer.start()
@@ -209,9 +224,18 @@ class DocumentRuntime:
         line = process.stdout.readline(PROTOCOL_LIMIT_BYTES + 1)
         if not line or len(line) > PROTOCOL_LIMIT_BYTES or not line.endswith(b"\n"):
             raise ValueError("Invalid worker message")
-        envelope: object = json.loads(line)
+        try:
+            envelope: object = parse_object(line)
+        except PreparationError:
+            raise ValueError("Invalid worker JSON") from None
         if not isinstance(envelope, dict) or type(envelope.get("version")) is not int or envelope.get("version") != 1:
             raise ValueError("Invalid worker protocol")
+        if "reason" in envelope and not (
+            envelope.get("type") == "failure"
+            and envelope.get("error") == "document_unavailable"
+            and envelope["reason"] == "legacy_package"
+        ):
+            raise ValueError("Invalid private failure reason")
         return dict(envelope)
 
     def _run_worker(self) -> None:
@@ -227,6 +251,7 @@ class DocumentRuntime:
                     "ANONYMIZED_TELEMETRY": "False",
                     "REACHY_MINI_DOCUMENT_INDEX_PATH": str(self._index_path),
                     "REACHY_MINI_DOCUMENT_MODEL_PATH": str(self._model_path),
+                    "REACHY_MINI_DOCUMENT_RERANKER_PATH": str(self._reranker_path),
                 }
             )
             self._work_directory = Path(tempfile.mkdtemp(prefix="reachy-document-"))
@@ -246,9 +271,17 @@ class DocumentRuntime:
             ready = self._read_message(process)
             if ready.get("type") == "failure":
                 error = ready.get("error")
-                self._error = (
-                    error if error in ("document_not_ready", "document_unavailable") else "document_not_ready"
-                )
+                if (
+                    set(ready) - {"version", "type", "error", "reason"}
+                    or error not in ("document_not_ready", "document_unavailable")
+                    or "reason" in ready
+                    and not (error == "document_unavailable" and ready["reason"] == "legacy_package")
+                ):
+                    raise ValueError("Invalid initialization failure")
+                with self._lock:
+                    if self._state == "loading" and not self._closing.is_set():
+                        self._error = str(error)
+                        self._unavailable_reason = "legacy_package" if "reason" in ready else None
                 raise ValueError("Worker initialization failed")
             if ready.get("type") != "ready":
                 raise ValueError("Worker did not initialize")
@@ -314,6 +347,7 @@ class DocumentRuntime:
         self._closing.set()
         with self._lock:
             self._state = "closing"
+            self._unavailable_reason = None
             if self._startup_timer is not None:
                 self._startup_timer.cancel()
             if self._pending is not None and not self._pending.done():

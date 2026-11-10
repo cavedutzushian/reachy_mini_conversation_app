@@ -17,6 +17,7 @@ from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.prompts import get_session_instructions
 from reachy_mini_conversation_app.streaming import AdditionalOutputs
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_conversation_app.document_retrieval import DocumentRuntime
 from reachy_mini_conversation_app.huggingface_realtime import ToolInvocation, RealtimeSessionState
 from reachy_mini_conversation_app.tools.tool_constants import ToolState
 from reachy_mini_conversation_app.tools.search_document import SearchDocument
@@ -62,6 +63,59 @@ class FakeConnect:
     async def __aexit__(self, *_args: object) -> None:
         """Leave the fake connection context."""
         return None
+
+
+@pytest.mark.asyncio
+async def test_connection_readiness_waits_for_vad_and_startup_greeting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Injected turns cannot overtake initialization or the startup greeting."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(config, "LOCAL_VAD_ENABLED", True)
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [])
+    vad_started, release_vad = asyncio.Event(), asyncio.Event()
+    greeting_started, release_greeting = asyncio.Event(), asyncio.Event()
+    receiving = asyncio.Event()
+
+    async def load_vad(*_args: object, **_kwargs: object) -> MagicMock:
+        vad_started.set()
+        await release_vad.wait()
+        return MagicMock()
+
+    class StartupConnection(FakeConnection):
+        async def send(self, message: str) -> None:
+            if "clientContent" in json.loads(message):
+                greeting_started.set()
+                await release_greeting.wait()
+            await super().send(message)
+
+        async def recv(self) -> str:
+            if not self.sent or len(self.sent) == 1:
+                return await super().recv()
+            receiving.set()
+            await asyncio.Future()
+            raise AssertionError("Connection should be cancelled")
+
+    socket = StartupConnection([{"setupComplete": {}}])
+    monkeypatch.setattr(gemini, "connect", lambda *_args, **_kwargs: FakeConnect(socket))
+    monkeypatch.setattr(gemini.asyncio, "to_thread", load_vad)
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    startup = asyncio.create_task(handler.start_up())
+    try:
+        await asyncio.wait_for(vad_started.wait(), 2)
+        assert not handler._is_connected()
+        release_vad.set()
+        await asyncio.wait_for(greeting_started.wait(), 2)
+        assert not handler._is_connected()
+        release_greeting.set()
+        await asyncio.wait_for(receiving.wait(), 2)
+        assert handler._is_connected()
+        turns = [payload["clientContent"] for payload in socket.sent if "clientContent" in payload]
+        assert len(turns) == 1
+        assert turns[0]["turns"][0]["parts"][0]["text"] == gemini.get_session_greeting_prompt()
+    finally:
+        startup.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await startup
+        await handler.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1078,3 +1132,36 @@ async def test_document_original_length_is_checked_before_dispatch(monkeypatch, 
     assert start.await_count == int(accepted)
     if not accepted:
         assert handler.session_state.invocations["doc"].result == {"error": "document_invalid_query"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_legacy_local_notice_keeps_gemini_unavailable_when_idle(monkeypatch, legacy: bool) -> None:
+    """The shared local hint never turns Gemini's ordinary error completion into SILENT."""
+    monkeypatch.setattr(gemini, "get_tool_specs", lambda: [SearchDocument().spec()])
+    runtime = DocumentRuntime(None, None)
+    monkeypatch.setattr(runtime, "_unavailable_reason", "legacy_package" if legacy else None)
+    monkeypatch.setattr(core_tools, "get_tools", lambda: {"search_document": SearchDocument()})
+    handler = gemini.GeminiRealtimeHandler(ToolDependencies(MagicMock(), MagicMock(), document_retrieval=runtime))
+    handler._declarations()
+    handler.connection = FakeConnection([])
+    handler.session_state.invocations["doc"] = ToolInvocation("search_document", "running")
+    await handler._handle_tool_result(
+        ToolNotification(
+            id="doc",
+            tool_name="search_document",
+            is_idle_tool_call=False,
+            status=ToolState.FAILED,
+            error="document_unavailable",
+        )
+    )
+    response = handler.connection.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert response["response"] == {"error": "document_unavailable"}
+    assert response["scheduling"] == "WHEN_IDLE"
+    outputs = []
+    while not handler.output_queue.empty():
+        outputs.append(handler.output_queue.get_nowait())
+    assert sum(
+        "此文件索引為舊版" in str(output.args) for output in outputs if isinstance(output, AdditionalOutputs)
+    ) == int(legacy)
+    runtime.close()

@@ -1,5 +1,7 @@
 # Contract: source-window-v1
 
+**歷史合約（2026-11-09）**：以下原文保留供舊v1實作與測試追溯；新版產包改用 [chapter-source-v1](chapter-source-v1.md) 與004 v2包，不再以本policy建新包，也不自動轉換舊包。舊測試成功不代表新版完成。
+
 本合約固定單文件原文切段、重疊、ID 與定位。模型仍使用既有 CPU dense encoder；此 policy 不加入 004 manifest 未允許的欄位，僅記於準備操作記錄。變更規則須改 policy 版本。
 
 ## 輸入與 tokenizer 邊界
