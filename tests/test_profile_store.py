@@ -64,9 +64,18 @@ def test_profile_listing_requires_profile_document(tmp_path: Path) -> None:
     assert list_profile_names(tmp_path) == ["visible"]
 
 
-def test_bundled_profiles_enable_head_tracking_by_default() -> None:
-    """Every bundled personality should start with head tracking available."""
+def test_bundled_profiles_define_head_tracking_access() -> None:
+    """Bundled personalities retain tracking except the document-focused FRC assistant."""
     for profile_name in list_profile_names(DEFAULT_PROFILES_DIRECTORY):
         profile = read_profile_from_directory(profile_name, DEFAULT_PROFILES_DIRECTORY / profile_name)
 
-        assert "head_tracking" in profile.default_tools, profile_name
+        assert ("head_tracking" in profile.default_tools) == (profile_name != "frc_assistant"), profile_name
+
+
+def test_frc_assistant_uses_document_tools_without_camera_or_memory() -> None:
+    """The FRC assistant queries documents without granting camera or memory access."""
+    profile = read_profile_from_directory("frc_assistant", DEFAULT_PROFILES_DIRECTORY / "frc_assistant")
+
+    assert "search_document" in profile.default_tools
+    assert not {"camera", "remember", "forget"}.intersection(profile.default_tools)
+    assert "繁體中文" in profile.instructions

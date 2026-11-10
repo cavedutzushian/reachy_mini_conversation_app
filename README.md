@@ -437,6 +437,8 @@ Built-in motion content is published as open Hugging Face datasets:
 
 Create custom profiles with dedicated instructions and per-profile tool access.
 
+內建 `frc_assistant`（FRC 小助手）以繁體中文互動，使用 `search_document` 查詢指定文件，並提供基本動作工具；使用前須另行配置文件索引與兩個模型路徑。
+
 Select and save a startup profile in the UI. The choice is stored in `startup_settings.json`. Before one is saved, `REACHY_MINI_CUSTOM_PROFILE=<name>` can select `profiles/<name>/`; otherwise the app uses `default`.
 
 Every profile directory contains one strict schema-version-1 `profile.md`. TOML metadata is enclosed by `+++`; the remaining Markdown body is the realtime assistant prompt:
