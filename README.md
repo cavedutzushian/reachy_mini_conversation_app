@@ -34,6 +34,8 @@ Conversational app for the Reachy Mini robot combining realtime voice, vision, p
 
 ## Quickstart
 
+> **記憶體用量提示**　在測試中，BGE-M3＋BGE-base 文件檢索工作行程的 RSS 峰值約為 **4.33 GiB**。請另外預留對話 App、Control App、瀏覽器及作業系統所需記憶體，避免出現記憶體不足的情形。
+
 在 Windows x86_64 電腦上，以 PowerShell 準備模型與文件索引，啟動會說繁體中文的 FRC 小助手。以下使用 `C:\Reachy\reachy_mini_conversation_app` 作為專案位置。
 
 ### 1. 準備程式與機器人
