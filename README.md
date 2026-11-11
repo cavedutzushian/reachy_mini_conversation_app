@@ -44,17 +44,20 @@ Conversational app for the Reachy Mini robot combining realtime voice, vision, p
 
 安裝 Reachy Mini Control App，完成機器人連接與基本音訊設定。操作方式見 [Reachy Mini 官方文件](https://huggingface.co/docs/reachy_mini/main/index)。
 
-### 2. 安裝 uv、Python 與依賴
+### 2. 安裝 Git、uv、Python 與依賴
 
 ```powershell
+winget install --id Git.Git -e --source winget
 winget install --id=astral-sh.uv -e
 ```
 
 安裝後重新開啟 PowerShell，再執行以下指令。依賴與模型下載需要網路。
 
 ```powershell
+git --version
 uv --version
 cd C:\Reachy\reachy_mini_conversation_app
+if (-not (Test-Path .git)) { git init }
 uv python install 3.12
 uv sync --frozen --python 3.12 --extra rag
 
@@ -63,6 +66,8 @@ Test-Path .\example.md
 ```
 
 兩個 `Test-Path` 都應顯示 `True`。後續指令均在專案根目錄執行，每步成功後再繼續。
+
+模型與索引準備腳本會呼叫 `git check-ignore`，確認專案內的輸出目錄受 Git 忽略。由 ZIP 解壓縮的原始碼需要上述 `git init` 步驟。若下載顯示 `io_failed`，先確認 `git --version` 可用；前一行若為 `Preparation failed: FileNotFoundError`，可能是找不到 Git，若為 `PermissionError` 則需檢查輸出目錄的寫入權限。確認 Git 安裝與忽略規則後，再重跑原下載指令。
 
 ### 3. 下載兩個固定版本模型
 
@@ -104,7 +109,7 @@ $LASTEXITCODE
   --scheme bge-base-final-selection-20261109 `
   --model .\external_content\bge-m3-model `
   --reranker-model .\external_content\bge-reranker-base-model `
-  --output .\external_content\document-package
+  --output .\cache\frc-assistant\document-package
 
 $LASTEXITCODE
 ```
@@ -116,9 +121,9 @@ $LASTEXITCODE
 ```powershell
 Test-Path .\external_content\bge-m3-model\model-receipt.json
 Test-Path .\external_content\bge-reranker-base-model\model-receipt.json
-Test-Path .\external_content\document-package\manifest.json
-Test-Path .\external_content\document-package\chroma
-Test-Path .\external_content\document-package\retrieval
+Test-Path .\cache\frc-assistant\document-package\manifest.json
+Test-Path .\cache\frc-assistant\document-package\chroma
+Test-Path .\cache\frc-assistant\document-package\retrieval
 ```
 
 後續更新文件時，調整版本標記，停止 App 後在產包指令加上 `--replace` 才能替換既有目的地。結束碼 `8` 表示需要依訊息處理恢復或發布後清理事項，應先檢查再決定後續操作。
@@ -143,7 +148,7 @@ REACHY_MINI_CAMERA_ENABLED=false
 REACHY_MINI_MEMORY_ENABLED=false
 REACHY_MINI_DOCUMENT_MODEL_PATH=external_content/bge-m3-model
 REACHY_MINI_DOCUMENT_RERANKER_PATH=external_content/bge-reranker-base-model
-REACHY_MINI_DOCUMENT_INDEX_PATH=external_content/document-package
+REACHY_MINI_DOCUMENT_INDEX_PATH=cache/frc-assistant/document-package
 ```
 
 ### 6. 啟動並開始對話
@@ -166,7 +171,7 @@ REACHY_MINI_DOCUMENT_INDEX_PATH=external_content/document-package
 
 ```powershell
 .\.venv\Scripts\hf.exe auth login
-.\.venv\Scripts\reachy-mini-conversation-app.exe --ui --no-camera
+.\.venv\Scripts\reachy-mini-conversation-app.exe --ui
 ```
 
 需要使用 Gemini 時，在設定頁的「Gemini 金鑰」輸入金鑰並按「驗證並套用」，成功後再選擇 Gemini 後端。詳細行為見 [Optional Gemini conversation](#optional-gemini-conversation)。
@@ -174,8 +179,7 @@ REACHY_MINI_DOCUMENT_INDEX_PATH=external_content/document-package
 之後每次使用，先以 Control App 連接機器人，再開啟 PowerShell 執行以下指令。
 
 ```powershell
-cd C:\Reachy\reachy_mini_conversation_app
-.\.venv\Scripts\reachy-mini-conversation-app.exe --ui --no-camera
+.\.venv\Scripts\reachy-mini-conversation-app.exe --ui
 ```
 
 ## Overview
