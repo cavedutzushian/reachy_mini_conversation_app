@@ -88,9 +88,9 @@ $LASTEXITCODE
 
 確認結束碼為 `0`。若遇 `hf_xet` 傳輸錯誤，可在目前 PowerShell 執行 `$env:HF_HUB_DISABLE_XET="1"`，再重跑失敗的下載指令。
 
-### 4. 離線建立文件索引包
+### 4. (選用)離線建立文件索引包
 
-以下使用被 Git 忽略的 `cache/frc-assistant/document-package` 作為新索引目的地。執行前先停止對話 App，並確認此目的地尚未存在。
+執行前先停止對話 App，並確認此目的地尚未存在。
 
 ```powershell
 .\.venv\Scripts\python.exe -m reachy_mini_conversation_app.build_document_package `
@@ -102,7 +102,7 @@ $LASTEXITCODE
   --scheme bge-base-final-selection-20261109 `
   --model .\external_content\bge-m3-model `
   --reranker-model .\external_content\bge-reranker-base-model `
-  --output .\cache\frc-assistant\document-package
+  --output .\external_content\document-package
 
 $LASTEXITCODE
 ```
@@ -114,9 +114,9 @@ $LASTEXITCODE
 ```powershell
 Test-Path .\external_content\bge-m3-model\model-receipt.json
 Test-Path .\external_content\bge-reranker-base-model\model-receipt.json
-Test-Path .\cache\frc-assistant\document-package\manifest.json
-Test-Path .\cache\frc-assistant\document-package\chroma
-Test-Path .\cache\frc-assistant\document-package\retrieval
+Test-Path .\external_content\document-package\manifest.json
+Test-Path .\external_content\document-package\chroma
+Test-Path .\external_content\document-package\retrieval
 ```
 
 後續更新文件時，調整版本標記，停止 App 後在產包指令加上 `--replace` 才能替換既有目的地。結束碼 `8` 表示需要依訊息處理恢復或發布後清理事項，應先檢查再決定後續操作。
