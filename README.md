@@ -20,6 +20,7 @@ Conversational app for the Reachy Mini robot combining realtime voice, vision, p
 
 ## Table of contents
 
+- [Quickstart](#quickstart)
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Installation](#installation)
@@ -30,6 +31,150 @@ Conversational app for the Reachy Mini robot combining realtime voice, vision, p
 - [Advanced features](#advanced-features)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Quickstart
+
+在 Windows x86_64 電腦上，以 PowerShell 準備模型與文件索引，啟動會說繁體中文的 FRC 小助手。以下使用 `C:\Reachy\reachy_mini_conversation_app` 作為專案位置。
+
+### 1. 準備程式與機器人
+
+取得包含 `profiles/frc_assistant/profile.md` 的客製版完整原始碼，解壓縮至上述專案位置，並將 UTF-8 的 `example.md` 放在專案根目錄。確認使用的是要提供給助手的文件版本，包含需要保留的 FAQ。
+
+安裝 Reachy Mini Control App，完成機器人連接與基本音訊設定。操作方式見 [Reachy Mini 官方文件](https://huggingface.co/docs/reachy_mini/main/index)。
+
+### 2. 安裝 uv、Python 與依賴
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+安裝後重新開啟 PowerShell，再執行以下指令。依賴與模型下載需要網路。
+
+```powershell
+uv --version
+cd C:\Reachy\reachy_mini_conversation_app
+uv python install 3.12
+uv sync --frozen --python 3.12 --extra rag
+
+Test-Path .\profiles\frc_assistant\profile.md
+Test-Path .\example.md
+```
+
+兩個 `Test-Path` 都應顯示 `True`。後續指令均在專案根目錄執行，每步成功後再繼續。
+
+### 3. 下載兩個固定版本模型
+
+兩個模型合計約下載 3.4 GB，另需暫存、索引與執行期工作副本空間。腳本會在下載後執行離線 CPU 驗證，完成時各自產生 `model-receipt.json`。
+
+```powershell
+.\.venv\Scripts\python.exe -m reachy_mini_conversation_app.download_document_model `
+  --role embedding `
+  --revision 50f9396f75618b3389c1fd1068a1ff58dc7b5b26 `
+  --output .\external_content\bge-m3-model
+
+$LASTEXITCODE
+```
+
+確認結束碼為 `0`，再下載重排模型。
+
+```powershell
+.\.venv\Scripts\python.exe -m reachy_mini_conversation_app.download_document_model `
+  --role reranker `
+  --revision 2cfc18c9415c912f9d8155881c133215df768a70 `
+  --output .\external_content\bge-reranker-base-model
+
+$LASTEXITCODE
+```
+
+確認結束碼為 `0`。若遇 `hf_xet` 傳輸錯誤，可在目前 PowerShell 執行 `$env:HF_HUB_DISABLE_XET="1"`，再重跑失敗的下載指令。
+
+### 4. 離線建立文件索引包
+
+以下使用被 Git 忽略的 `cache/frc-assistant/document-package` 作為新索引目的地。執行前先停止對話 App，並確認此目的地尚未存在。
+
+```powershell
+.\.venv\Scripts\python.exe -m reachy_mini_conversation_app.build_document_package `
+  --input .\example.md `
+  --document-id example-frc-manual `
+  --title "八年逐夢誌" `
+  --document-version v1 `
+  --index-version build-1 `
+  --scheme bge-base-final-selection-20261109 `
+  --model .\external_content\bge-m3-model `
+  --reranker-model .\external_content\bge-reranker-base-model `
+  --output .\cache\frc-assistant\document-package
+
+$LASTEXITCODE
+```
+
+文件標題請依實際來源填寫。`document-version` 標記文件內容版本，`index-version` 標記索引建置版本，兩者均由使用者維護。`build-1` 會產生目前的 v2 包格式。所選方案帶入既定 `max-distance=0.58` 與重排設定，品質限制見 [Installation](#installation)。
+
+確認結束碼為 `0`，再檢查以下各項皆為 `True`。
+
+```powershell
+Test-Path .\external_content\bge-m3-model\model-receipt.json
+Test-Path .\external_content\bge-reranker-base-model\model-receipt.json
+Test-Path .\cache\frc-assistant\document-package\manifest.json
+Test-Path .\cache\frc-assistant\document-package\chroma
+Test-Path .\cache\frc-assistant\document-package\retrieval
+```
+
+後續更新文件時，調整版本標記，停止 App 後在產包指令加上 `--replace` 才能替換既有目的地。結束碼 `8` 表示需要依訊息處理恢復或發布後清理事項，應先檢查再決定後續操作。
+
+### 5. 設定 FRC 小助手
+
+首次安裝時建立設定檔。
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+將對應設定調整為以下內容，每個設定保留一份。安裝位置不同時，一併修改三個資產路徑。
+
+```dotenv
+REACHY_MINI_CONVERSATION_BACKEND=huggingface
+HF_REALTIME_CONNECTION_MODE=deployed
+REACHY_MINI_CUSTOM_PROFILE=frc_assistant
+REALTIME_TRANSCRIPTION_LANGUAGE=zh
+REACHY_MINI_CAMERA_ENABLED=false
+REACHY_MINI_MEMORY_ENABLED=false
+REACHY_MINI_DOCUMENT_MODEL_PATH=external_content/bge-m3-model
+REACHY_MINI_DOCUMENT_RERANKER_PATH=external_content/bge-reranker-base-model
+REACHY_MINI_DOCUMENT_INDEX_PATH=external_content/document-package
+```
+
+### 6. 啟動並開始對話
+
+先以 Control App 連接機器人，再從本專案的 PowerShell 啟動客製版。
+
+```powershell
+.\.venv\Scripts\reachy-mini-conversation-app.exe --ui
+```
+
+開啟 <http://127.0.0.1:7860/>，選擇人格 `frc_assistant`、中文與 Hugging Face deployed 連線，儲存啟動人格，並在「工具 → 工具存取」確認已啟用 `search_document`。已儲存的頁面設定會優先於 `.env`。確認麥克風已解除靜音，依序測試以下內容。
+
+- 「你好，請介紹你可以幫我做什麼。」
+- 「請查指定文件，FRC 的三大恆星核心有哪些？請完整說出中英文名稱。」
+- 「請向左轉頭，再回到正前方。」
+
+首次文件查詢可能先提示模型尚未就緒，等待載入後再手動詢問一次。文件檢索在本機執行，回傳原文會送至選定的對話服務產生回答，使用前請確認文件適合分享給該服務。
+
+若 HF 連線要求身分驗證，停止 App 後執行下列指令登入，再重新啟動。
+
+```powershell
+.\.venv\Scripts\hf.exe auth login
+.\.venv\Scripts\reachy-mini-conversation-app.exe --ui --no-camera
+```
+
+需要使用 Gemini 時，在設定頁的「Gemini 金鑰」輸入金鑰並按「驗證並套用」，成功後再選擇 Gemini 後端。詳細行為見 [Optional Gemini conversation](#optional-gemini-conversation)。
+
+之後每次使用，先以 Control App 連接機器人，再開啟 PowerShell 執行以下指令。
+
+```powershell
+cd C:\Reachy\reachy_mini_conversation_app
+.\.venv\Scripts\reachy-mini-conversation-app.exe --ui --no-camera
+```
 
 ## Overview
 

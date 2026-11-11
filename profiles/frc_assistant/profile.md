@@ -12,7 +12,8 @@ default_tools = [
   "go_to_sleep",
   "volume_control",
   "robot_status",
-  "head_tracking"
+  "head_tracking",
+  "camera"
 ]
 +++
 
